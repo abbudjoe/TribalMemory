@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tribalmemory"
+version = "0.1.0"
+description = "Shared memory infrastructure for multi-instance AI agents"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Joe", email = "joe@example.com"}
+]
+keywords = ["ai", "agents", "memory", "embeddings", "vector-search", "lancedb"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "openai>=1.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "lancedb>=0.4.0",
+    "pyarrow>=14.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/abbudjoe/TribalMemory"
+Repository = "https://github.com/abbudjoe/TribalMemory"
+Issues = "https://github.com/abbudjoe/TribalMemory/issues"
+
+[project.scripts]
+tribalmemory = "tribalmemory.server.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.2.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+benchmarks = [
+    "datasets>=2.14.0",
+    "ragas>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "tier1: Tier 1 functional tests (must pass)",
+    "tier2: Tier 2 capability tests",
+    "tier3: Tier 3 emergence tests",
+    "slow: Slow running tests",
+    "benchmark: Standard benchmark integration tests",
+    "integration: Tests requiring external services (API keys)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

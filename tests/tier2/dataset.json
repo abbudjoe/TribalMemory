@@ -1,0 +1,492 @@
+{
+  "version": "1.0",
+  "description": "Tier 2 Memory Retrieval Test Dataset",
+  "corpus": "corpus/USER.md",
+  "queries": [
+    {
+      "id": "q001",
+      "query": "What is my wife's name?",
+      "expected": ["Maya"],
+      "category": "family",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q002",
+      "query": "What coffee do I like?",
+      "expected": ["oat milk", "latte"],
+      "category": "preferences",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q003",
+      "query": "What's my dog's name?",
+      "expected": ["Biscuit"],
+      "category": "family",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q004",
+      "query": "Where do I work?",
+      "expected": ["TechCorp"],
+      "category": "work",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q005",
+      "query": "What food am I allergic to?",
+      "expected": ["shellfish"],
+      "category": "health",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q006",
+      "query": "What programming languages do I use?",
+      "expected": ["Python", "Go", "TypeScript"],
+      "category": "technical",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q007",
+      "query": "When is my wedding anniversary?",
+      "expected": ["June 22"],
+      "category": "family",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q008",
+      "query": "What's my home address?",
+      "expected": ["742 Maple", "San Francisco"],
+      "category": "locations",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q009",
+      "query": "What car do I drive?",
+      "expected": ["Tesla", "Model 3"],
+      "category": "personal",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q010",
+      "query": "Who is my manager?",
+      "expected": ["David Park", "Dave"],
+      "category": "work",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q011",
+      "query": "What's my daughter's name?",
+      "expected": ["Sophie"],
+      "category": "family",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q012",
+      "query": "What code editor do I use?",
+      "expected": ["Neovim", "LazyVim"],
+      "category": "technical",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q013",
+      "query": "What gym do I go to?",
+      "expected": ["Fitness First", "Howard Street"],
+      "category": "locations",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q014",
+      "query": "What's my job title?",
+      "expected": ["Senior Software Engineer"],
+      "category": "work",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q015",
+      "query": "When is my birthday?",
+      "expected": ["March 15"],
+      "category": "personal",
+      "difficulty": "easy"
+    },
+    {
+      "id": "q016",
+      "query": "What Thai restaurant do I like?",
+      "expected": ["Siam Orchid"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q017",
+      "query": "Who should I call if there's an emergency at work?",
+      "expected": ["Dave", "@davepark"],
+      "category": "work",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q018",
+      "query": "What days do I go into the office?",
+      "expected": ["Tuesday", "Thursday"],
+      "category": "work",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q019",
+      "query": "When do I run?",
+      "expected": ["Mon", "Wed", "Sat", "three times"],
+      "category": "health",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q020",
+      "query": "What medication do I take daily?",
+      "expected": ["multivitamin", "Vitamin D"],
+      "category": "health",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q021",
+      "query": "What's my sister's name and where does she live?",
+      "expected": ["Sarah Martinez", "Austin"],
+      "category": "family",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q022",
+      "query": "Where do my parents live?",
+      "expected": ["Seattle"],
+      "category": "family",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q023",
+      "query": "What keyboard do I use?",
+      "expected": ["Keychron", "K2", "brown switches"],
+      "category": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q024",
+      "query": "What's my parking spot number?",
+      "expected": ["B-127"],
+      "category": "locations",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q025",
+      "query": "When does my daughter turn 3?",
+      "expected": ["October"],
+      "category": "family",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q026",
+      "query": "What book am I reading?",
+      "expected": ["Project Hail Mary"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q027",
+      "query": "What basketball team do I support?",
+      "expected": ["Warriors"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q028",
+      "query": "Who cuts my hair?",
+      "expected": ["Miguel", "Tony's Barbershop"],
+      "category": "personal",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q029",
+      "query": "What airline do I prefer?",
+      "expected": ["United"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q030",
+      "query": "What hotel program am I part of?",
+      "expected": ["Marriott", "Bonvoy"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q031",
+      "query": "What's my best 5K time?",
+      "expected": ["24:32"],
+      "category": "health",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q032",
+      "query": "Which team does Kevin Park work on?",
+      "expected": ["backend"],
+      "category": "work",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q033",
+      "query": "What camera do I use for photography?",
+      "expected": ["Sony", "A7III"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q034",
+      "query": "Why can't I eat dairy?",
+      "expected": ["lactose intolerant"],
+      "category": "health",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q035",
+      "query": "What should I bring to a seafood restaurant?",
+      "expected": ["EpiPen", "shellfish allergy"],
+      "category": "health",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q036",
+      "query": "Who should I ask about deployment pipelines?",
+      "expected": ["Maria Santos", "DevOps"],
+      "category": "work",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q037",
+      "query": "What do I need for spring allergies?",
+      "expected": ["Zyrtec", "seasonal allergies"],
+      "category": "health",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q038",
+      "query": "What gift should I avoid buying for my wife on her birthday September 8?",
+      "expected": ["Maya", "September 8"],
+      "category": "family",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q039",
+      "query": "Can I schedule a meeting at 9am?",
+      "expected": ["no meetings before 10am", "focus time"],
+      "category": "work",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q040",
+      "query": "What milk alternative do I need for coffee?",
+      "expected": ["oat milk", "lactose"],
+      "category": "preferences",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q041",
+      "query": "When should I NOT disturb the user?",
+      "expected": ["9pm-8am", "DND"],
+      "category": "preferences",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q042",
+      "query": "What second language might help me communicate with my parents?",
+      "expected": ["Mandarin"],
+      "category": "personal",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q043",
+      "query": "Who is mentoring new developers on the team?",
+      "expected": ["Sam Martinez", "intern"],
+      "category": "work",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q044",
+      "query": "What's a good day for deep work?",
+      "expected": ["Thursday", "blocked", "deep work"],
+      "category": "work",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q045",
+      "query": "What should I get if I'm buying chocolate as a gift?",
+      "expected": ["70%", "dark chocolate"],
+      "category": "preferences",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q046",
+      "query": "When is my next child due?",
+      "expected": ["August 2024", "second child"],
+      "category": "family",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q047",
+      "query": "What project is Alex leading?",
+      "expected": ["API Gateway", "modernization"],
+      "category": "work",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q048",
+      "query": "Why do I hate cilantro?",
+      "expected": ["tastes like soap"],
+      "category": "preferences",
+      "difficulty": "hard"
+    },
+    {
+      "id": "q049",
+      "query": "What seat do I prefer on flights?",
+      "expected": ["aisle"],
+      "category": "preferences",
+      "difficulty": "medium"
+    },
+    {
+      "id": "q050",
+      "query": "When do I call my parents?",
+      "expected": ["Sunday", "5pm"],
+      "category": "family",
+      "difficulty": "medium"
+    },
+    {
+      "id": "imp001",
+      "query": "Email Sarah about the deployment",
+      "expected": ["clarify", "which Sarah"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "clarify",
+      "ambiguity_reason": "Two Sarahs: Sarah Chen (coworker, DevOps) and Sarah Martinez (sister)"
+    },
+    {
+      "id": "imp002",
+      "query": "Deploy the app",
+      "expected": ["clarify", "which project"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "clarify",
+      "ambiguity_reason": "Three projects: Wally, Beacon, HomeKit automation"
+    },
+    {
+      "id": "imp003",
+      "query": "Update the config",
+      "expected": ["clarify", "which config"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "clarify",
+      "ambiguity_reason": "Multiple config files: .env, config.yaml, settings.json per project"
+    },
+    {
+      "id": "imp004",
+      "query": "Push to the repo",
+      "expected": ["clarify", "which repo"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "clarify",
+      "ambiguity_reason": "Multiple repos: wally, beacon, homekit-scripts"
+    },
+    {
+      "id": "imp005",
+      "query": "Schedule meeting with the team",
+      "expected": ["clarify", "which team"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "clarify",
+      "ambiguity_reason": "Multiple teams: Platform Infrastructure, DevOps collaborators"
+    },
+    {
+      "id": "imp006",
+      "query": "Add the shellfish allergy warning to my profile",
+      "expected": ["shellfish", "EpiPen", "severe"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows about shellfish allergy and EpiPen"
+    },
+    {
+      "id": "imp007",
+      "query": "Set up the dev environment for the paywall project",
+      "expected": ["Wally", "Next.js", "Supabase"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows Wally is paywall generator with Next.js, Supabase stack"
+    },
+    {
+      "id": "imp008",
+      "query": "Book my usual Thursday workout",
+      "expected": ["swimming", "YMCA", "7am"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows swimming at YMCA on Tue/Thu/Sat at 7am"
+    },
+    {
+      "id": "imp009",
+      "query": "Order my regular coffee",
+      "expected": ["oat milk", "latte", "no sugar"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows oat milk latte, two shots, no sugar"
+    },
+    {
+      "id": "imp010",
+      "query": "Send the weekly standup notes to my manager",
+      "expected": ["David Park", "Dave"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows manager is David Park"
+    },
+    {
+      "id": "imp011",
+      "query": "Update the editor config with my preferences",
+      "expected": ["Neovim", "LazyVim"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows Neovim with LazyVim configuration"
+    },
+    {
+      "id": "imp012",
+      "query": "Remind me about mom's birthday",
+      "expected": ["Patricia", "February 3"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows mom is Patricia, birthday February 3"
+    },
+    {
+      "id": "imp013",
+      "query": "Set my focus time block",
+      "expected": ["no meetings before 10am", "focus time"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows avoids meetings before 10am for focus time"
+    },
+    {
+      "id": "imp014",
+      "query": "Add Maria to the deployment review",
+      "expected": ["Maria Santos", "DevOps lead"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows Maria Santos is DevOps lead handling deployment reviews"
+    },
+    {
+      "id": "imp015",
+      "query": "Prep for the Wally investor demo",
+      "expected": ["Wally", "paywall", "Next.js", "Supabase", "Stripe"],
+      "category": "imperative",
+      "difficulty": "hard",
+      "expected_behavior": "execute",
+      "context_needed": "Knows Wally details: paywall generator, stack, investor demo scheduled"
+    }
+  ]
+}

@@ -1,0 +1,231 @@
+"""API route handlers."""
+
+import time
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Depends
+
+from ..interfaces import MemorySource, MemoryEntry
+from ..services import TribalMemoryService
+from .models import (
+    RememberRequest,
+    RecallRequest,
+    CorrectRequest,
+    StoreResponse,
+    RecallResponse,
+    RecallResultResponse,
+    MemoryEntryResponse,
+    HealthResponse,
+    StatsResponse,
+    ForgetResponse,
+    ShutdownResponse,
+    SourceType,
+)
+
+router = APIRouter(prefix="/v1", tags=["memory"])
+
+
+def get_memory_service() -> TribalMemoryService:
+    """Dependency injection for memory service.
+    
+    This is set by the app during startup.
+    """
+    from .app import _memory_service
+    if _memory_service is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    return _memory_service
+
+
+def get_instance_id() -> str:
+    """Get the current instance ID."""
+    from .app import _instance_id
+    return _instance_id or "unknown"
+
+
+def _convert_source_type(source_type: SourceType) -> MemorySource:
+    """Convert API source type to internal enum."""
+    return MemorySource(source_type.value)
+
+
+def _entry_to_response(entry: MemoryEntry) -> MemoryEntryResponse:
+    """Convert internal MemoryEntry to API response."""
+    return MemoryEntryResponse(
+        id=entry.id,
+        content=entry.content,
+        source_instance=entry.source_instance,
+        source_type=SourceType(entry.source_type.value),
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+        tags=entry.tags,
+        context=entry.context,
+        confidence=entry.confidence,
+        supersedes=entry.supersedes,
+    )
+
+
+@router.post("/remember", response_model=StoreResponse)
+async def remember(
+    request: RememberRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> StoreResponse:
+    """Store a new memory."""
+    try:
+        result = await service.remember(
+            content=request.content,
+            source_type=_convert_source_type(request.source_type),
+            context=request.context,
+            tags=request.tags,
+            skip_dedup=request.skip_dedup,
+        )
+
+        return StoreResponse(
+            success=result.success,
+            memory_id=result.memory_id,
+            duplicate_of=result.duplicate_of,
+            error=result.error,
+        )
+    except Exception as e:
+        return StoreResponse(success=False, error=str(e))
+
+
+@router.post("/recall", response_model=RecallResponse)
+async def recall(
+    request: RecallRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> RecallResponse:
+    """Recall relevant memories for a query."""
+    try:
+        start_time = time.time()
+
+        results = await service.recall(
+            query=request.query,
+            limit=request.limit,
+            min_relevance=request.min_relevance,
+            tags=request.tags,
+        )
+
+        total_time_ms = (time.time() - start_time) * 1000
+
+        return RecallResponse(
+            results=[
+                RecallResultResponse(
+                    memory=_entry_to_response(r.memory),
+                    similarity_score=r.similarity_score,
+                    retrieval_time_ms=r.retrieval_time_ms,
+                )
+                for r in results
+            ],
+            query=request.query,
+            total_time_ms=total_time_ms,
+        )
+    except Exception as e:
+        # Return empty results with error info for consistency with other endpoints
+        return RecallResponse(
+            results=[],
+            query=request.query,
+            total_time_ms=0.0,
+            error=str(e),
+        )
+
+
+@router.post("/correct", response_model=StoreResponse)
+async def correct(
+    request: CorrectRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> StoreResponse:
+    """Correct an existing memory."""
+    try:
+        result = await service.correct(
+            original_id=request.original_id,
+            corrected_content=request.corrected_content,
+            context=request.context,
+        )
+
+        return StoreResponse(
+            success=result.success,
+            memory_id=result.memory_id,
+            error=result.error,
+        )
+    except Exception as e:
+        return StoreResponse(success=False, error=str(e))
+
+
+@router.delete("/forget/{memory_id}", response_model=ForgetResponse)
+async def forget(
+    memory_id: str,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> ForgetResponse:
+    """Forget (delete) a specific memory. GDPR-compliant."""
+    try:
+        success = await service.forget(memory_id)
+        return ForgetResponse(success=success, memory_id=memory_id)
+    except Exception as e:
+        return ForgetResponse(success=False, memory_id=memory_id)
+
+
+@router.get("/memory/{memory_id}", response_model=MemoryEntryResponse)
+async def get_memory(
+    memory_id: str,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> MemoryEntryResponse:
+    """Get a specific memory by ID."""
+    entry = await service.get(memory_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
+    return _entry_to_response(entry)
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health(
+    service: TribalMemoryService = Depends(get_memory_service),
+    instance_id: str = Depends(get_instance_id),
+) -> HealthResponse:
+    """Health check endpoint."""
+    try:
+        stats = await service.get_stats()
+        return HealthResponse(
+            status="ok",
+            instance_id=instance_id,
+            memory_count=stats.get("total_memories", 0),
+        )
+    except Exception:
+        return HealthResponse(
+            status="degraded",
+            instance_id=instance_id,
+            memory_count=0,
+        )
+
+
+@router.get("/stats", response_model=StatsResponse)
+async def stats(
+    service: TribalMemoryService = Depends(get_memory_service),
+    instance_id: str = Depends(get_instance_id),
+) -> StatsResponse:
+    """Get memory statistics."""
+    stats_data = await service.get_stats()
+    return StatsResponse(
+        total_memories=stats_data.get("total_memories", 0),
+        by_source_type=stats_data.get("by_source_type", {}),
+        by_tag=stats_data.get("by_tag", {}),
+        instance_id=instance_id,
+    )
+
+
+@router.post("/shutdown", response_model=ShutdownResponse)
+async def shutdown() -> ShutdownResponse:
+    """Graceful shutdown endpoint.
+    
+    Security note: This endpoint is localhost-only (bound to 127.0.0.1).
+    It allows local process management without authentication since only
+    processes on the same machine can reach it. For production deployments
+    with network exposure, use systemctl/signals instead of this endpoint.
+    """
+    import asyncio
+    import signal
+    import os
+
+    # Schedule shutdown after response is sent
+    asyncio.get_event_loop().call_later(
+        0.5, lambda: os.kill(os.getpid(), signal.SIGTERM)
+    )
+    return ShutdownResponse(status="shutting_down")

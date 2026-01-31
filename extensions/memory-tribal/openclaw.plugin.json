@@ -1,0 +1,56 @@
+{
+  "id": "memory-tribal",
+  "name": "Tribal Memory",
+  "version": "0.1.0",
+  "description": "Learned retrieval layer for tribal memory with query caching, expansion, and feedback",
+  "author": "Clawdio",
+  "slot": "memory",
+  "main": "index.ts",
+  "tools": [
+    {
+      "name": "memory_search",
+      "description": "Semantically search memory with learned retrieval enhancements"
+    },
+    {
+      "name": "memory_get",
+      "description": "Read memory file content by path"
+    },
+    {
+      "name": "memory_feedback",
+      "description": "Record which retrieved memories were useful",
+      "optional": true
+    },
+    {
+      "name": "memory_stats",
+      "description": "Get retrieval accuracy statistics",
+      "optional": true
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "tribalServerUrl": {
+        "type": "string",
+        "default": "http://localhost:18790",
+        "description": "URL of the tribal-memory HTTP server"
+      },
+      "queryCacheEnabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "queryExpansionEnabled": {
+        "type": "boolean", 
+        "default": true
+      },
+      "feedbackEnabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "minCacheSuccesses": {
+        "type": "number",
+        "default": 3,
+        "description": "Minimum successful retrievals before caching query→fact mapping"
+      }
+    }
+  }
+}

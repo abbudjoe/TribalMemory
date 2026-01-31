@@ -1,0 +1,24 @@
+{
+  "name": "memory-tribal",
+  "version": "0.1.0",
+  "description": "Learned retrieval layer for tribal memory",
+  "main": "index.ts",
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.32.0",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

@@ -34,6 +34,20 @@ class TestOpenAIEmbeddingService:
         
         vec1, vec2 = [1, 0, 0, 0], [0, 1, 0, 0]
         assert abs(service.similarity(vec1, vec2)) < 0.0001
+
+    def test_normalize_embedding_unit_length(self):
+        """Test embedding normalization to unit length."""
+        service = OpenAIEmbeddingService(api_key="sk-test")
+        vec = [3.0, 4.0]
+        normalized = service._normalize_embedding(vec)
+        norm = sum(x * x for x in normalized) ** 0.5
+        assert abs(norm - 1.0) < 0.0001
+
+    def test_normalize_embedding_zero_vector(self):
+        """Test normalization preserves zero vector."""
+        service = OpenAIEmbeddingService(api_key="sk-test")
+        vec = [0.0, 0.0]
+        assert service._normalize_embedding(vec) == vec
     
     @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
     @pytest.mark.integration
@@ -184,6 +198,32 @@ class TestTribalMemoryService:
         stored = vector_store.store.call_args[0][0]
         assert stored.supersedes == "original"
         assert stored.source_type == MemorySource.CORRECTION
+
+    async def test_recall_filters_superseded(self, mock_components):
+        embedding_service, vector_store = mock_components
+
+        original = MemoryEntry(id="orig", content="Old info")
+        corrected = MemoryEntry(
+            id="new",
+            content="Corrected info",
+            source_type=MemorySource.CORRECTION,
+            supersedes="orig",
+        )
+        vector_store.recall = AsyncMock(return_value=[
+            RecallResult(memory=original, similarity_score=0.8, retrieval_time_ms=1),
+            RecallResult(memory=corrected, similarity_score=0.9, retrieval_time_ms=1),
+        ])
+
+        service = TribalMemoryService(
+            instance_id="test",
+            embedding_service=embedding_service,
+            vector_store=vector_store
+        )
+
+        results = await service.recall("Query")
+        ids = [r.memory.id for r in results]
+        assert "orig" not in ids
+        assert "new" in ids
 
 
 class TestCreateMemoryService:

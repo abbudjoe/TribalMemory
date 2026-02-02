@@ -211,6 +211,29 @@ class TestMemorySystemRecall:
             await system.recall("Test")
 
 
+class TestMemorySystemSupersededFiltering:
+    """Tests for superseded memory filtering."""
+    
+    def test_filter_superseded_static(self):
+        """Test that superseded memories are filtered out."""
+        original = MemoryEntry(id="orig", content="Old")
+        corrected = MemoryEntry(
+            id="new",
+            content="New",
+            source_type=MemorySource.CORRECTION,
+            supersedes="orig",
+        )
+        results = [
+            RecallResult(memory=original, similarity_score=0.8, retrieval_time_ms=1),
+            RecallResult(memory=corrected, similarity_score=0.9, retrieval_time_ms=1),
+        ]
+        
+        filtered = MemorySystem._filter_superseded(results)
+        ids = [r.memory.id for r in filtered]
+        assert "orig" not in ids
+        assert "new" in ids
+
+
 class TestMemorySystemCorrect:
     """Tests for correct() method."""
     

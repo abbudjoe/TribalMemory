@@ -152,12 +152,14 @@ class MemorySystem:
         
         filters = {"tags": tags} if tags else None
         
-        return await self._container.storage.recall(
+        results = await self._container.storage.recall(
             query_embedding,
             limit=limit,
             min_similarity=min_relevance,
             filters=filters,
         )
+        
+        return self._filter_superseded(results)
     
     async def correct(
         self,
@@ -272,6 +274,16 @@ class MemorySystem:
     def _ensure_started(self) -> None:
         if not self._started:
             raise RuntimeError("MemorySystem not started. Call start() first.")
+
+    @staticmethod
+    def _filter_superseded(results: list[RecallResult]) -> list[RecallResult]:
+        """Remove memories that are superseded by corrections in the result set."""
+        superseded_ids = {
+            r.memory.supersedes for r in results if r.memory.supersedes
+        }
+        if not superseded_ids:
+            return results
+        return [r for r in results if r.memory.id not in superseded_ids]
     
     async def __aenter__(self):
         await self.start()

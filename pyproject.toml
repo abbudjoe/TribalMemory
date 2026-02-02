@@ -34,6 +34,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "pyyaml>=6.0.0",
+    "mcp[cli]>=1.2.0",
 ]
 
 [project.urls]
@@ -43,6 +44,7 @@ Issues = "https://github.com/abbudjoe/TribalMemory/issues"
 
 [project.scripts]
 tribalmemory = "tribalmemory.server.app:main"
+tribalmemory-mcp = "tribalmemory.mcp.server:main"
 
 [project.optional-dependencies]
 dev = [

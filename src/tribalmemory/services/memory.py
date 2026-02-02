@@ -120,7 +120,7 @@ class TribalMemoryService(IMemoryService):
             filters=filters,
         )
         
-        return results
+        return self._filter_superseded(results)
     
     async def correct(
         self,
@@ -194,6 +194,16 @@ class TribalMemoryService(IMemoryService):
             "by_instance": by_instance,
             "corrections": corrections,
         }
+
+    @staticmethod
+    def _filter_superseded(results: list[RecallResult]) -> list[RecallResult]:
+        """Remove memories that are superseded by corrections in the result set."""
+        superseded_ids = {
+            r.memory.supersedes for r in results if r.memory.supersedes
+        }
+        if not superseded_ids:
+            return results
+        return [r for r in results if r.memory.id not in superseded_ids]
 
 
 def create_memory_service(

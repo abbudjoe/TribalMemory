@@ -147,6 +147,20 @@ class TestOpenAIEmbeddingProvider:
         # Zero vector
         vec_zero = [0, 0, 0, 0]
         assert provider.similarity(vec, vec_zero) == 0.0
+
+    def test_normalize_embedding_unit_length(self, config):
+        """Test embedding normalization to unit length."""
+        provider = OpenAIEmbeddingProvider(config)
+        vec = [3.0, 4.0]
+        normalized = provider._normalize_embedding(vec)
+        norm = sum(x * x for x in normalized) ** 0.5
+        assert abs(norm - 1.0) < 0.0001
+
+    def test_normalize_embedding_zero_vector(self, config):
+        """Test normalization preserves zero vector."""
+        provider = OpenAIEmbeddingProvider(config)
+        vec = [0.0, 0.0]
+        assert provider._normalize_embedding(vec) == vec
     
     @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
     @pytest.mark.integration

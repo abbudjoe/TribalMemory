@@ -1,6 +1,7 @@
 """OpenAI Embedding Provider."""
 
 import asyncio
+import math
 from datetime import datetime
 from typing import Optional
 import httpx
@@ -110,7 +111,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
                 if response.status_code == 200:
                     data = response.json()
                     embeddings = sorted(data["data"], key=lambda x: x["index"])
-                    return [e["embedding"] for e in embeddings]
+                    return [self._normalize_embedding(e["embedding"]) for e in embeddings]
                 
                 elif response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 5))
@@ -144,3 +145,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
         if len(encoded) > max_bytes:
             cleaned = encoded[:max_bytes].decode('utf-8', errors='ignore')
         return cleaned
+
+    def _normalize_embedding(self, embedding: list[float]) -> list[float]:
+        """Normalize embedding to unit length for consistent similarity math."""
+        norm = math.sqrt(sum(x * x for x in embedding))
+        if norm == 0:
+            return embedding
+        return [x / norm for x in embedding]

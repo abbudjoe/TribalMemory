@@ -19,6 +19,8 @@ interface SearchResult {
   snippet: string;
   source?: string;
   tags?: string[];
+  supersedes?: string;
+  sourceQuery?: string;
 }
 
 interface RecallResult {
@@ -66,7 +68,7 @@ export class TribalClient {
           const id = result.id ?? result.path;
           if (!seenIds.has(id)) {
             seenIds.add(id);
-            allResults.push(result);
+            allResults.push({ ...result, sourceQuery: query });
           }
         }
       } catch (err) {
@@ -117,6 +119,7 @@ export class TribalClient {
         snippet: r.memory.content,
         source: r.memory.source_type,
         tags: r.memory.tags,
+        supersedes: r.memory.supersedes ?? undefined,
       }));
     } finally {
       clearTimeout(timeoutId);

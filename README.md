@@ -128,7 +128,7 @@ embedding:
   model: nomic-embed-text        # or text-embedding-3-small
   api_base: http://localhost:11434/v1  # Ollama (omit for OpenAI)
   dimensions: 768                # 768 for nomic, 1536 for OpenAI
-  api_key: unused                # not needed for Ollama
+  # api_key not needed for local Ollama
 
 db:
   provider: lancedb

@@ -136,10 +136,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def _setup_claude_code_mcp(is_local: bool):
     """Add Tribal Memory to Claude Code's MCP configuration."""
-    # Claude Code stores MCP config in different locations depending on platform
+    # Claude Code MCP config paths by platform
     claude_config_paths = [
-        Path.home() / ".claude" / "claude_desktop_config.json",  # macOS/Linux
-        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
+        Path.home() / ".claude" / "claude_desktop_config.json",  # Claude Code CLI (all platforms)
+        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # Claude Desktop (macOS)
     ]
 
     config_path = None

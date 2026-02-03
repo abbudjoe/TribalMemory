@@ -6,7 +6,7 @@ TDD: RED → GREEN → REFACTOR
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from tribalmemory.cli import cmd_init, main, TRIBAL_DIR
 

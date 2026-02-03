@@ -18,7 +18,7 @@ class EmbeddingConfig:
         api_base: http://localhost:11434/v1
         model: nomic-embed-text
         dimensions: 768
-        api_key: unused
+        # api_key not needed for local models
     """
     provider: str = "openai"
     model: str = "text-embedding-3-small"
@@ -101,8 +101,10 @@ class TribalMemoryConfig:
         errors = []
 
         # api_key is only required when using OpenAI (no custom api_base)
-        is_local = self.embedding.api_base is not None and "openai.com" not in (
-            self.embedding.api_base or ""
+        api_base = (self.embedding.api_base or "").strip()
+        is_local = (
+            api_base != ""
+            and "api.openai.com" not in api_base.lower()
         )
         if not self.embedding.api_key and not is_local:
             errors.append("embedding.api_key is required (or set OPENAI_API_KEY)")

@@ -67,7 +67,7 @@ embedding:
   model: nomic-embed-text       # Ollama model name
   api_base: http://localhost:11434/v1
   dimensions: 768
-  api_key: unused               # Ollama doesn't need a key
+  # api_key not needed for local Ollama
 
 db:
   provider: lancedb

@@ -200,7 +200,8 @@ export default function memoryTribal(api: any) {
           const text = result.snippet ?? result.text ?? "";
           const tokens = tokenBudget.countTokens(text);
 
-          // Check per-recall cap
+          // Check per-recall cap — break (not continue) because results are
+          // ranked by relevance; skipping to less-relevant results wastes budget
           if (totalRecallTokens + tokens > config.perRecallCap) break;
           // Check per-turn cap
           if (!tokenBudget.canUseForTurn(turnId, tokens)) break;
@@ -214,6 +215,10 @@ export default function memoryTribal(api: any) {
         // Record token usage
         if (totalRecallTokens > 0) {
           tokenBudget.recordUsage(sessionId, turnId, totalRecallTokens);
+          // Periodic cleanup to prevent turn usage map from growing unbounded
+          if (tokenBudget.getTurnCount() > 200) {
+            tokenBudget.cleanupOldTurns(100);
+          }
         }
 
         results = budgetedResults;

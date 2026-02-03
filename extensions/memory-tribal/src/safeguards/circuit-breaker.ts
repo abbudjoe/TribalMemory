@@ -30,7 +30,9 @@ export class CircuitBreaker {
 
   /**
    * Check if the circuit breaker is currently tripped for a session.
-   * Auto-resets after cooldown period.
+   * 
+   * @sideEffect Auto-resets (clears trip state) after cooldown period expires.
+   * This is intentional: callers don't need to manage cooldown resets manually.
    */
   isTripped(sessionId: string): boolean {
     const tripTime = this.trippedAt.get(sessionId);

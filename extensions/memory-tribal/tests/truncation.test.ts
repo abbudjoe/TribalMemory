@@ -137,4 +137,24 @@ describe("SnippetTruncator", () => {
       expect(truncator.getConfig().maxTokensPerSnippet).toBe(DEFAULT_TRUNCATION_CONFIG.maxTokensPerSnippet);
     });
   });
+
+  describe("unusual whitespace", () => {
+    it("should handle tabs and newlines", () => {
+      const text = "word1\tword2\nword3\t\tword4";
+      const result = truncator.truncate(text);
+      expect(result).toBeDefined();
+      expect(typeof result).toBe("string");
+    });
+
+    it("should handle multiple consecutive spaces", () => {
+      const text = "word1    word2     word3";
+      const result = truncator.truncate(text);
+      expect(result).toBeDefined();
+    });
+
+    it("should handle text that is only whitespace", () => {
+      const result = truncator.truncate("   \t\n  ");
+      expect(result).toBe("   \t\n  ");
+    });
+  });
 });

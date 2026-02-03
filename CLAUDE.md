@@ -54,13 +54,14 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 3. Push branch, open PR
 4. **Post PR comment: `@claude review this PR`** ← REQUIRED, DO NOT SKIP  
    ⚠️ **Note:** This is a comment on the PR (not the commit message)
-5. Check Claude Code's review comments
-6. Fix all identified issues
+5. **Wait 5 minutes, then check PR for review comments**
+6. **Address ALL comments from the review** (every single item)
 7. Commit fixes, **push**
 8. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
-9. Issues remaining? → Go to step 4
-10. When clean: Comment `@abbudjoe ready for merge`
-11. Joe reviews and merges
+9. **Wait 5 minutes, check for new review comments**
+10. Issues remaining? → Go to step 6 (address all comments again)
+11. When clean: Comment `@abbudjoe ready for merge`
+12. Joe reviews and merges
 
 **CRITICAL:**
 - ❌ No direct commits to main (except hotfixes approved by Joe)
@@ -70,6 +71,8 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 - ❌ Do NOT rely on automatic GitHub Action triggers
 - ✅ The comment must be **standalone** on the PR (not combined with other text)
 - ✅ Comment after **every push** to trigger re-review
+- ✅ **Check back after 5 minutes** to view and address all review comments
+- ✅ **Address EVERY comment** — partial fixes are not acceptable
 
 ## Project Structure
 

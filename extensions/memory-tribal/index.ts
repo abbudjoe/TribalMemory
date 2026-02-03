@@ -49,32 +49,6 @@ export default function memoryTribal(api: any) {
 
   // Fallback to built-in memory search if tribal server unavailable
   let useBuiltinFallback = false;
-  let lastFallbackTime = 0;
-  const FALLBACK_RETRY_MS = 60_000; // Retry tribal server every 60 seconds
-
-  const shouldRetryTribal = () => {
-    if (!useBuiltinFallback) return true;
-    const now = Date.now();
-    if (now - lastFallbackTime >= FALLBACK_RETRY_MS) {
-      useBuiltinFallback = false;
-      api.log?.info?.("[memory-tribal] Retrying tribal server after fallback period");
-      return true;
-    }
-    return false;
-  };
-
-  const pathForId = (id: string) => `tribal-memory:${id.slice(0, 16)}`;
-  const invalidatePath = (path: string) => {
-    queryCache.invalidatePath(path);
-    if (persistence) {
-      persistence.invalidateCacheByPath(path);
-    }
-  };
-  const invalidatePaths = (paths: string[]) => {
-    for (const path of paths) {
-      invalidatePath(path);
-    }
-  };
 
   /**
    * memory_search - Enhanced with learned retrieval layer
@@ -111,13 +85,12 @@ export default function memoryTribal(api: any) {
         // Step 3: Search with expanded queries
         let results: any[] = [];
         
-        if (shouldRetryTribal()) {
+        if (!useBuiltinFallback) {
           try {
             results = await tribalClient.search(queries, { maxResults, minScore });
           } catch (err) {
             api.log?.warn?.(`[memory-tribal] Tribal server unavailable, using builtin fallback`);
             useBuiltinFallback = true;
-            lastFallbackTime = Date.now();
           }
         }
 
@@ -126,31 +99,7 @@ export default function memoryTribal(api: any) {
           results = await api.runtime.memorySearch(query, { maxResults, minScore });
         }
 
-        // Step 4: Invalidate cached paths superseded by corrections in results
-        const supersededPaths = results
-          .map(r => r.supersedes ? pathForId(r.supersedes) : null)
-          .filter((p): p is string => !!p);
-        if (supersededPaths.length > 0 && config.queryCacheEnabled) {
-          invalidatePaths([...new Set(supersededPaths)]);
-        }
-
-        // Step 5: Rerank using learned feedback weights
-        const canRerank = config.feedbackEnabled &&
-          results.length > 0 &&
-          results.every(r => typeof r.path === "string" && typeof r.score === "number");
-        if (canRerank) {
-          results = feedbackTracker.rerank(query, results);
-        }
-
-        // Step 6: Learn which expansion variant worked best
-        if (config.queryExpansionEnabled && results.length > 0) {
-          const bestVariant = results.find(r => r.sourceQuery && r.sourceQuery !== query)?.sourceQuery;
-          if (bestVariant) {
-            queryExpander.learnExpansion(query, bestVariant);
-          }
-        }
-
-        // Step 7: Record retrieval for feedback tracking
+        // Step 4: Record retrieval for feedback tracking
         if (config.feedbackEnabled && results.length > 0) {
           feedbackTracker.recordRetrieval(sessionId, query, results.map(r => r.id ?? r.path));
         }
@@ -232,68 +181,6 @@ export default function memoryTribal(api: any) {
         return {
           content: [{ type: "text", text: `Recorded feedback for ${params.usedPaths.length} memories` }],
         };
-      },
-    },
-    { optional: true }
-  );
-
-  /**
-   * memory_correct - Correct an existing memory and invalidate cache
-   */
-  api.registerTool(
-    {
-      name: "memory_correct",
-      description: "Correct a memory by ID and invalidate cached paths for the original",
-      parameters: Type.Object({
-        originalId: Type.String({ description: "ID of the memory being corrected" }),
-        correctedContent: Type.String({ description: "Corrected content" }),
-        context: Type.Optional(Type.String({ description: "Reason or context for correction" })),
-      }),
-      async execute(toolCallId: string, params: { originalId: string; correctedContent: string; context?: string }) {
-        try {
-          const result = await tribalClient.correct(params.originalId, params.correctedContent, params.context);
-          if (result.success && config.queryCacheEnabled) {
-            invalidatePath(pathForId(params.originalId));
-          }
-          return {
-            content: [{ type: "text", text: result.success ? `Corrected memory ${params.originalId}` : "Correction failed" }],
-          };
-        } catch (err: any) {
-          return {
-            content: [{ type: "text", text: `Memory correction error: ${err.message}` }],
-            isError: true,
-          };
-        }
-      },
-    },
-    { optional: true }
-  );
-
-  /**
-   * memory_forget - Forget a memory and invalidate cache
-   */
-  api.registerTool(
-    {
-      name: "memory_forget",
-      description: "Forget (delete) a memory by ID and invalidate cached paths",
-      parameters: Type.Object({
-        memoryId: Type.String({ description: "ID of the memory to forget" }),
-      }),
-      async execute(toolCallId: string, params: { memoryId: string }) {
-        try {
-          const success = await tribalClient.forget(params.memoryId);
-          if (success && config.queryCacheEnabled) {
-            invalidatePath(pathForId(params.memoryId));
-          }
-          return {
-            content: [{ type: "text", text: success ? `Forgot memory ${params.memoryId}` : "Forget failed" }],
-          };
-        } catch (err: any) {
-          return {
-            content: [{ type: "text", text: `Memory forget error: ${err.message}` }],
-            isError: true,
-          };
-        }
       },
     },
     { optional: true }

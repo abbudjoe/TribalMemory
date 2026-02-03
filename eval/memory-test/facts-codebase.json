@@ -1,0 +1,461 @@
+{
+  "version": "1.0",
+  "targetFile": "MEMORY_CODEBASE.md",
+  "description": "Codebase depth test — exact values, line numbers, file paths, function signatures",
+  "facts": [
+    {
+      "id": 1,
+      "category": "file_structure",
+      "fact": "CacheEntry struct is defined in core/src/cache/entry.rs",
+      "questions": {
+        "direct": "Where is the CacheEntry struct defined?",
+        "indirect": "Which file contains the cache entry definition?"
+      },
+      "required": ["core/src/cache/entry.rs", "entry.rs"],
+      "bonus": ["line 15"]
+    },
+    {
+      "id": 2,
+      "category": "file_structure",
+      "fact": "The main.rs entry point is 127 lines",
+      "questions": {
+        "direct": "How many lines is server/src/main.rs?",
+        "indirect": "How big is the server entry point?"
+      },
+      "required": ["127"],
+      "bonus": ["lines", "main.rs"]
+    },
+    {
+      "id": 3,
+      "category": "file_structure",
+      "fact": "nexctl CLI tool is in Node.js, located in nexctl/ directory",
+      "questions": {
+        "direct": "Where is the nexctl CLI tool located?",
+        "indirect": "What directory contains the CLI?"
+      },
+      "required": ["nexctl/", "nexctl"],
+      "bonus": ["node", "typescript"]
+    },
+    {
+      "id": 4,
+      "category": "function_signature",
+      "fact": "is_expired function takes now_mono: u64 and returns bool",
+      "questions": {
+        "direct": "What is the signature of the is_expired function?",
+        "indirect": "How does CacheEntry check expiration?"
+      },
+      "required": ["now_mono", "u64", "bool"],
+      "bonus": ["created_at", "ttl_ms"]
+    },
+    {
+      "id": 5,
+      "category": "function_signature",
+      "fact": "size_bytes returns key.len() + value.len() + 32 (32 bytes for metadata)",
+      "questions": {
+        "direct": "How is CacheEntry size calculated?",
+        "indirect": "What's the overhead per cache entry?"
+      },
+      "required": ["32", "metadata"],
+      "bonus": ["key.len", "value.len"]
+    },
+    {
+      "id": 6,
+      "category": "function_signature",
+      "fact": "verify_hmac uses ring::hmac with SHA-256",
+      "questions": {
+        "direct": "What library and algorithm does verify_hmac use?",
+        "indirect": "How is HMAC verification implemented?"
+      },
+      "required": ["ring", "sha-256", "sha256"],
+      "bonus": ["hmac"]
+    },
+    {
+      "id": 7,
+      "category": "function_signature",
+      "fact": "CacheStore trait has get, set, delete, evict, len, size_bytes methods",
+      "questions": {
+        "direct": "What methods does the CacheStore trait define?",
+        "indirect": "What's the interface for cache storage?"
+      },
+      "required": ["get", "set", "delete", "evict"],
+      "bonus": ["len", "size_bytes", "trait"]
+    },
+    {
+      "id": 8,
+      "category": "function_signature",
+      "fact": "RaftNode tick function is called every 50ms",
+      "questions": {
+        "direct": "How often is the RaftNode tick function called?",
+        "indirect": "What's the Raft tick interval?"
+      },
+      "required": ["50ms", "50"],
+      "bonus": ["tick"]
+    },
+    {
+      "id": 9,
+      "category": "exact_values",
+      "fact": "gRPC API runs on port 7000",
+      "questions": {
+        "direct": "What port does the gRPC API run on?",
+        "indirect": "How do clients connect to Hyperion?"
+      },
+      "required": ["7000"],
+      "bonus": ["grpc", "hyperion_grpc_port"]
+    },
+    {
+      "id": 10,
+      "category": "exact_values",
+      "fact": "Admin API runs on port 9090",
+      "questions": {
+        "direct": "What port is the Admin API on?",
+        "indirect": "Where are admin endpoints served?"
+      },
+      "required": ["9090"],
+      "bonus": ["admin"]
+    },
+    {
+      "id": 11,
+      "category": "exact_values",
+      "fact": "Metrics endpoint is on port 9091",
+      "questions": {
+        "direct": "What port serves Prometheus metrics?",
+        "indirect": "Where does Prometheus scrape from?"
+      },
+      "required": ["9091"],
+      "bonus": ["metrics", "prometheus"]
+    },
+    {
+      "id": 12,
+      "category": "exact_values",
+      "fact": "Max key size is 1KB (1024 bytes)",
+      "questions": {
+        "direct": "What's the maximum key size?",
+        "indirect": "Can I use a 2KB key?"
+      },
+      "required": ["1kb", "1024"],
+      "bonus": ["bytes", "max"]
+    },
+    {
+      "id": 13,
+      "category": "exact_values",
+      "fact": "Max value size is 512KB (524288 bytes)",
+      "questions": {
+        "direct": "What's the maximum value size?",
+        "indirect": "How large can cache values be?"
+      },
+      "required": ["512kb", "524288"],
+      "bonus": ["bytes", "max"]
+    },
+    {
+      "id": 14,
+      "category": "exact_values",
+      "fact": "Max TTL is 7 days (604800000 ms)",
+      "questions": {
+        "direct": "What's the maximum TTL allowed?",
+        "indirect": "How long can entries live?"
+      },
+      "required": ["7 day", "604800000"],
+      "bonus": ["max", "ttl"]
+    },
+    {
+      "id": 15,
+      "category": "exact_values",
+      "fact": "DB query timeout is 5000ms (5 seconds)",
+      "questions": {
+        "direct": "What's the database query timeout?",
+        "indirect": "How long until DB queries fail?"
+      },
+      "required": ["5000", "5 second"],
+      "bonus": ["db_query_timeout"]
+    },
+    {
+      "id": 16,
+      "category": "pr_history",
+      "fact": "PR #847 fixed the memory leak, authored by @maya-dev",
+      "questions": {
+        "direct": "What PR fixed the memory leak?",
+        "indirect": "Who wrote the memory leak fix?"
+      },
+      "required": ["#847", "847"],
+      "bonus": ["maya", "clone", "reference"]
+    },
+    {
+      "id": 17,
+      "category": "pr_history",
+      "fact": "PR #812 added jitter to retry, linked to issue #809",
+      "questions": {
+        "direct": "What PR added jitter to retries?",
+        "indirect": "Which issue was the thundering herd postmortem?"
+      },
+      "required": ["#812", "812"],
+      "bonus": ["#809", "jitter", "thundering"]
+    },
+    {
+      "id": 18,
+      "category": "pr_history",
+      "fact": "PR #901 fixed split brain, added leader lease",
+      "questions": {
+        "direct": "What PR fixed split brain?",
+        "indirect": "When was leader lease added?"
+      },
+      "required": ["#901", "901"],
+      "bonus": ["split brain", "lease", "#898"]
+    },
+    {
+      "id": 19,
+      "category": "pr_history",
+      "fact": "PR #923 fixed cold start by warming up DB pool, authored by @jordan-dev",
+      "questions": {
+        "direct": "What PR fixed the cold start timeout?",
+        "indirect": "Who fixed the ETIMEOUT on first request?"
+      },
+      "required": ["#923", "923"],
+      "bonus": ["jordan", "warmup", "pool"]
+    },
+    {
+      "id": 20,
+      "category": "test_coverage",
+      "fact": "basic_ops.rs has 45 tests",
+      "questions": {
+        "direct": "How many tests are in basic_ops.rs?",
+        "indirect": "What's the test count for basic operations?"
+      },
+      "required": ["45"],
+      "bonus": ["basic_ops", "integration"]
+    },
+    {
+      "id": 21,
+      "category": "test_coverage",
+      "fact": "raft_election.rs has 12 tests",
+      "questions": {
+        "direct": "How many tests are in raft_election.rs?",
+        "indirect": "How many Raft election test cases?"
+      },
+      "required": ["12"],
+      "bonus": ["raft_election", "election"]
+    },
+    {
+      "id": 22,
+      "category": "test_coverage",
+      "fact": "Current test coverage is 84.3%, measured by cargo-tarpaulin",
+      "questions": {
+        "direct": "What's the current test coverage percentage?",
+        "indirect": "How is coverage measured?"
+      },
+      "required": ["84.3", "84"],
+      "bonus": ["tarpaulin", "coverage"]
+    },
+    {
+      "id": 23,
+      "category": "error_messages",
+      "fact": "StoreError::ValueTooLarge message is 'Value size {size} exceeds maximum {max} bytes'",
+      "questions": {
+        "direct": "What error message is shown for oversized values?",
+        "indirect": "What happens when a value is too large?"
+      },
+      "required": ["value size", "exceeds maximum"],
+      "bonus": ["valuetoolarge", "bytes"]
+    },
+    {
+      "id": 24,
+      "category": "error_messages",
+      "fact": "RaftError::NotLeader includes leader_hint field",
+      "questions": {
+        "direct": "What information does RaftError::NotLeader include?",
+        "indirect": "How does a follower redirect to leader?"
+      },
+      "required": ["leader_hint"],
+      "bonus": ["notleader", "try"]
+    },
+    {
+      "id": 25,
+      "category": "database",
+      "fact": "cache_metadata table stores last_snapshot_index and last_snapshot_term",
+      "questions": {
+        "direct": "What does the cache_metadata table store?",
+        "indirect": "Where is snapshot info persisted?"
+      },
+      "required": ["snapshot_index", "snapshot_term"],
+      "bonus": ["cache_metadata", "node_id"]
+    },
+    {
+      "id": 26,
+      "category": "database",
+      "fact": "raft_log table has composite primary key (node_id, log_index)",
+      "questions": {
+        "direct": "What's the primary key of the raft_log table?",
+        "indirect": "How is the Raft log keyed?"
+      },
+      "required": ["node_id", "log_index"],
+      "bonus": ["primary key", "composite"]
+    },
+    {
+      "id": 27,
+      "category": "database",
+      "fact": "command_type in raft_log: 1=Set, 2=Delete, 3=Noop",
+      "questions": {
+        "direct": "What are the command_type values in raft_log?",
+        "indirect": "How are Raft commands encoded?"
+      },
+      "required": ["1", "set", "2", "delete"],
+      "bonus": ["3", "noop", "command_type"]
+    },
+    {
+      "id": 28,
+      "category": "environment",
+      "fact": "Production cache size is 8192 MB (8GB per node)",
+      "questions": {
+        "direct": "What's the production cache size?",
+        "indirect": "How much memory per prod node?"
+      },
+      "required": ["8192", "8gb"],
+      "bonus": ["production", "per node"]
+    },
+    {
+      "id": 29,
+      "category": "environment",
+      "fact": "Staging uses single node with 1024 MB (1GB) cache",
+      "questions": {
+        "direct": "What's the staging cache size?",
+        "indirect": "Is staging multi-node?"
+      },
+      "required": ["1024", "1gb"],
+      "bonus": ["staging", "single node"]
+    },
+    {
+      "id": 30,
+      "category": "environment",
+      "fact": "Development uses 256 MB cache with sslmode=disable",
+      "questions": {
+        "direct": "What's the dev cache size?",
+        "indirect": "Is SSL required in dev?"
+      },
+      "required": ["256"],
+      "bonus": ["dev", "sslmode=disable"]
+    },
+    {
+      "id": 31,
+      "category": "metrics",
+      "fact": "hyperion_requests_total counter tracks requests by method",
+      "questions": {
+        "direct": "What metric tracks total requests?",
+        "indirect": "How do you monitor request volume?"
+      },
+      "required": ["hyperion_requests_total"],
+      "bonus": ["method", "counter"]
+    },
+    {
+      "id": 32,
+      "category": "metrics",
+      "fact": "hyperion_raft_state gauge: 0=follower, 1=candidate, 2=leader",
+      "questions": {
+        "direct": "What are the values for hyperion_raft_state?",
+        "indirect": "How do you check if a node is leader?"
+      },
+      "required": ["0", "follower", "2", "leader"],
+      "bonus": ["1", "candidate", "gauge"]
+    },
+    {
+      "id": 33,
+      "category": "tech_debt",
+      "fact": "TODO in raft/log.rs:145 — implement log compaction snapshot transfer",
+      "questions": {
+        "direct": "What TODO is at raft/log.rs:145?",
+        "indirect": "What's missing in log compaction?"
+      },
+      "required": ["snapshot transfer", "compaction"],
+      "bonus": ["log.rs", "145", "todo"]
+    },
+    {
+      "id": 34,
+      "category": "tech_debt",
+      "fact": "FIXME in grpc.rs:89 — remove unwrap, handle error properly",
+      "questions": {
+        "direct": "What FIXME is in grpc.rs?",
+        "indirect": "Where is there an unwrap that needs fixing?"
+      },
+      "required": ["unwrap", "error"],
+      "bonus": ["grpc.rs", "89", "fixme"]
+    },
+    {
+      "id": 35,
+      "category": "tech_debt",
+      "fact": "HACK in retry.rs:34 — hardcoded max delay should be configurable",
+      "questions": {
+        "direct": "What hack is in retry.rs?",
+        "indirect": "What's hardcoded that shouldn't be?"
+      },
+      "required": ["max delay", "hardcoded", "configurable"],
+      "bonus": ["retry.rs", "34", "hack"]
+    }
+  ],
+  "negatives": [
+    {
+      "id": "neg1",
+      "question": "What's the password for the production database?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg2",
+      "question": "What's the IP address of hyperion-0.prod?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg3",
+      "question": "What's the Vault path for the HMAC key?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg4",
+      "question": "What's Jordan's email address?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg5",
+      "question": "What branch naming convention is used?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg6",
+      "question": "What's the CI pipeline YAML file name?",
+      "plausibility": "high"
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "adv1",
+      "question": "The gRPC API is on port 8080, right?",
+      "confusion_target": "Actually port 7000",
+      "expected": "No, port 7000",
+      "type": "port_confusion"
+    },
+    {
+      "id": "adv2",
+      "question": "PR #847 was about the split brain fix?",
+      "confusion_target": "#847 was memory leak, #901 was split brain",
+      "expected": "No, #847 was memory leak, #901 was split brain",
+      "type": "pr_confusion"
+    },
+    {
+      "id": "adv3",
+      "question": "The Raft tick runs every 150ms?",
+      "confusion_target": "Tick is 50ms, heartbeat is 150ms",
+      "expected": "No, tick is 50ms, heartbeat interval is 150ms",
+      "type": "timing_confusion"
+    },
+    {
+      "id": "adv4",
+      "question": "Test coverage is 94.3%?",
+      "confusion_target": "Coverage is 84.3%, not 94.3%",
+      "expected": "No, it's 84.3%",
+      "type": "number_confusion"
+    },
+    {
+      "id": "adv5",
+      "question": "The CacheEntry HMAC uses SHA-512?",
+      "confusion_target": "Uses SHA-256, not SHA-512",
+      "expected": "No, it uses SHA-256",
+      "type": "algorithm_confusion"
+    }
+  ]
+}

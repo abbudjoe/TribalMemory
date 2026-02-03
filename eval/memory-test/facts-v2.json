@@ -1,0 +1,869 @@
+{
+  "version": "2.0",
+  "targetFile": "MEMORY_PERSON_A.md",
+  "distractors": ["MEMORY_PERSON_B.md", "MEMORY_PERSON_C.md", "PROJECT_NOTES.md"],
+  "facts": [
+    {
+      "id": 1,
+      "category": "food",
+      "fact": "Favorite cuisine is Thai food, especially green curry",
+      "questions": {
+        "direct": "What is the favorite cuisine?",
+        "indirect": "If planning a dinner out, what type of restaurant would be best?",
+        "negation": "What cuisine should definitely be chosen for a celebration dinner?",
+        "inference": "Would a Thai restaurant be a good choice for their birthday?"
+      },
+      "required": ["thai"],
+      "bonus": ["green curry"]
+    },
+    {
+      "id": 2,
+      "category": "food",
+      "fact": "Coffee preference is oat milk latte, no sugar",
+      "questions": {
+        "direct": "What is the coffee order?",
+        "indirect": "When ordering coffee for them, what should you get?",
+        "inference": "Would they appreciate an almond milk cappuccino?"
+      },
+      "required": ["oat"],
+      "bonus": ["latte", "no sugar"]
+    },
+    {
+      "id": 3,
+      "category": "food",
+      "fact": "Allergic to shellfish (severe) and peanuts (mild)",
+      "questions": {
+        "direct": "What food allergies are there?",
+        "indirect": "What should be avoided when ordering food?",
+        "inference": "Would shrimp fried rice be safe to order?"
+      },
+      "required": ["shellfish"],
+      "bonus": ["peanut", "severe"]
+    },
+    {
+      "id": 4,
+      "category": "food",
+      "fact": "Least favorite food is olives",
+      "questions": {
+        "direct": "What food is absolutely hated?",
+        "indirect": "What topping should never be on a pizza?",
+        "inference": "Would a Mediterranean salad with kalamata olives be appreciated?"
+      },
+      "required": ["olive"]
+    },
+    {
+      "id": 5,
+      "category": "food",
+      "fact": "Favorite restaurant is The Golden Elephant on 5th Street",
+      "questions": {
+        "direct": "What is the favorite restaurant?",
+        "indirect": "Where should reservations be made for a special occasion?"
+      },
+      "required": ["golden elephant"],
+      "bonus": ["5th"]
+    },
+    {
+      "id": 6,
+      "category": "work_style",
+      "fact": "Preferred IDE is Neovim with LazyVim config",
+      "questions": {
+        "direct": "What IDE or editor is preferred?",
+        "indirect": "What tool is used for writing code?"
+      },
+      "required": ["neovim", "vim"],
+      "bonus": ["lazyvim"]
+    },
+    {
+      "id": 7,
+      "category": "work_style",
+      "fact": "Uses Kinesis Advantage 360 keyboard",
+      "questions": {
+        "direct": "What keyboard is used?",
+        "indirect": "What's on the desk for typing?"
+      },
+      "required": ["kinesis"],
+      "bonus": ["advantage", "360"]
+    },
+    {
+      "id": 8,
+      "category": "work_style",
+      "fact": "Triple 27\" monitors in vertical arrangement",
+      "questions": {
+        "direct": "What is the monitor setup?",
+        "indirect": "How many screens are used for work?"
+      },
+      "required": ["triple", "3", "three"],
+      "bonus": ["27", "vertical"]
+    },
+    {
+      "id": 9,
+      "category": "work_style",
+      "fact": "Uses standing desk, alternates every 2 hours",
+      "questions": {
+        "direct": "Is a standing desk used?",
+        "indirect": "What's the desk situation?"
+      },
+      "required": ["yes", "standing"],
+      "bonus": ["2 hour", "alternate"]
+    },
+    {
+      "id": 10,
+      "category": "work_style",
+      "fact": "Focus music is lo-fi hip hop or complete silence",
+      "questions": {
+        "direct": "What kind of music is played while working?",
+        "indirect": "What helps with focus during deep work?"
+      },
+      "required": ["lo-fi", "lofi", "silence"],
+      "bonus": ["hip hop"]
+    },
+    {
+      "id": 11,
+      "category": "schedule",
+      "fact": "Wake time is 6:30 AM sharp",
+      "questions": {
+        "direct": "What time is wake up?",
+        "indirect": "When does the day typically start?"
+      },
+      "required": ["6:30", "630", "6 30"]
+    },
+    {
+      "id": 12,
+      "category": "schedule",
+      "fact": "Best focus hours are 9 AM - 12 PM",
+      "questions": {
+        "direct": "When are the best focus hours?",
+        "indirect": "When should important meetings NOT be scheduled?"
+      },
+      "required": ["9"],
+      "bonus": ["12", "am", "pm", "morning"]
+    },
+    {
+      "id": 13,
+      "category": "schedule",
+      "fact": "Exercise routine is swimming on Tuesday/Thursday/Saturday mornings",
+      "questions": {
+        "direct": "What is the exercise routine?",
+        "indirect": "What days are mornings busy with fitness?"
+      },
+      "required": ["swim"],
+      "bonus": ["tuesday", "thursday", "saturday"]
+    },
+    {
+      "id": 14,
+      "category": "schedule",
+      "fact": "Wednesday is the no-meeting day",
+      "questions": {
+        "direct": "Which day is the no-meeting day?",
+        "indirect": "When should meetings never be scheduled?"
+      },
+      "required": ["wednesday"]
+    },
+    {
+      "id": 15,
+      "category": "schedule",
+      "fact": "Bedtime is 10:30 PM, reads for 30 minutes before sleep",
+      "questions": {
+        "direct": "What time is bedtime?",
+        "indirect": "What happens before sleep?"
+      },
+      "required": ["10:30", "1030", "10 30"],
+      "bonus": ["read"]
+    },
+    {
+      "id": 16,
+      "category": "family",
+      "fact": "Spouse is Morgan, software architect at Cloudflare, met in 2015",
+      "questions": {
+        "direct": "What is the spouse's name?",
+        "indirect": "Who is the life partner?",
+        "inference": "Does the spouse work in tech?"
+      },
+      "required": ["morgan"],
+      "bonus": ["cloudflare", "architect", "2015"]
+    },
+    {
+      "id": 17,
+      "category": "family",
+      "fact": "Two children: Lily (8, born March 22) and Sam (5, born July 8)",
+      "questions": {
+        "direct": "What are the children's names and ages?",
+        "indirect": "How many kids are there?",
+        "inference": "Is there a child whose birthday is in March?"
+      },
+      "required": ["lily", "sam"],
+      "bonus": ["8", "5", "two", "2"]
+    },
+    {
+      "id": 18,
+      "category": "family",
+      "fact": "Pet is a cat named Whiskers, orange tabby, 4 years old, rescued",
+      "questions": {
+        "direct": "What is the pet's name and type?",
+        "indirect": "Any animals in the household?"
+      },
+      "required": ["whiskers"],
+      "bonus": ["cat", "orange", "tabby"]
+    },
+    {
+      "id": 19,
+      "category": "family",
+      "fact": "Mother is Patricia, retired teacher in Portland, calls every Sunday",
+      "questions": {
+        "direct": "What does the mother do and where does she live?",
+        "indirect": "Who calls every Sunday?"
+      },
+      "required": ["teacher", "portland"],
+      "bonus": ["patricia", "retired", "sunday"]
+    },
+    {
+      "id": 20,
+      "category": "family",
+      "fact": "Father Robert passed away in 2019, was an engineer at Boeing",
+      "questions": {
+        "direct": "What happened to the father?",
+        "indirect": "Are both parents still alive?"
+      },
+      "required": ["passed", "died", "2019", "deceased"],
+      "bonus": ["robert", "boeing"]
+    },
+    {
+      "id": 21,
+      "category": "family",
+      "fact": "Brother Daniel runs a bakery called Rise & Shine in Austin",
+      "questions": {
+        "direct": "What does the brother do?",
+        "indirect": "Is there family in Austin?"
+      },
+      "required": ["bakery", "austin"],
+      "bonus": ["daniel", "rise", "shine"]
+    },
+    {
+      "id": 22,
+      "category": "colleagues",
+      "fact": "Manager is Rebecca Chen, VP of Engineering, since 2022",
+      "questions": {
+        "direct": "Who is the manager?",
+        "indirect": "Who does the performance review?"
+      },
+      "required": ["rebecca"],
+      "bonus": ["chen", "vp"]
+    },
+    {
+      "id": 23,
+      "category": "colleagues",
+      "fact": "Mentor is Dr. James Wright from Stanford, meets quarterly",
+      "questions": {
+        "direct": "Who is the mentor?",
+        "indirect": "Is there a Stanford connection?"
+      },
+      "required": ["james", "wright"],
+      "bonus": ["stanford", "dr"]
+    },
+    {
+      "id": 24,
+      "category": "colleagues",
+      "fact": "Best work friend is Alex Patel, met at Stripe",
+      "questions": {
+        "direct": "Who is the best work friend?",
+        "indirect": "Any friends from Stripe days?"
+      },
+      "required": ["alex"],
+      "bonus": ["patel", "stripe"]
+    },
+    {
+      "id": 25,
+      "category": "work",
+      "fact": "Works at Nexus Technologies as Principal Engineer",
+      "questions": {
+        "direct": "What company is the current employer?",
+        "indirect": "Where is the current job?"
+      },
+      "required": ["nexus"],
+      "bonus": ["technologies"]
+    },
+    {
+      "id": 26,
+      "category": "work",
+      "fact": "Job title is Principal Engineer",
+      "questions": {
+        "direct": "What is the job title?",
+        "indirect": "What level is the current role?"
+      },
+      "required": ["principal"],
+      "bonus": ["engineer"]
+    },
+    {
+      "id": 27,
+      "category": "work",
+      "fact": "Team is Platform Infrastructure with 12 people",
+      "questions": {
+        "direct": "What team and how many people?",
+        "indirect": "How big is the immediate team?"
+      },
+      "required": ["platform", "infrastructure"],
+      "bonus": ["12"]
+    },
+    {
+      "id": 28,
+      "category": "work",
+      "fact": "Started at current company March 2024",
+      "questions": {
+        "direct": "When did employment start at current company?",
+        "indirect": "How long at Nexus?"
+      },
+      "required": ["march", "2024"]
+    },
+    {
+      "id": 29,
+      "category": "work",
+      "fact": "Previous company was Stripe (2020-2024)",
+      "questions": {
+        "direct": "What was the previous company?",
+        "indirect": "Any fintech background?"
+      },
+      "required": ["stripe"],
+      "bonus": ["2020", "2024"]
+    },
+    {
+      "id": 30,
+      "category": "projects",
+      "fact": "Main project is Hyperion, a distributed cache layer",
+      "questions": {
+        "direct": "What is the main project?",
+        "indirect": "What's being built at work?"
+      },
+      "required": ["hyperion"],
+      "bonus": ["cache", "distributed"]
+    },
+    {
+      "id": 31,
+      "category": "projects",
+      "fact": "Side project is internal CLI tool called nexctl",
+      "questions": {
+        "direct": "What is the side project?",
+        "indirect": "Any internal tools built?"
+      },
+      "required": ["nexctl"],
+      "bonus": ["cli"]
+    },
+    {
+      "id": 32,
+      "category": "projects",
+      "fact": "On-call rotation is every 4th week",
+      "questions": {
+        "direct": "How often is on-call rotation?",
+        "indirect": "When is the next potential on-call week?"
+      },
+      "required": ["4th", "fourth", "4"],
+      "bonus": ["week"]
+    },
+    {
+      "id": 33,
+      "category": "tech",
+      "fact": "Primary programming language is Rust (since 2023)",
+      "questions": {
+        "direct": "What is the primary programming language?",
+        "indirect": "What language is Hyperion written in?"
+      },
+      "required": ["rust"]
+    },
+    {
+      "id": 34,
+      "category": "tech",
+      "fact": "Secondary languages are Go and Python",
+      "questions": {
+        "direct": "What are the secondary programming languages?",
+        "indirect": "Besides Rust, what else is used?"
+      },
+      "required": ["go", "python"]
+    },
+    {
+      "id": 35,
+      "category": "tech",
+      "fact": "Main database is CockroachDB, Redis for cache",
+      "questions": {
+        "direct": "What database is used for main storage?",
+        "indirect": "What's the data layer?"
+      },
+      "required": ["cockroach"],
+      "bonus": ["redis"]
+    },
+    {
+      "id": 36,
+      "category": "tech",
+      "fact": "Cloud provider is GCP, us-central1 region",
+      "questions": {
+        "direct": "What cloud provider and region?",
+        "indirect": "Where are the servers?"
+      },
+      "required": ["gcp", "google"],
+      "bonus": ["us-central1", "central"]
+    },
+    {
+      "id": 37,
+      "category": "tech",
+      "fact": "CI/CD is Buildkite with custom plugins",
+      "questions": {
+        "direct": "What CI/CD system is used?",
+        "indirect": "How are deployments handled?"
+      },
+      "required": ["buildkite"]
+    },
+    {
+      "id": 38,
+      "category": "decisions",
+      "fact": "Chose CockroachDB over Spanner for better local dev and no vendor lock-in",
+      "questions": {
+        "direct": "Why was CockroachDB chosen over Spanner?",
+        "indirect": "What drove the database decision?"
+      },
+      "required": ["local dev", "vendor", "lock-in", "lock in"]
+    },
+    {
+      "id": 39,
+      "category": "decisions",
+      "fact": "Switched from Datadog to Grafana for 40% cost savings",
+      "questions": {
+        "direct": "Why switch from Datadog to Grafana?",
+        "indirect": "How were monitoring costs reduced?"
+      },
+      "required": ["40%", "cost", "saving"]
+    },
+    {
+      "id": 40,
+      "category": "decisions",
+      "fact": "Adopted Rust for new services due to performance needs",
+      "questions": {
+        "direct": "Why was Rust adopted for new services?",
+        "indirect": "What drove the language decision?"
+      },
+      "required": ["performance"],
+      "bonus": ["learn", "team"]
+    },
+    {
+      "id": 41,
+      "category": "dates",
+      "fact": "Wedding anniversary is October 14th (married 2017)",
+      "questions": {
+        "direct": "When is the wedding anniversary?",
+        "indirect": "Any important dates in October?"
+      },
+      "required": ["october", "14"]
+    },
+    {
+      "id": 42,
+      "category": "dates",
+      "fact": "Lily's birthday is March 22nd",
+      "questions": {
+        "direct": "When is Lily's birthday?",
+        "indirect": "Any birthdays in March?"
+      },
+      "required": ["march", "22"]
+    },
+    {
+      "id": 43,
+      "category": "dates",
+      "fact": "Sam's birthday is July 8th",
+      "questions": {
+        "direct": "When is Sam's birthday?",
+        "indirect": "Any birthdays in summer?"
+      },
+      "required": ["july", "8"]
+    },
+    {
+      "id": 44,
+      "category": "dates",
+      "fact": "Performance review due February 28th, 2025",
+      "questions": {
+        "direct": "When is the performance review due?",
+        "indirect": "Any deadlines in February?"
+      },
+      "required": ["february", "28"]
+    },
+    {
+      "id": 45,
+      "category": "dates",
+      "fact": "Japan vacation planned April 5-19, 2025",
+      "questions": {
+        "direct": "When is the Japan vacation?",
+        "indirect": "Any travel planned?"
+      },
+      "required": ["april", "5", "19"],
+      "bonus": ["japan", "2025"]
+    },
+    {
+      "id": 46,
+      "category": "dates",
+      "fact": "KubeCon talk on March 18, 2025 about Rust in Production",
+      "questions": {
+        "direct": "When is the KubeCon talk?",
+        "indirect": "Any speaking engagements?"
+      },
+      "required": ["march", "18"],
+      "bonus": ["kubecon", "rust"]
+    },
+    {
+      "id": 47,
+      "category": "locations",
+      "fact": "Lives in San Francisco, Noe Valley neighborhood",
+      "questions": {
+        "direct": "What neighborhood is home?",
+        "indirect": "Where in SF is home?"
+      },
+      "required": ["noe valley"],
+      "bonus": ["san francisco"]
+    },
+    {
+      "id": 48,
+      "category": "locations",
+      "fact": "Office is at 500 Howard Street, 14th floor",
+      "questions": {
+        "direct": "What is the office address?",
+        "indirect": "Where is the workplace?"
+      },
+      "required": ["500", "howard"],
+      "bonus": ["14"]
+    },
+    {
+      "id": 49,
+      "category": "locations",
+      "fact": "Favorite coffee shop is Ritual Coffee on Valencia Street",
+      "questions": {
+        "direct": "What is the favorite coffee shop?",
+        "indirect": "Where to meet for coffee?"
+      },
+      "required": ["ritual"],
+      "bonus": ["valencia"]
+    },
+    {
+      "id": 50,
+      "category": "locations",
+      "fact": "Weekend spot is Stinson Beach",
+      "questions": {
+        "direct": "Where is the weekend spot?",
+        "indirect": "Where to find them on a nice Saturday?"
+      },
+      "required": ["stinson"]
+    },
+    {
+      "id": 51,
+      "category": "quirks",
+      "fact": "Never deploys on Friday after 2 PM",
+      "questions": {
+        "direct": "What is the deployment superstition?",
+        "indirect": "Any rules about Friday deployments?"
+      },
+      "required": ["friday"],
+      "bonus": ["2 pm", "never"]
+    },
+    {
+      "id": 52,
+      "category": "quirks",
+      "fact": "Desk plant is a pothos named Gerald",
+      "questions": {
+        "direct": "What is the desk plant named?",
+        "indirect": "Any plants at the desk?"
+      },
+      "required": ["gerald"],
+      "bonus": ["pothos"]
+    },
+    {
+      "id": 53,
+      "category": "quirks",
+      "fact": "Lucky number is 42 (Douglas Adams fan)",
+      "questions": {
+        "direct": "What is the lucky number?",
+        "indirect": "Any connection to Hitchhiker's Guide?"
+      },
+      "required": ["42"]
+    },
+    {
+      "id": 54,
+      "category": "quirks",
+      "fact": "Can solve Rubik's cube in under 2 minutes",
+      "questions": {
+        "direct": "What is the hidden talent?",
+        "indirect": "Any party tricks?"
+      },
+      "required": ["rubik", "cube"],
+      "bonus": ["2 minute"]
+    },
+    {
+      "id": 55,
+      "category": "quirks",
+      "fact": "Comfort movie is The Princess Bride, watches when sick",
+      "questions": {
+        "direct": "What is the comfort movie?",
+        "indirect": "What to watch when feeling unwell?"
+      },
+      "required": ["princess bride"]
+    },
+    {
+      "id": 56,
+      "category": "quirks",
+      "fact": "Phobia of heights, won't go above 20th floor",
+      "questions": {
+        "direct": "What is the phobia?",
+        "indirect": "Any limitations for office locations?"
+      },
+      "required": ["height"],
+      "bonus": ["20"]
+    },
+    {
+      "id": 57,
+      "category": "quirks",
+      "fact": "Collects vintage mechanical keyboards, has 12",
+      "questions": {
+        "direct": "What is collected as a hobby?",
+        "indirect": "Any expensive hobbies?"
+      },
+      "required": ["keyboard", "mechanical"],
+      "bonus": ["12", "vintage"]
+    },
+    {
+      "id": 58,
+      "category": "health",
+      "fact": "Doctor is Dr. Sarah Kim at UCSF Medical",
+      "questions": {
+        "direct": "Who is the doctor?",
+        "indirect": "Where is medical care?"
+      },
+      "required": ["sarah kim", "kim"],
+      "bonus": ["ucsf"]
+    },
+    {
+      "id": 59,
+      "category": "health",
+      "fact": "Blood type is O-negative, regular donor",
+      "questions": {
+        "direct": "What is the blood type?",
+        "indirect": "Universal donor?"
+      },
+      "required": ["o-negative", "o negative", "o-"]
+    },
+    {
+      "id": 60,
+      "category": "temporal",
+      "fact": "Pet WAS thought to be named Max, corrected to Whiskers on 2024-09-15",
+      "questions": {
+        "direct": "What was the pet's name originally thought to be?",
+        "temporal": "Was there ever a pet named Max?"
+      },
+      "required": ["max"],
+      "bonus": ["childhood", "dog", "corrected"]
+    },
+    {
+      "id": 61,
+      "category": "temporal",
+      "fact": "Vacation dates changed from March to April 5-19 on 2025-01-10",
+      "questions": {
+        "direct": "When were the vacation dates updated?",
+        "temporal": "Was the vacation originally planned for March?"
+      },
+      "required": ["2025-01-10", "january 10", "january", "march", "changed", "updated"]
+    }
+  ],
+  "negatives": [
+    {
+      "id": "neg1",
+      "question": "What is the favorite color?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg2",
+      "question": "What shoe size is worn?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg3",
+      "question": "What high school was attended?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg4",
+      "question": "What was the first car?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg5",
+      "question": "What was the first concert attended?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg6",
+      "question": "What is the Myers-Briggs type?",
+      "plausibility": "high"
+    },
+    {
+      "id": 7,
+      "question": "What zodiac sign applies?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg8",
+      "question": "Who was the college roommate?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg9",
+      "question": "What was the first programming language learned?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg10",
+      "question": "What instrument is played?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg11",
+      "question": "What sports team is supported?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg12",
+      "question": "What is the middle name?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg13",
+      "question": "What podcast is listened to regularly?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg14",
+      "question": "What is the wifi password at home?",
+      "plausibility": "low"
+    },
+    {
+      "id": "neg15",
+      "question": "What size t-shirt is worn?",
+      "plausibility": "medium"
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "adv1",
+      "question": "What is Marcus's job?",
+      "confusion_target": "Morgan (spouse)",
+      "expected": "not recorded",
+      "type": "name_confusion"
+    },
+    {
+      "id": "adv2",
+      "question": "What is the cat Luna's age?",
+      "confusion_target": "Whiskers (cat), Luna is Person C's cat",
+      "expected": "not recorded or clarify Whiskers",
+      "type": "cross_file_confusion"
+    },
+    {
+      "id": "adv3",
+      "question": "When is Lily's birthday in July?",
+      "confusion_target": "Lily is March 22, Sam is July 8",
+      "expected": "Lily is March, not July",
+      "type": "date_confusion"
+    },
+    {
+      "id": "adv4",
+      "question": "What floor is the office on, the 15th?",
+      "confusion_target": "Office is 14th floor",
+      "expected": "14th floor, not 15th",
+      "type": "number_confusion"
+    },
+    {
+      "id": "adv5",
+      "question": "What bakery does David run?",
+      "confusion_target": "Daniel runs Rise & Shine",
+      "expected": "not recorded, Daniel runs the bakery",
+      "type": "name_confusion"
+    },
+    {
+      "id": "adv6",
+      "question": "Is the pet a golden retriever?",
+      "confusion_target": "Whiskers is a cat; Buddy (Person B) is a golden retriever",
+      "expected": "No, it's a cat named Whiskers",
+      "type": "cross_file_confusion"
+    },
+    {
+      "id": "adv7",
+      "question": "What is Taylor's role on the team?",
+      "confusion_target": "Taylor is a direct report, but details aren't given",
+      "expected": "Taylor is a direct report but role not specified",
+      "type": "incomplete_info"
+    },
+    {
+      "id": "adv8",
+      "question": "When did employment at Stripe end in 2023?",
+      "confusion_target": "Stripe was 2020-2024, not 2023",
+      "expected": "2024, not 2023",
+      "type": "date_confusion"
+    },
+    {
+      "id": "adv9",
+      "question": "What's the favorite coffee shop on Market Street?",
+      "confusion_target": "Ritual is on Valencia; gym is on Market",
+      "expected": "Ritual is on Valencia, not Market",
+      "type": "location_confusion"
+    },
+    {
+      "id": "adv10",
+      "question": "Who is the mentor from MIT?",
+      "confusion_target": "Dr. Wright is from Stanford; Person B's mentor is from MIT",
+      "expected": "Dr. Wright is from Stanford, not MIT",
+      "type": "cross_file_confusion"
+    }
+  ],
+  "synthesis": [
+    {
+      "id": "syn1",
+      "question": "What connects the spouse and best work friend professionally?",
+      "components": [
+        {"fact": "Morgan is at Cloudflare", "required": ["cloudflare"]},
+        {"fact": "Alex was at Stripe", "required": ["stripe"]},
+        {"fact": "Both are in tech", "required": ["tech", "software", "engineer"]}
+      ],
+      "expected": "Both are in tech - Morgan at Cloudflare, Alex was at Stripe"
+    },
+    {
+      "id": "syn2",
+      "question": "What are all the birthdays that need to be remembered in the family?",
+      "components": [
+        {"fact": "Lily March 22", "required": ["lily", "march"]},
+        {"fact": "Sam July 8", "required": ["sam", "july"]},
+        {"fact": "Anniversary October 14", "required": ["october", "anniversary"]}
+      ],
+      "expected": "Lily (March 22), Sam (July 8), Wedding anniversary (October 14)"
+    },
+    {
+      "id": "syn3",
+      "question": "What's the full tech stack used at work?",
+      "components": [
+        {"fact": "Rust primary", "required": ["rust"]},
+        {"fact": "Go and Python secondary", "required": ["go", "python"]},
+        {"fact": "CockroachDB + Redis", "required": ["cockroach", "redis"]},
+        {"fact": "GCP cloud", "required": ["gcp"]}
+      ],
+      "expected": "Rust (primary), Go/Python (secondary), CockroachDB/Redis, on GCP"
+    },
+    {
+      "id": "syn4",
+      "question": "What's the complete career history?",
+      "components": [
+        {"fact": "Google 2016-2020", "required": ["google"]},
+        {"fact": "Stripe 2020-2024", "required": ["stripe"]},
+        {"fact": "Nexus 2024-present", "required": ["nexus"]}
+      ],
+      "expected": "Google (2016-2020) → Stripe (2020-2024) → Nexus (2024-present)"
+    },
+    {
+      "id": "syn5",
+      "question": "What conflicts might arise between the Japan vacation and KubeCon?",
+      "components": [
+        {"fact": "Japan is April 5-19", "required": ["april", "5", "19"]},
+        {"fact": "KubeCon is March 18", "required": ["march", "18"]},
+        {"fact": "No conflict - different months", "required": ["no conflict", "different", "before"]}
+      ],
+      "expected": "No conflict - KubeCon (March 18) is before Japan trip (April 5-19)"
+    }
+  ]
+}

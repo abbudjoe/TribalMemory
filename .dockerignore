@@ -1,0 +1,16 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+*.egg-info
+.ruff_cache
+htmlcov
+.coverage
+tribal-memory-data
+extensions/
+eval/
+tests/
+docs/
+*.md
+!README.md
+!LICENSE

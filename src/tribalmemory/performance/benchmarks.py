@@ -8,9 +8,7 @@ import random
 import statistics
 import time
 from dataclasses import dataclass
-from typing import Optional
 
-from ..interfaces import MemoryEntry
 from ..testing.mocks import MockEmbeddingService, MockVectorStore
 from .corpus_generator import CorpusConfig, generate_corpus
 

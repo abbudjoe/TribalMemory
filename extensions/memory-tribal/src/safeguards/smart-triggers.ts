@@ -15,12 +15,13 @@ function isEmojiOnly(text: string): boolean {
   // Strip whitespace
   const stripped = text.replace(/\s/g, "");
   if (stripped.length === 0) return false;
-  // Remove surrogate pairs (most emoji above U+FFFF) and common BMP emoji
+  // Remove surrogate pairs (emoji above U+FFFF) and BMP emoji ranges
   const withoutEmoji = stripped
-    // Surrogate pairs cover U+10000+ (emoticons, symbols, flags, etc.)
     .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "")
-    // BMP emoji and symbol ranges
-    .replace(/[\u2600-\u27BF\u2B50\u2B55\uFE0F\u200D\u20E3\u2700-\u27BF\u231A\u231B\u23E9-\u23FA\u25AA-\u25FE\u2614\u2615\u2934\u2935\u3030\u303D\u3297\u3299\u2764\u2763\u270A-\u270D]/g, "");
+    .replace(/[\u2600-\u27BF\u2B50\u2B55\uFE0F\u200D\u20E3]/g, "")
+    .replace(/[\u231A\u231B\u23E9-\u23FA\u25AA-\u25FE]/g, "")
+    .replace(/[\u2614\u2615\u2934\u2935\u3030\u303D]/g, "")
+    .replace(/[\u3297\u3299\u2764\u2763\u270A-\u270D]/g, "");
   return withoutEmoji.length === 0;
 }
 
@@ -87,13 +88,19 @@ export class SmartTrigger {
 
   private stats = { checked: 0, skipped: 0 };
 
+  /**
+   * Create a SmartTrigger instance.
+   *
+   * Custom `skipKeywords` are **merged with** (extend) the defaults.
+   * Pass an empty array to disable all keyword skipping.
+   */
   constructor(config: Partial<SmartTriggerConfig> = {}) {
     this.config = { ...DEFAULT_SMART_TRIGGER_CONFIG, ...config };
-    // Merge custom keywords with defaults (if user provides extras)
-    if (config.skipKeywords && !config.skipKeywords.length) {
-      // Empty array = no keywords
+    if (config.skipKeywords && config.skipKeywords.length === 0) {
+      // Explicitly empty array = disable keyword skipping
       this.skipSet = new Set();
     } else {
+      // Merge custom keywords with defaults (extend, not replace)
       const keywords = config.skipKeywords
         ? [...DEFAULT_SKIP_KEYWORDS, ...config.skipKeywords]
         : DEFAULT_SKIP_KEYWORDS;
@@ -107,22 +114,18 @@ export class SmartTrigger {
   classify(query: string): ClassifyResult {
     const raw = query.trim();
 
-    // Empty or very short
-    if (raw.length < this.config.minQueryLength) {
-      return { skip: true, reason: "too short" };
-    }
-
     // Emoji-only check (before normalization strips emoji)
-    if (this.config.skipEmojiOnly && isEmojiOnly(raw)) {
+    if (raw.length > 0 && this.config.skipEmojiOnly && isEmojiOnly(raw)) {
       return { skip: true, reason: "emoji-only" };
     }
 
-    // Normalize for keyword matching
+    // Normalize for keyword matching and length check
     const normalized = normalize(raw);
 
-    // Empty after normalization (was all punctuation)
-    if (normalized.length === 0) {
-      return { skip: true, reason: "too short (empty after normalization)" };
+    // Empty or very short (checked after normalization so
+    // punctuation-only strings like "!!!" are caught too)
+    if (normalized.length < this.config.minQueryLength) {
+      return { skip: true, reason: "too short" };
     }
 
     // Exact keyword match
@@ -134,7 +137,9 @@ export class SmartTrigger {
   }
 
   /**
-   * Check if a query should be skipped. Tracks stats.
+   * Check if a query should be skipped. Tracks stats for both
+   * skipped and passed queries (use {@link getStats} to inspect).
+   * @param query - The raw query string to evaluate.
    * @returns true if the query should be skipped (no recall needed).
    */
   shouldSkip(query: string): boolean {

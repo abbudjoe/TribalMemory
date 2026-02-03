@@ -138,13 +138,15 @@ describe("SmartTrigger", () => {
   });
 
   describe("custom configuration", () => {
-    it("should allow custom skip keywords", () => {
+    it("should allow custom skip keywords that extend defaults", () => {
       const custom = new SmartTrigger({
         skipKeywords: ["skip-this", "and-this"],
       });
       expect(custom.shouldSkip("skip-this")).toBe(true);
       expect(custom.shouldSkip("and-this")).toBe(true);
-      // Default keywords should still work if extended
+      // Default keywords still work (custom extends, not replaces)
+      expect(custom.shouldSkip("hi")).toBe(true);
+      expect(custom.shouldSkip("thanks")).toBe(true);
     });
 
     it("should allow custom minimum query length", () => {
@@ -175,6 +177,12 @@ describe("SmartTrigger", () => {
 
     it("should return reason for short query skip", () => {
       const result = trigger.classify("");
+      expect(result.skip).toBe(true);
+      expect(result.reason).toContain("short");
+    });
+
+    it("should return reason for punctuation-only query skip", () => {
+      const result = trigger.classify("!!!");
       expect(result.skip).toBe(true);
       expect(result.reason).toContain("short");
     });

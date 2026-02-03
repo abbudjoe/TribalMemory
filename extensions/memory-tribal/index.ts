@@ -18,6 +18,7 @@ import { TokenBudget } from "./src/safeguards/token-budget";
 import { SnippetTruncator } from "./src/safeguards/truncation";
 import { CircuitBreaker } from "./src/safeguards/circuit-breaker";
 import { SmartTrigger } from "./src/safeguards/smart-triggers";
+import { SessionDedup } from "./src/safeguards/session-dedup";
 
 interface PluginConfig {
   tribalServerUrl: string;
@@ -43,6 +44,10 @@ interface PluginConfig {
   minQueryLength: number;
   /** Skip emoji-only queries (default: true) */
   skipEmojiOnly: boolean;
+  /** Enable session deduplication to prevent re-injecting same memory (default: true) */
+  sessionDedupEnabled: boolean;
+  /** Cooldown in ms before a deduped memory can reappear (default: 300000 = 5 min) */
+  dedupCooldownMs: number;
 }
 
 export default function memoryTribal(api: any) {
@@ -61,6 +66,8 @@ export default function memoryTribal(api: any) {
     smartTriggersEnabled: true,
     minQueryLength: 2,
     skipEmojiOnly: true,
+    sessionDedupEnabled: true,
+    dedupCooldownMs: 5 * 60 * 1000,
   };
 
   // Initialize persistence layer
@@ -94,6 +101,9 @@ export default function memoryTribal(api: any) {
   const smartTrigger = new SmartTrigger({
     minQueryLength: config.minQueryLength,
     skipEmojiOnly: config.skipEmojiOnly,
+  });
+  const sessionDedup = new SessionDedup({
+    cooldownMs: config.dedupCooldownMs,
   });
 
   // Fallback to built-in memory search if tribal server unavailable
@@ -249,7 +259,12 @@ export default function memoryTribal(api: any) {
 
         results = budgetedResults;
 
-        // Step 10: Record retrieval for feedback tracking
+        // Step 10: Session deduplication — remove results already seen
+        if (config.sessionDedupEnabled) {
+          results = sessionDedup.filter(sessionId, results);
+        }
+
+        // Step 11: Record retrieval for feedback tracking
         if (config.feedbackEnabled && results.length > 0) {
           feedbackTracker.recordRetrieval(sessionId, query, results.map(r => r.id ?? r.path));
         }

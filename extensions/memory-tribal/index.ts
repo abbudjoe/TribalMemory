@@ -101,13 +101,18 @@ export default function memoryTribal(api: any) {
       skipEmojiOnly: "smartTriggerSkipEmojiOnly",
       dedupCooldownMs: "sessionDedupCooldownMs",
     };
+    const migrated: string[] = [];
     for (const [oldKey, newKey] of Object.entries(renames)) {
       if (oldKey in raw && !(newKey in raw)) {
         (config as any)[newKey] = raw[oldKey];
-        api.log?.warn?.(
-          `[memory-tribal] Config "${oldKey}" is deprecated, use "${newKey}"`,
-        );
+        migrated.push(oldKey);
       }
+    }
+    if (migrated.length > 0) {
+      api.log?.warn?.(
+        `[memory-tribal] Deprecated config names: ${migrated.join(", ")}. ` +
+        `See README for migration table.`,
+      );
     }
   }
 

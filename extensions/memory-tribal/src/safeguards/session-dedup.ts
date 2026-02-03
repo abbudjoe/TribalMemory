@@ -27,15 +27,7 @@ const DEFAULT_CONFIG: SessionDedupConfig = {
   maxSessions: 1000,
 };
 
-interface MemoryResult {
-  path?: string;
-  startLine?: number;
-  endLine?: number;
-  snippet?: string;
-  text?: string;
-  score?: number;
-  [key: string]: unknown;
-}
+import type { MemoryResult } from "../types";
 
 /**
  * SHA-256 based hash for snippet identity. Truncated to 16 hex chars

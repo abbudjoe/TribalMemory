@@ -71,15 +71,40 @@ openclaw gateway restart
         "config": {
           "tribalServerUrl": "http://localhost:18790",
           "queryCacheEnabled": true,
+          "queryCacheMinSuccesses": 3,
           "queryExpansionEnabled": true,
           "feedbackEnabled": true,
-          "minCacheSuccesses": 3
+          "maxTokensPerRecall": 500,
+          "maxTokensPerTurn": 750,
+          "maxTokensPerSession": 5000,
+          "maxTokensPerSnippet": 100,
+          "circuitBreakerMaxEmpty": 5,
+          "circuitBreakerCooldownMs": 300000,
+          "smartTriggerEnabled": true,
+          "smartTriggerMinQueryLength": 2,
+          "smartTriggerSkipEmojiOnly": true,
+          "sessionDedupEnabled": true,
+          "sessionDedupCooldownMs": 300000,
+          "turnMaxAgeMs": 1800000
         }
       }
     }
   }
 }
 ```
+
+### Config Migration
+
+The following config names were renamed for consistency. Old names still work but emit a deprecation warning:
+
+| Old Name | New Name |
+|----------|----------|
+| `minCacheSuccesses` | `queryCacheMinSuccesses` |
+| `maxConsecutiveEmpty` | `circuitBreakerMaxEmpty` |
+| `smartTriggersEnabled` | `smartTriggerEnabled` |
+| `minQueryLength` | `smartTriggerMinQueryLength` |
+| `skipEmojiOnly` | `smartTriggerSkipEmojiOnly` |
+| `dedupCooldownMs` | `sessionDedupCooldownMs` |
 
 ## How It Works
 

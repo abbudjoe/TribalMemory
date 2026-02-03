@@ -90,6 +90,27 @@ export default function memoryTribal(api: any) {
     sessionDedupCooldownMs: 5 * 60 * 1000,
   };
 
+  // Backward compatibility: accept old config names with warning
+  const raw = api.config?.plugins?.entries?.["memory-tribal"]?.config;
+  if (raw) {
+    const renames: Record<string, string> = {
+      minCacheSuccesses: "queryCacheMinSuccesses",
+      maxConsecutiveEmpty: "circuitBreakerMaxEmpty",
+      smartTriggersEnabled: "smartTriggerEnabled",
+      minQueryLength: "smartTriggerMinQueryLength",
+      skipEmojiOnly: "smartTriggerSkipEmojiOnly",
+      dedupCooldownMs: "sessionDedupCooldownMs",
+    };
+    for (const [oldKey, newKey] of Object.entries(renames)) {
+      if (oldKey in raw && !(newKey in raw)) {
+        (config as any)[newKey] = raw[oldKey];
+        api.log?.warn?.(
+          `[memory-tribal] Config "${oldKey}" is deprecated, use "${newKey}"`,
+        );
+      }
+    }
+  }
+
   // Initialize persistence layer
   let persistence: PersistenceLayer | null = null;
   try {

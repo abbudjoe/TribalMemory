@@ -10,7 +10,7 @@
  *
  * Plugin config mapping:
  * - `sessionDedupEnabled` → controls whether this module runs
- * - `dedupCooldownMs` → maps to `SessionDedupConfig.cooldownMs`
+ * - `sessionDedupCooldownMs` → maps to `SessionDedupConfig.cooldownMs`
  */
 
 import { createHash } from "crypto";

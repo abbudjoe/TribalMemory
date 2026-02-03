@@ -244,7 +244,7 @@ class TestBaselineDocumentation:
         print(f"Retrieval (500):  p50={retrieval_500.stats.p50:.2f}ms "
               f"p95={retrieval_500.stats.p95:.2f}ms "
               f"p99={retrieval_500.stats.p99:.2f}ms")
-        print(f"Retrieval (2k): p50={retrieval_2k.stats.p50:.2f}ms "
+        print(f"Retrieval (2k):  p50={retrieval_2k.stats.p50:.2f}ms "
               f"p95={retrieval_2k.stats.p95:.2f}ms "
               f"p99={retrieval_2k.stats.p99:.2f}ms")
         print(f"Embedding throughput: {throughput.embeddings_per_second:.0f} emb/s")

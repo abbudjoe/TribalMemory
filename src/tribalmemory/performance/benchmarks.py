@@ -45,10 +45,15 @@ class ThroughputResult:
 
 @dataclass
 class CacheResult:
-    """Result of a cache effectiveness benchmark."""
+    """Result of a cache effectiveness benchmark.
+
+    'Cache hits' here means queries that were repeats of previously
+    seen queries (simulating a query cache). 'Cache misses' are
+    first-time queries that would require full embedding + retrieval.
+    """
     total_queries: int
-    cache_hits: int
-    cache_misses: int
+    cache_hits: int     # Repeated queries (would be served from cache)
+    cache_misses: int   # First-seen queries (require full retrieval)
     hit_rate: float
     avg_hit_latency_ms: float
     avg_miss_latency_ms: float
@@ -270,7 +275,11 @@ async def benchmark_cache_effectiveness(
 
 
 def _percentile(sorted_data: list[float], pct: int) -> float:
-    """Calculate percentile from sorted data."""
+    """Calculate percentile from sorted data using nearest-rank method.
+
+    Uses simple index-based lookup without interpolation. Sufficient
+    for benchmark reporting where exact percentile precision isn't critical.
+    """
     if not sorted_data:
         return 0.0
     idx = int(len(sorted_data) * pct / 100)

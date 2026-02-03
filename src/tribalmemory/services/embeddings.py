@@ -30,7 +30,7 @@ class OpenAIEmbeddingService(IEmbeddingService):
     
     DEFAULT_MODEL = "text-embedding-3-small"
     DEFAULT_DIMENSIONS = 1536
-    API_URL = "https://api.openai.com/v1/embeddings"
+    DEFAULT_API_BASE = "https://api.openai.com/v1"
     
     def __init__(
         self,
@@ -41,30 +41,45 @@ class OpenAIEmbeddingService(IEmbeddingService):
         timeout_seconds: float = 30.0,
         backoff_base: float = 2.0,
         backoff_max: float = 60.0,
+        api_base: Optional[str] = None,
     ):
-        """Initialize OpenAI embedding service.
+        """Initialize OpenAI-compatible embedding service.
+        
+        Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
         
         Args:
-            api_key: OpenAI API key. Falls back to OPENAI_API_KEY env var.
+            api_key: API key. Falls back to OPENAI_API_KEY env var.
+                     Not required when api_base points to a local service (e.g., Ollama).
             model: Embedding model to use.
             dimensions: Output embedding dimensions.
             max_retries: Max retry attempts on transient failures.
             timeout_seconds: Request timeout.
             backoff_base: Base for exponential backoff (default 2.0).
             backoff_max: Maximum backoff delay in seconds (default 60.0).
+            api_base: Base URL for the embedding API. Defaults to OpenAI.
+                      For Ollama: "http://localhost:11434/v1"
+                      For any OpenAI-compatible API: "http://host:port/v1"
         
         Security Note:
             API keys are stored in memory and used in HTTP headers. Never log
             the _client object or include it in error reports. For production,
             consider using a secrets manager rather than environment variables.
         """
+        # Build the API URL from api_base
+        self.api_url = self._resolve_api_url(api_base)
+        
+        # For local services (non-OpenAI), api_key is optional
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.backoff_base = backoff_base
         self.backoff_max = backoff_max
-        if not self.api_key:
+        is_local = api_base is not None and "openai.com" not in (api_base or "")
+        if not self.api_key and not is_local:
             raise ValueError(
                 "OpenAI API key required. Pass api_key or set OPENAI_API_KEY env var."
             )
+        # Use a dummy key for local services that don't need auth
+        if not self.api_key:
+            self.api_key = "unused"
         
         self.model = model
         self.dimensions = dimensions
@@ -72,6 +87,29 @@ class OpenAIEmbeddingService(IEmbeddingService):
         self.timeout_seconds = timeout_seconds
         
         self._client: Optional[httpx.AsyncClient] = None
+    
+    @staticmethod
+    def _resolve_api_url(api_base: Optional[str] = None) -> str:
+        """Resolve the full embeddings API URL from an optional base.
+        
+        Args:
+            api_base: Base URL (e.g., "http://localhost:11434/v1").
+                      If None, uses OpenAI default.
+        
+        Returns:
+            Full URL ending in /embeddings.
+        """
+        if api_base is None:
+            return f"{OpenAIEmbeddingService.DEFAULT_API_BASE}/embeddings"
+        
+        # Strip trailing slash
+        base = api_base.rstrip("/")
+        
+        # If already ends with /embeddings, use as-is
+        if base.endswith("/embeddings"):
+            return base
+        
+        return f"{base}/embeddings"
     
     def __repr__(self) -> str:
         """Safe repr that masks API key to prevent accidental logging."""
@@ -111,7 +149,7 @@ class OpenAIEmbeddingService(IEmbeddingService):
         last_error = None
         for attempt in range(self.max_retries):
             try:
-                response = await client.post(self.API_URL, json=payload)
+                response = await client.post(self.api_url, json=payload)
                 
                 if response.status_code == 200:
                     data = response.json()

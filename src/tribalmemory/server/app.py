@@ -40,6 +40,9 @@ async def lifespan(app: FastAPI):
         instance_id=config.instance_id,
         db_path=config.db.path,
         openai_api_key=config.embedding.api_key,
+        api_base=config.embedding.api_base,
+        embedding_model=config.embedding.model,
+        embedding_dimensions=config.embedding.dimensions,
     )
 
     logger.info(f"Memory service initialized (db: {config.db.path})")

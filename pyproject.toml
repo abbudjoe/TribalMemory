@@ -43,7 +43,7 @@ Repository = "https://github.com/abbudjoe/TribalMemory"
 Issues = "https://github.com/abbudjoe/TribalMemory/issues"
 
 [project.scripts]
-tribalmemory = "tribalmemory.server.app:main"
+tribalmemory = "tribalmemory.cli:main"
 tribalmemory-mcp = "tribalmemory.mcp.server:main"
 
 [project.optional-dependencies]

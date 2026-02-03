@@ -9,7 +9,7 @@ Issue #9: https://github.com/abbudjoe/TribalMemory/issues/9
 
 import asyncio
 import json
-from typing import Sequence
+from typing import Any, Sequence
 
 import pytest
 
@@ -25,13 +25,13 @@ from tribalmemory.services.memory import TribalMemoryService
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse(result) -> dict:
+def _parse(result: Any) -> dict:
     """Extract JSON from a FastMCP call_tool result.
 
     FastMCP.call_tool may return:
     - A dict directly
     - A Sequence[ContentBlock]
-    - A tuple of (Sequence[ContentBlock], dict) in some versions
+    - A tuple of (Sequence[ContentBlock], dict)
     """
     if isinstance(result, dict):
         return result
@@ -40,7 +40,9 @@ def _parse(result) -> dict:
         result = result[0]
     # Sequence of content blocks — grab text from first
     for block in result:
-        text = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else None)
+        text = getattr(block, "text", None)
+        if not text and isinstance(block, dict):
+            text = block.get("text")
         if text:
             return json.loads(text)
     raise ValueError(f"Could not parse result: {result}")
@@ -52,8 +54,15 @@ def _parse(result) -> dict:
 
 @pytest.fixture
 def mcp_service():
-    """Create a real TribalMemoryService with mock embedding + vector store."""
+    """Create a TribalMemoryService with mock backends.
+
+    Sets model/dimensions attributes on the mock embedding
+    service so export/import tools can read them via getattr.
+    """
     embedding = MockEmbeddingService(embedding_dim=64)
+    # Export/import tools use getattr(emb, "dimensions")
+    embedding.dimensions = 64
+    embedding.model = "mock-test-model"
     store = MockVectorStore(embedding)
     service = TribalMemoryService(
         instance_id="mcp-test",
@@ -69,7 +78,10 @@ def mcp_app(mcp_service, monkeypatch):
     # Inject our test service so tools skip real initialization
     monkeypatch.setattr(mcp_server, "_memory_service", mcp_service)
     server = create_server()
-    return server
+    yield server
+    # Cleanup: monkeypatch auto-undoes, but reset explicitly
+    # to prevent test pollution if fixture scope changes
+    monkeypatch.setattr(mcp_server, "_memory_service", None)
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +105,9 @@ class TestMCPCrudWorkflow:
         memory_id = result["memory_id"]
 
         # Step 2: Recall the memory
-        # Note: MockEmbeddingService uses hash-based embeddings, so we use
-        # min_relevance=0 to bypass similarity threshold in integration tests.
-        # Real semantic matching is covered by the embedding service tests.
+        # MockEmbeddingService uses hash-based embeddings, so
+        # min_relevance=0 bypasses similarity thresholds.
+        # Real semantic matching is tested elsewhere.
         result = _parse(await mcp_app.call_tool("tribal_recall", {
             "query": "The project deadline is March 15th",
             "limit": 5,
@@ -136,8 +148,7 @@ class TestMCPCrudWorkflow:
         # Step 6: Stats should reflect operations
         result = _parse(await mcp_app.call_tool("tribal_stats", {}))
         assert isinstance(result, dict)
-        # Should have at least the original memory (correction was deleted)
-        assert "total_memories" in result or isinstance(result, dict)
+        assert "total_memories" in result
 
 
 # ---------------------------------------------------------------------------
@@ -198,58 +209,58 @@ class TestMCPErrorHandling:
     @pytest.mark.asyncio
     async def test_remember_empty_content(self, mcp_app):
         """Empty content should return error, not crash."""
-        result = _parse(await mcp_app.call_tool("tribal_remember", {
-            "content": "",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_remember", {"content": ""},
+        ))
         assert result["success"] is False
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_remember_whitespace_content(self, mcp_app):
         """Whitespace-only content should return error."""
-        result = _parse(await mcp_app.call_tool("tribal_remember", {
-            "content": "   \n\t  ",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_remember", {"content": "   \n\t  "},
+        ))
         assert result["success"] is False
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_recall_empty_query(self, mcp_app):
         """Empty query should return empty results, not crash."""
-        result = _parse(await mcp_app.call_tool("tribal_recall", {
-            "query": "",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_recall", {"query": ""},
+        ))
         assert result["count"] == 0
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_correct_empty_original_id(self, mcp_app):
         """Empty original_id should return error."""
-        result = _parse(await mcp_app.call_tool("tribal_correct", {
-            "original_id": "",
-            "corrected_content": "New content",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_correct",
+            {"original_id": "", "corrected_content": "New"},
+        ))
         assert result["success"] is False
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_correct_empty_content(self, mcp_app):
         """Empty corrected_content should return error."""
-        result = _parse(await mcp_app.call_tool("tribal_correct", {
-            "original_id": "some-id",
-            "corrected_content": "",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_correct",
+            {"original_id": "some-id", "corrected_content": ""},
+        ))
         assert result["success"] is False
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_forget_empty_id(self, mcp_app):
         """Empty memory_id should return error."""
-        result = _parse(await mcp_app.call_tool("tribal_forget", {
-            "memory_id": "",
-        }))
+        result = _parse(await mcp_app.call_tool(
+            "tribal_forget", {"memory_id": ""},
+        ))
         assert result["success"] is False
-        assert result["error"] is not None
+        assert "empty" in result["error"].lower()
 
     @pytest.mark.asyncio
     async def test_forget_nonexistent_id(self, mcp_app):
@@ -257,7 +268,7 @@ class TestMCPErrorHandling:
         result = _parse(await mcp_app.call_tool("tribal_forget", {
             "memory_id": "nonexistent-uuid-12345",
         }))
-        # Should not crash — may return success=False or success=True depending on impl
+        # Should not crash — result depends on impl
         assert "success" in result
 
     @pytest.mark.asyncio
@@ -310,10 +321,10 @@ class TestMCPTagFiltering:
             "tags": ["programming"],
             "min_relevance": 0.0,
         }))
-        # If tag filtering works, should only get programming memories
+        # Should only return the programming memory
         for r in result["results"]:
-            if r.get("tags"):
-                assert "programming" in r["tags"] or "python" in r["tags"]
+            assert "programming" in r["tags"]
+            assert "weather" not in r["tags"]
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +345,9 @@ class TestMCPStats:
         """Stats should reflect stored memories."""
         # Store a few memories
         for i in range(3):
+            content = f"Memory {i}: unique content topic {i}"
             await mcp_app.call_tool("tribal_remember", {
-                "content": f"Memory number {i} with unique content about topic {i}",
+                "content": content,
                 "source_type": "user_explicit",
                 "tags": ["test"],
                 "skip_dedup": True,
@@ -349,7 +361,7 @@ class TestMCPStats:
 
 
 # ---------------------------------------------------------------------------
-# Test: Concurrent Requests (Optional acceptance criteria)
+# Test: Concurrent Requests
 # ---------------------------------------------------------------------------
 
 class TestMCPConcurrency:
@@ -360,8 +372,9 @@ class TestMCPConcurrency:
         """Multiple concurrent remember calls should all succeed or dedup properly."""
         tasks = []
         for i in range(5):
+            content = f"Concurrent memory {i}: topic {i}"
             tasks.append(mcp_app.call_tool("tribal_remember", {
-                "content": f"Concurrent memory {i}: unique content about topic {i}",
+                "content": content,
                 "source_type": "auto_capture",
                 "skip_dedup": True,
             }))
@@ -397,3 +410,155 @@ class TestMCPConcurrency:
         # Should complete without errors
         results = await asyncio.gather(*tasks)
         assert len(results) == 6
+
+
+# -------------------------------------------------------------------
+# Test: Export / Import Workflow
+# -------------------------------------------------------------------
+
+class TestMCPExportImport:
+    """Verify export and import MCP tool integration."""
+
+    @pytest.mark.asyncio
+    async def test_export_empty(self, mcp_app):
+        """Export with no memories returns valid bundle."""
+        result = _parse(await mcp_app.call_tool(
+            "tribal_export", {},
+        ))
+        assert result["success"] is True
+        assert result["memory_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_export_after_remember(self, mcp_app):
+        """Exported bundle should contain stored memories."""
+        await mcp_app.call_tool("tribal_remember", {
+            "content": "Export test memory",
+            "source_type": "user_explicit",
+            "tags": ["export"],
+        })
+
+        result = _parse(await mcp_app.call_tool(
+            "tribal_export", {},
+        ))
+        assert result["success"] is True
+        assert result["memory_count"] >= 1
+        assert len(result["entries"]) >= 1
+
+    @pytest.mark.asyncio
+    async def test_export_with_tag_filter(self, mcp_app):
+        """Export filtered by tag returns only matching."""
+        await mcp_app.call_tool("tribal_remember", {
+            "content": "Tagged memory for export",
+            "tags": ["keep"],
+        })
+        await mcp_app.call_tool("tribal_remember", {
+            "content": "Other memory to exclude",
+            "tags": ["skip"],
+        })
+
+        result = _parse(await mcp_app.call_tool(
+            "tribal_export", {"tags": ["keep"]},
+        ))
+        assert result["success"] is True
+        for entry in result["entries"]:
+            assert "keep" in entry.get("tags", [])
+
+    @pytest.mark.asyncio
+    async def test_export_to_file(self, mcp_app, tmp_path):
+        """Export to file path should write JSON."""
+        await mcp_app.call_tool("tribal_remember", {
+            "content": "File export test",
+            "source_type": "auto_capture",
+        })
+
+        out = str(tmp_path / "export.json")
+        result = _parse(await mcp_app.call_tool(
+            "tribal_export", {"output_path": out},
+        ))
+        assert result["success"] is True
+        assert result["output_path"] == out
+
+        with open(out) as f:
+            data = json.load(f)
+        assert "manifest" in data
+        assert "entries" in data
+
+    @pytest.mark.asyncio
+    async def test_round_trip_export_import(
+        self, mcp_app, tmp_path,
+    ):
+        """Export then import should preserve memories."""
+        # Store a memory
+        remember = _parse(await mcp_app.call_tool(
+            "tribal_remember", {
+                "content": "Round trip memory",
+                "source_type": "user_explicit",
+                "tags": ["roundtrip"],
+            },
+        ))
+        assert remember["success"] is True
+
+        # Export to file
+        out = str(tmp_path / "bundle.json")
+        exported = _parse(await mcp_app.call_tool(
+            "tribal_export", {"output_path": out},
+        ))
+        assert exported["success"] is True
+
+        # Import via file (dry run first)
+        dry = _parse(await mcp_app.call_tool(
+            "tribal_import", {
+                "input_path": out,
+                "dry_run": True,
+            },
+        ))
+        assert dry["success"] is True
+        assert dry["dry_run"] is True
+        assert dry["total"] >= 1
+
+        # Import for real (skip conflicts)
+        result = _parse(await mcp_app.call_tool(
+            "tribal_import", {
+                "input_path": out,
+                "conflict_resolution": "skip",
+            },
+        ))
+        assert result["success"] is True
+        assert result["total"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_bundle(self, mcp_app):
+        """Invalid bundle JSON should return error."""
+        result = _parse(await mcp_app.call_tool(
+            "tribal_import", {
+                "bundle_json": "not valid json{{{",
+            },
+        ))
+        assert result["success"] is False
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_import_no_source(self, mcp_app):
+        """Import with no path or JSON should error."""
+        result = _parse(await mcp_app.call_tool(
+            "tribal_import", {},
+        ))
+        assert result["success"] is False
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_conflict_resolution(
+        self, mcp_app, tmp_path,
+    ):
+        """Invalid conflict_resolution should error."""
+        # Write a minimal bundle file
+        p = tmp_path / "bad.json"
+        p.write_text('{"manifest":{}, "entries":[]}')
+        result = _parse(await mcp_app.call_tool(
+            "tribal_import", {
+                "input_path": str(p),
+                "conflict_resolution": "invalid",
+            },
+        ))
+        assert result["success"] is False
+        assert "error" in result

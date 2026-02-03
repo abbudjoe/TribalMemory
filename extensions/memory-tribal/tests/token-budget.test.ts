@@ -2,7 +2,7 @@
  * Unit tests for TokenBudget
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TokenBudget, DEFAULT_TOKEN_BUDGET } from "../src/safeguards/token-budget";
 
 describe("TokenBudget", () => {
@@ -192,6 +192,89 @@ describe("TokenBudget", () => {
       
       customBudget.recordUsage("s1", "t2", 900);
       expect(customBudget.canUseForSession("s1", 200)).toBe(false);
+    });
+  });
+
+  describe("cleanupStaleTurns()", () => {
+    it("removes turns older than maxAgeMs", () => {
+      const now = Date.now();
+
+      // Record turns at different times
+      vi.setSystemTime(now - 60_000); // 60s ago
+      budget.recordUsage("s1", "old-turn", 10);
+
+      vi.setSystemTime(now - 10_000); // 10s ago
+      budget.recordUsage("s1", "recent-turn", 20);
+
+      vi.setSystemTime(now);
+
+      // Clean up turns older than 30s
+      budget.cleanupStaleTurns(30_000);
+
+      expect(budget.getUsage("s1", "old-turn").turn).toBe(0);
+      expect(budget.getUsage("s1", "recent-turn").turn).toBe(20);
+
+      vi.useRealTimers();
+    });
+
+    it("keeps all turns if none are stale", () => {
+      budget.recordUsage("s1", "t1", 10);
+      budget.recordUsage("s1", "t2", 20);
+
+      budget.cleanupStaleTurns(60_000);
+
+      expect(budget.getUsage("s1", "t1").turn).toBe(10);
+      expect(budget.getUsage("s1", "t2").turn).toBe(20);
+    });
+
+    it("removes all turns if all are stale", () => {
+      const now = Date.now();
+
+      vi.setSystemTime(now - 120_000);
+      budget.recordUsage("s1", "t1", 10);
+      budget.recordUsage("s1", "t2", 20);
+
+      vi.setSystemTime(now);
+      budget.cleanupStaleTurns(60_000);
+
+      expect(budget.getTurnCount()).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it("returns count of removed turns", () => {
+      const now = Date.now();
+
+      vi.setSystemTime(now - 120_000);
+      budget.recordUsage("s1", "old1", 10);
+      budget.recordUsage("s1", "old2", 20);
+
+      vi.setSystemTime(now - 5_000);
+      budget.recordUsage("s1", "recent", 30);
+
+      vi.setSystemTime(now);
+      const removed = budget.cleanupStaleTurns(60_000);
+
+      expect(removed).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it("updates timestamp on subsequent usage", () => {
+      const now = Date.now();
+
+      // Record old turn
+      vi.setSystemTime(now - 120_000);
+      budget.recordUsage("s1", "refreshed", 10);
+
+      // Record again recently — should update timestamp
+      vi.setSystemTime(now - 5_000);
+      budget.recordUsage("s1", "refreshed", 5);
+
+      vi.setSystemTime(now);
+      budget.cleanupStaleTurns(60_000);
+
+      // Should NOT be removed (last usage was 5s ago)
+      expect(budget.getUsage("s1", "refreshed").turn).toBe(15);
+      vi.useRealTimers();
     });
   });
 

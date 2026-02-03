@@ -267,6 +267,8 @@ export default function memoryTribal(api: any) {
           if (tokenBudget.getTurnCount() > 200) {
             tokenBudget.cleanupOldTurns(100);
           }
+          // Time-based cleanup: evict turns older than 30 minutes
+          tokenBudget.cleanupStaleTurns(30 * 60 * 1000);
         }
 
         results = budgetedResults;

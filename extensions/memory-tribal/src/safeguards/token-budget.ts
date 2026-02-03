@@ -26,7 +26,10 @@ export class TokenBudget {
   
   // Track per-turn usage: turnId -> tokenCount
   private turnUsage = new Map<string, number>();
-  
+
+  // Track per-turn timestamps: turnId -> last usage epoch ms
+  private turnTimestamps = new Map<string, number>();
+
   // Track per-session usage: sessionId -> tokenCount
   private sessionUsage = new Map<string, number>();
 
@@ -73,6 +76,9 @@ export class TokenBudget {
     const currentTurn = this.turnUsage.get(turnId) ?? 0;
     this.turnUsage.set(turnId, currentTurn + tokens);
 
+    // Update turn timestamp (last activity)
+    this.turnTimestamps.set(turnId, Date.now());
+
     // Update session usage
     const currentSession = this.sessionUsage.get(sessionId) ?? 0;
     this.sessionUsage.set(sessionId, currentSession + tokens);
@@ -107,19 +113,48 @@ export class TokenBudget {
 
   /**
    * Clean up old turn data to prevent memory leaks.
-   * Call periodically or when turn count exceeds threshold.
+   * Count-based: keeps the most recent N turns by insertion order.
    */
   cleanupOldTurns(keepRecentCount: number = 100): void {
     if (this.turnUsage.size <= keepRecentCount) return;
-    
-    // Keep only the most recent N turns
+
     const entries = Array.from(this.turnUsage.entries());
     const toKeep = entries.slice(-keepRecentCount);
-    
+    const keepIds = new Set(toKeep.map(([id]) => id));
+
+    // Save timestamps before clearing
+    const savedTimestamps = new Map(this.turnTimestamps);
+
     this.turnUsage.clear();
+    this.turnTimestamps.clear();
+
     toKeep.forEach(([turnId, usage]) => {
       this.turnUsage.set(turnId, usage);
+      const ts = savedTimestamps.get(turnId);
+      if (ts !== undefined) {
+        this.turnTimestamps.set(turnId, ts);
+      }
     });
+  }
+
+  /**
+   * Remove turns whose last activity is older than maxAgeMs.
+   * Time-based cleanup complements count-based cleanupOldTurns.
+   * Returns the number of turns removed.
+   */
+  cleanupStaleTurns(maxAgeMs: number): number {
+    const cutoff = Date.now() - maxAgeMs;
+    let removed = 0;
+
+    for (const [turnId, ts] of this.turnTimestamps) {
+      if (ts < cutoff) {
+        this.turnUsage.delete(turnId);
+        this.turnTimestamps.delete(turnId);
+        removed++;
+      }
+    }
+
+    return removed;
   }
 
   /**

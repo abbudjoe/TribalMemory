@@ -276,17 +276,21 @@ async def benchmark_cache_effectiveness(
     )
 
 
-def _percentile(sorted_data: list[float], pct: int) -> float:
-    """Calculate percentile from sorted data using nearest-rank method.
+def _percentile(data: list[float], pct: int) -> float:
+    """Calculate percentile using linear interpolation.
 
-    Uses simple index-based lookup without interpolation. Sufficient
-    for benchmark reporting where exact percentile precision isn't critical.
+    Uses statistics.quantiles for accurate interpolation, which
+    handles small sample sizes better than nearest-rank.
     """
-    if not sorted_data:
+    if not data:
         return 0.0
-    idx = int(len(sorted_data) * pct / 100)
-    idx = min(idx, len(sorted_data) - 1)
-    return sorted_data[idx]
+    if len(data) == 1:
+        return data[0]
+    # quantiles() returns cut points; for pct-th percentile we need
+    # n=100 cut points and pick the (pct-1)-th one
+    quantile_points = statistics.quantiles(data, n=100)
+    idx = min(pct - 1, len(quantile_points) - 1)
+    return quantile_points[idx]
 
 
 # --- Graph Benchmark Results ---

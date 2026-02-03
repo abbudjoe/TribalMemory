@@ -72,12 +72,14 @@ export class TokenBudget {
    * Record token usage for a turn and session.
    */
   recordUsage(sessionId: string, turnId: string, tokens: number): void {
+    // Update timestamp FIRST to prevent race with cleanupStaleTurns:
+    // if cleanup runs between these lines, the fresh timestamp
+    // ensures this turn won't be evicted mid-update.
+    this.turnTimestamps.set(turnId, Date.now());
+
     // Update turn usage
     const currentTurn = this.turnUsage.get(turnId) ?? 0;
     this.turnUsage.set(turnId, currentTurn + tokens);
-
-    // Update turn timestamp (last activity)
-    this.turnTimestamps.set(turnId, Date.now());
 
     // Update session usage
     const currentSession = this.sessionUsage.get(sessionId) ?? 0;
@@ -140,7 +142,8 @@ export class TokenBudget {
   /**
    * Remove turns whose last activity is older than maxAgeMs.
    * Time-based cleanup complements count-based cleanupOldTurns.
-   * Returns the number of turns removed.
+   * @param maxAgeMs - Maximum age in milliseconds before eviction.
+   * @returns The number of turns removed.
    */
   cleanupStaleTurns(maxAgeMs: number): number {
     const cutoff = Date.now() - maxAgeMs;

@@ -49,6 +49,8 @@ interface PluginConfig {
   sessionDedupEnabled: boolean;
   /** Cooldown in ms before a deduped memory can reappear (default: 300000 = 5 min) */
   dedupCooldownMs: number;
+  /** Max age in ms before stale turn data is cleaned up (default: 1800000 = 30 min) */
+  turnMaxAgeMs: number;
 }
 
 export default function memoryTribal(api: any) {
@@ -69,6 +71,7 @@ export default function memoryTribal(api: any) {
     skipEmojiOnly: true,
     sessionDedupEnabled: true,
     dedupCooldownMs: 5 * 60 * 1000,
+    turnMaxAgeMs: 30 * 60 * 1000,
   };
 
   // Initialize persistence layer
@@ -112,6 +115,9 @@ export default function memoryTribal(api: any) {
     smartTrigger,
     sessionDedup,
   });
+
+  // Counter for throttling time-based cleanup (runs every 10th call)
+  let cleanupCallCount = 0;
 
   // Wire up alerting to plugin logger
   safeguardMetrics.onAlert((alert) => {
@@ -263,12 +269,15 @@ export default function memoryTribal(api: any) {
         // Record token usage
         if (totalRecallTokens > 0) {
           tokenBudget.recordUsage(sessionId, turnId, totalRecallTokens);
-          // Periodic cleanup to prevent turn usage map from growing unbounded
+          // Periodic cleanup to prevent turn usage map growth
           if (tokenBudget.getTurnCount() > 200) {
             tokenBudget.cleanupOldTurns(100);
           }
-          // Time-based cleanup: evict turns older than 30 minutes
-          tokenBudget.cleanupStaleTurns(30 * 60 * 1000);
+          // Time-based cleanup every 10th call (not every call)
+          cleanupCallCount++;
+          if (cleanupCallCount % 10 === 0) {
+            tokenBudget.cleanupStaleTurns(config.turnMaxAgeMs);
+          }
         }
 
         results = budgetedResults;

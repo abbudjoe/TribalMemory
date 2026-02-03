@@ -197,9 +197,9 @@ describe("TokenBudget", () => {
 
   describe("cleanupStaleTurns()", () => {
     it("removes turns older than maxAgeMs", () => {
+      vi.useFakeTimers();
       const now = Date.now();
 
-      // Record turns at different times
       vi.setSystemTime(now - 60_000); // 60s ago
       budget.recordUsage("s1", "old-turn", 10);
 
@@ -207,13 +207,10 @@ describe("TokenBudget", () => {
       budget.recordUsage("s1", "recent-turn", 20);
 
       vi.setSystemTime(now);
-
-      // Clean up turns older than 30s
       budget.cleanupStaleTurns(30_000);
 
       expect(budget.getUsage("s1", "old-turn").turn).toBe(0);
       expect(budget.getUsage("s1", "recent-turn").turn).toBe(20);
-
       vi.useRealTimers();
     });
 
@@ -228,6 +225,7 @@ describe("TokenBudget", () => {
     });
 
     it("removes all turns if all are stale", () => {
+      vi.useFakeTimers();
       const now = Date.now();
 
       vi.setSystemTime(now - 120_000);
@@ -242,6 +240,7 @@ describe("TokenBudget", () => {
     });
 
     it("returns count of removed turns", () => {
+      vi.useFakeTimers();
       const now = Date.now();
 
       vi.setSystemTime(now - 120_000);
@@ -259,13 +258,13 @@ describe("TokenBudget", () => {
     });
 
     it("updates timestamp on subsequent usage", () => {
+      vi.useFakeTimers();
       const now = Date.now();
 
-      // Record old turn
       vi.setSystemTime(now - 120_000);
       budget.recordUsage("s1", "refreshed", 10);
 
-      // Record again recently — should update timestamp
+      // Record again recently — refreshes timestamp
       vi.setSystemTime(now - 5_000);
       budget.recordUsage("s1", "refreshed", 5);
 

@@ -41,8 +41,6 @@ Memory-tribal is a **slot plugin** that replaces OpenClaw's default `memory-core
 | `memory_search` | Semantically search memory with learned enhancements |
 | `memory_get` | Read memory file content by path |
 | `memory_feedback` | Record which memories were useful (optional) |
-| `memory_correct` | Correct a memory by ID and invalidate cached paths (optional) |
-| `memory_forget` | Forget a memory by ID and invalidate cached paths (optional) |
 | `memory_stats` | View retrieval accuracy statistics (optional) |
 
 ## Installation

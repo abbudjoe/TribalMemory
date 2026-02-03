@@ -80,61 +80,6 @@ describe("TribalClient", () => {
         source: "user_explicit",
       });
     });
-
-    it("includes supersedes when provided by server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          results: [{
-            memory: {
-              id: "new123",
-              content: "Corrected content",
-              source_type: "correction",
-              tags: [],
-              supersedes: "old123",
-            },
-            similarity_score: 0.91,
-            retrieval_time_ms: 5,
-          }],
-        }),
-      });
-
-      const results = await client.recall("test");
-
-      expect(results[0].supersedes).toBe("old123");
-    });
-  });
-
-  describe("search()", () => {
-    it("adds sourceQuery to search results", async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            results: [{
-              memory: { id: "id1", content: "Result 1", source_type: "auto_capture", tags: [] },
-              similarity_score: 0.4,
-              retrieval_time_ms: 1,
-            }],
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            results: [{
-              memory: { id: "id2", content: "Result 2", source_type: "auto_capture", tags: [] },
-              similarity_score: 0.9,
-              retrieval_time_ms: 1,
-            }],
-          }),
-        });
-
-      const results = await client.search(["q1", "q2"], { maxResults: 5, minScore: 0.1 });
-      const sourceQueries = new Set(results.map(r => r.sourceQuery));
-
-      expect(sourceQueries.has("q1")).toBe(true);
-      expect(sourceQueries.has("q2")).toBe(true);
-    });
   });
 
   describe("remember()", () => {

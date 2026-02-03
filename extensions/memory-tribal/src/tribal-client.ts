@@ -4,6 +4,14 @@
  * Connects to the tribal-memory FastAPI server on port 18790
  */
 
+// Constants for configuration
+const DEFAULT_TIMEOUT_MS = 10000;
+const HEALTH_CHECK_TIMEOUT_MS = 5000;
+const DEFAULT_MAX_RESULTS = 5;
+const DEFAULT_MIN_SCORE = 0.1;
+const ID_PREFIX = "tribal-memory:";
+const ID_SLICE_LENGTH = 8;
+
 interface SearchOptions {
   maxResults?: number;
   minScore?: number;
@@ -11,7 +19,7 @@ interface SearchOptions {
 }
 
 interface SearchResult {
-  id?: string;
+  id: string;
   path: string;
   startLine?: number;
   endLine?: number;
@@ -42,16 +50,17 @@ export class TribalClient {
   private baseUrl: string;
   private timeout: number;
 
-  constructor(baseUrl: string, timeout = 10000) {
+  constructor(baseUrl: string, timeout = DEFAULT_TIMEOUT_MS) {
     this.baseUrl = baseUrl.replace(/\/$/, ""); // Remove trailing slash
     this.timeout = timeout;
   }
 
   /**
    * Search memories with multiple query variants
+   * Returns results even if some variants fail (partial success)
    */
   async search(queries: string[], options: SearchOptions = {}): Promise<SearchResult[]> {
-    const { maxResults = 5, minScore = 0.1 } = options;
+    const { maxResults = DEFAULT_MAX_RESULTS, minScore = DEFAULT_MIN_SCORE } = options;
 
     // Search with each query variant and merge results
     const allResults: SearchResult[] = [];
@@ -62,10 +71,13 @@ export class TribalClient {
         const results = await this.recall(query, { maxResults, minScore });
         
         for (const result of results) {
-          // id is always set by recall() but typed optional for external use
-          const id = result.id ?? result.path;
-          if (!seenIds.has(id)) {
-            seenIds.add(id);
+          // Validate id exists (should always be present from recall)
+          if (!result.id) {
+            console.warn("[tribal-client] Skipping result without id:", result);
+            continue;
+          }
+          if (!seenIds.has(result.id)) {
+            seenIds.add(result.id);
             allResults.push(result);
           }
         }
@@ -83,6 +95,7 @@ export class TribalClient {
 
   /**
    * Recall memories matching a query (maps to /v1/recall)
+   * Throws on error - caller should handle
    */
   async recall(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
     const controller = new AbortController();
@@ -96,8 +109,8 @@ export class TribalClient {
         },
         body: JSON.stringify({
           query,
-          limit: options.maxResults ?? 5,
-          min_relevance: options.minScore ?? 0.1,
+          limit: options.maxResults ?? DEFAULT_MAX_RESULTS,
+          min_relevance: options.minScore ?? DEFAULT_MIN_SCORE,
           tags: options.tags,
         }),
         signal: controller.signal,
@@ -110,14 +123,19 @@ export class TribalClient {
       const data = await response.json();
       
       // Transform server response to SearchResult format
-      return (data.results ?? []).map((r: RecallResult) => ({
-        id: r.memory.id,
-        path: `tribal-memory:${r.memory.id.slice(0, 8)}`,
-        score: r.similarity_score,
-        snippet: r.memory.content,
-        source: r.memory.source_type,
-        tags: r.memory.tags,
-      }));
+      return (data.results ?? []).map((r: RecallResult) => {
+        if (!r.memory?.id) {
+          throw new Error("Invalid response: memory missing id");
+        }
+        return {
+          id: r.memory.id,
+          path: `${ID_PREFIX}${r.memory.id.slice(0, ID_SLICE_LENGTH)}`,
+          score: r.similarity_score,
+          snippet: r.memory.content,
+          source: r.memory.source_type,
+          tags: r.memory.tags,
+        };
+      });
     } finally {
       clearTimeout(timeoutId);
     }
@@ -125,6 +143,7 @@ export class TribalClient {
 
   /**
    * Store a new memory (maps to /v1/remember)
+   * Throws on error - caller should handle
    */
   async remember(content: string, options: {
     sourceType?: string;
@@ -168,8 +187,9 @@ export class TribalClient {
 
   /**
    * Get a memory by ID (maps to /v1/memory/{id})
+   * Returns null if not found (404), throws on other errors
    */
-  async get(id: string): Promise<any> {
+  async get(id: string): Promise<any | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -178,16 +198,15 @@ export class TribalClient {
         signal: controller.signal,
       });
 
+      if (response.status === 404) {
+        return null;
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       return await response.json();
-    } catch (err) {
-      if ((err as Error).message.includes("404")) {
-        return null;
-      }
-      throw err;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -195,6 +214,7 @@ export class TribalClient {
 
   /**
    * Correct an existing memory (maps to /v1/correct)
+   * Throws on error - caller should handle
    */
   async correct(
     originalId: string,
@@ -234,6 +254,7 @@ export class TribalClient {
 
   /**
    * Forget (delete) a memory (maps to DELETE /v1/forget/{id})
+   * Returns false on error - safe to ignore failures
    */
   async forget(id: string): Promise<boolean> {
     const controller = new AbortController();
@@ -251,6 +272,8 @@ export class TribalClient {
 
       const data = await response.json();
       return data.success;
+    } catch {
+      return false;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -258,11 +281,11 @@ export class TribalClient {
 
   /**
    * Health check (maps to /v1/health)
-   */
+   * Returns { ok: false } on any error (never throws)   */
   async health(): Promise<{ ok: boolean; instanceId?: string; memoryCount?: number }> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
 
       const response = await fetch(`${this.baseUrl}/v1/health`, {
         signal: controller.signal,
@@ -287,6 +310,7 @@ export class TribalClient {
 
   /**
    * Get memory statistics (maps to /v1/stats)
+   * Throws on error - caller should handle
    */
   async stats(): Promise<any> {
     const controller = new AbortController();
@@ -305,30 +329,5 @@ export class TribalClient {
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  // ===========================================================================
-  // Deprecated methods (v0.x compatibility)
-  // These will be removed in v1.0. Use the new method names instead.
-  // ===========================================================================
-
-  /**
-   * @deprecated Use `remember()` instead. Will be removed in v1.0.
-   */
-  async capture(content: string, metadata?: Record<string, any>): Promise<string> {
-    console.warn("[tribal-client] capture() is deprecated, use remember() instead");
-    const result = await this.remember(content, {
-      tags: metadata?.tags,
-      context: metadata?.context,
-    });
-    return result.memoryId ?? "";
-  }
-
-  /**
-   * @deprecated Use `recall()` instead. Will be removed in v1.0.
-   */
-  async searchSingle(query: string, options: SearchOptions): Promise<SearchResult[]> {
-    console.warn("[tribal-client] searchSingle() is deprecated, use recall() instead");
-    return this.recall(query, options);
   }
 }

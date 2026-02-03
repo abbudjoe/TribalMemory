@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from src.tribal_memory.testing import (
+from tribalmemory.testing import (
     MockEmbeddingService,
     MockVectorStore,
     MockMemoryService,

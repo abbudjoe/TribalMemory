@@ -7,6 +7,8 @@
  * - Per-session: Max tokens across entire session
  */
 
+import { countTokens } from "./token-utils";
+
 export interface TokenBudgetConfig {
   perRecallCap: number;    // Max tokens per single memory_search call
   perTurnCap: number;      // Max tokens per agent turn
@@ -34,12 +36,10 @@ export class TokenBudget {
 
   /**
    * Count tokens in text (approximate).
-   * Split on whitespace, estimate ~0.75 tokens per word.
+   * Delegates to shared token-utils for consistency across safeguard modules.
    */
   countTokens(text: string): number {
-    if (!text) return 0;
-    const words = text.split(/\s+/).filter(w => w.length > 0);
-    return Math.ceil(words.length * 0.75);
+    return countTokens(text);
   }
 
   /**
@@ -96,6 +96,13 @@ export class TokenBudget {
       turnRemaining: Math.max(0, this.config.perTurnCap - turn),
       sessionRemaining: Math.max(0, this.config.perSessionCap - session),
     };
+  }
+
+  /**
+   * Get the number of tracked turns (for cleanup threshold checks).
+   */
+  getTurnCount(): number {
+    return this.turnUsage.size;
   }
 
   /**

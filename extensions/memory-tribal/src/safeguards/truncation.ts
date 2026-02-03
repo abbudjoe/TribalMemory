@@ -5,6 +5,8 @@
  * Applied BEFORE token budget accounting.
  */
 
+import { countTokens } from "./token-utils";
+
 export interface TruncationConfig {
   maxTokensPerSnippet: number;
 }
@@ -22,12 +24,10 @@ export class SnippetTruncator {
 
   /**
    * Count tokens in text (approximate).
-   * Split on whitespace, estimate ~0.75 tokens per word.
+   * Delegates to shared token-utils for consistency across safeguard modules.
    */
   private countTokens(text: string): number {
-    if (!text) return 0;
-    const words = text.split(/\s+/).filter(w => w.length > 0);
-    return Math.ceil(words.length * 0.75);
+    return countTokens(text);
   }
 
   /**

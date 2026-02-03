@@ -194,4 +194,25 @@ describe("TokenBudget", () => {
       expect(customBudget.canUseForSession("s1", 200)).toBe(false);
     });
   });
+
+  describe("edge cases", () => {
+    it("should handle negative token counts gracefully", () => {
+      expect(budget.canUseForRecall(-10)).toBe(true);
+      expect(budget.canUseForTurn("t1", -10)).toBe(true);
+      expect(budget.canUseForSession("s1", -10)).toBe(true);
+    });
+
+    it("should handle extremely large token counts", () => {
+      expect(budget.canUseForRecall(Number.MAX_SAFE_INTEGER)).toBe(false);
+      expect(budget.canUseForTurn("t1", Number.MAX_SAFE_INTEGER)).toBe(false);
+      expect(budget.canUseForSession("s1", Number.MAX_SAFE_INTEGER)).toBe(false);
+    });
+
+    it("should report turn count via getTurnCount()", () => {
+      expect(budget.getTurnCount()).toBe(0);
+      budget.recordUsage("s1", "t1", 10);
+      budget.recordUsage("s1", "t2", 20);
+      expect(budget.getTurnCount()).toBe(2);
+    });
+  });
 });

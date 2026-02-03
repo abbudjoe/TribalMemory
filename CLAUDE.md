@@ -52,7 +52,8 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 1. Create feature branch from main
 2. Make changes, commit
 3. Push branch, open PR
-4. **Comment: `@claude review this PR`** ← REQUIRED, DO NOT SKIP
+4. **Post PR comment: `@claude review this PR`** ← REQUIRED, DO NOT SKIP  
+   ⚠️ **Note:** This is a comment on the PR (not the commit message)
 5. Check Claude Code's review comments
 6. Fix all identified issues
 7. Commit fixes, push
@@ -63,9 +64,10 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 **CRITICAL:**
 - ❌ No direct commits to main (except hotfixes approved by Joe)
 - ❌ No merges without Claude Code review
-- ❌ No skipping step 4 (the explicit comment triggers review)
+- ❌ No skipping step 4 (the explicit PR comment triggers review)
+- ❌ Do NOT put `@claude review this PR` in commit messages
 - ❌ Do NOT rely on automatic GitHub Action triggers
-- ✅ Step 4 comment must be **standalone** (not combined with other text)
+- ✅ Step 4 comment must be **standalone** on the PR (not combined with other text)
 
 ## Project Structure
 

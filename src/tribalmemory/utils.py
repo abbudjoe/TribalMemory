@@ -1,4 +1,8 @@
-"""Shared utility functions for TribalMemory."""
+"""Shared utility functions for TribalMemory.
+
+This module provides common functions used across multiple components
+to prevent code duplication and ensure consistency.
+"""
 
 import math
 

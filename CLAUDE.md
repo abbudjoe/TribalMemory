@@ -56,18 +56,20 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
    ⚠️ **Note:** This is a comment on the PR (not the commit message)
 5. Check Claude Code's review comments
 6. Fix all identified issues
-7. Commit fixes, push
-8. Issues remaining? → Go to step 4
-9. When clean: Comment `@abbudjoe ready for merge`
-10. Joe reviews and merges
+7. Commit fixes, **push**
+8. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
+9. Issues remaining? → Go to step 4
+10. When clean: Comment `@abbudjoe ready for merge`
+11. Joe reviews and merges
 
 **CRITICAL:**
 - ❌ No direct commits to main (except hotfixes approved by Joe)
 - ❌ No merges without Claude Code review
-- ❌ No skipping step 4 (the explicit PR comment triggers review)
+- ❌ No skipping the `@claude review this PR` comment (required after EVERY push)
 - ❌ Do NOT put `@claude review this PR` in commit messages
 - ❌ Do NOT rely on automatic GitHub Action triggers
-- ✅ Step 4 comment must be **standalone** on the PR (not combined with other text)
+- ✅ The comment must be **standalone** on the PR (not combined with other text)
+- ✅ Comment after **every push** to trigger re-review
 
 ## Project Structure
 

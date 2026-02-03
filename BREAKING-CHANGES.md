@@ -42,10 +42,11 @@
 
 ### 2. Query Expansion Learning
 
-**What it was:** Learned which query variants produced best results  
+**What it was:** Learned which query variants produced best results (the learning mechanism, not expansion itself)  
 **Why removed:**
-- Query expansion was disabled by default (performance)
-- Learning required many repeated queries
+- Query expansion **learning** was removed — the code that tried to learn which variants worked best
+- Expansion itself remains enabled by default (can be disabled via config)
+- Learning required many repeated queries to be effective
 - Not used in production
 
 ### 3. Fallback Retry Logic

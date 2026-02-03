@@ -9,8 +9,12 @@ const DEFAULT_TIMEOUT_MS = 10000;
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 const DEFAULT_MAX_RESULTS = 5;
 const DEFAULT_MIN_SCORE = 0.1;
+/**
+ * Path format: "tribal-memory:{full-uuid}"
+ * Used as the unique identifier in SearchResult.path for memory entries.
+ * Full UUID eliminates collision risk at any corpus size.
+ */
 const ID_PREFIX = "tribal-memory:";
-// Full UUID used in path to eliminate collision risk (Issue #8)
 
 interface SearchOptions {
   maxResults?: number;

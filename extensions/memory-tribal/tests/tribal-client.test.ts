@@ -103,8 +103,6 @@ describe("TribalClient", () => {
 
       expect(results).toHaveLength(1);
       expect(results[0].path).toBe(`tribal-memory:${fullUuid}`);
-      // Ensure full ID is preserved, not truncated
-      expect(results[0].path).toContain(fullUuid);
     });
   });
 

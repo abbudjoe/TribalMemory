@@ -139,9 +139,18 @@ class PortableBundle:
 
 @dataclass
 class ImportResult:
-    """Result of importing a portable bundle."""
+    """Result of importing a portable bundle.
+
+    Attributes:
+        entries: Imported memory entries (embeddings may be None if dropped).
+        needs_embedding: True if entries had embeddings cleared and need
+            re-embedding by the caller before they can be searched.
+        source_metadata: Embedding metadata from the source bundle.
+        target_metadata: Embedding metadata of the target system.
+        strategy_used: Which re-embedding strategy was applied.
+    """
     entries: list[MemoryEntry]
-    reembedded: bool
+    needs_embedding: bool
     source_metadata: EmbeddingMetadata
     target_metadata: EmbeddingMetadata
     strategy_used: ReembeddingStrategy
@@ -177,7 +186,20 @@ def create_portable_bundle(
     embedding_metadata: EmbeddingMetadata,
     schema_version: str = "1.0",
 ) -> PortableBundle:
-    """Create a portable bundle from memory entries and embedding metadata."""
+    """Create a portable bundle from memory entries and embedding metadata.
+
+    Validates that any entry with an embedding has dimensions matching
+    the declared metadata.
+
+    Raises:
+        ValueError: If an entry's embedding dimensions don't match metadata.
+    """
+    for entry in entries:
+        if entry.embedding and len(entry.embedding) != embedding_metadata.dimensions:
+            raise ValueError(
+                f"Entry {entry.id} has {len(entry.embedding)} dimensions, "
+                f"expected {embedding_metadata.dimensions}"
+            )
     manifest = EmbeddingManifest(
         schema_version=schema_version,
         embedding_metadata=embedding_metadata,
@@ -185,6 +207,9 @@ def create_portable_bundle(
         exported_at=datetime.now(timezone.utc).isoformat(),
     )
     return PortableBundle(manifest=manifest, entries=list(entries))
+
+
+SUPPORTED_SCHEMA_VERSIONS = {"1.0"}
 
 
 def import_bundle(
@@ -201,7 +226,16 @@ def import_bundle(
 
     Returns:
         ImportResult with entries (possibly with cleared embeddings).
+
+    Raises:
+        ValueError: If bundle schema version is unsupported.
     """
+    version = bundle.manifest.schema_version
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError(
+            f"Unsupported schema version '{version}'. "
+            f"Supported: {SUPPORTED_SCHEMA_VERSIONS}"
+        )
     source_meta = bundle.manifest.embedding_metadata
     compatible = source_meta.is_compatible_with(target_metadata)
 
@@ -221,7 +255,7 @@ def import_bundle(
 
     return ImportResult(
         entries=imported_entries,
-        reembedded=False,  # We only drop; actual re-embedding is caller's job
+        needs_embedding=should_drop,
         source_metadata=source_meta,
         target_metadata=target_metadata,
         strategy_used=strategy,

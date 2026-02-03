@@ -19,6 +19,7 @@ import { SnippetTruncator } from "./src/safeguards/truncation";
 import { CircuitBreaker } from "./src/safeguards/circuit-breaker";
 import { SmartTrigger } from "./src/safeguards/smart-triggers";
 import { SessionDedup } from "./src/safeguards/session-dedup";
+import { SafeguardMetrics } from "./src/safeguards/metrics";
 
 interface PluginConfig {
   tribalServerUrl: string;
@@ -104,6 +105,17 @@ export default function memoryTribal(api: any) {
   });
   const sessionDedup = new SessionDedup({
     cooldownMs: config.dedupCooldownMs,
+  });
+  const safeguardMetrics = new SafeguardMetrics({
+    tokenBudget,
+    circuitBreaker,
+    smartTrigger,
+    sessionDedup,
+  });
+
+  // Wire up alerting to plugin logger
+  safeguardMetrics.onAlert((alert) => {
+    api.log?.warn?.(`[memory-tribal] ALERT [${alert.source}] ${alert.message} (session=${alert.sessionId})`);
   });
 
   // Fallback to built-in memory search if tribal server unavailable
@@ -269,6 +281,9 @@ export default function memoryTribal(api: any) {
           feedbackTracker.recordRetrieval(sessionId, query, results.map(r => r.id ?? r.path));
         }
 
+        // Step 12: Check alert conditions
+        safeguardMetrics.checkAlerts(sessionId, turnId);
+
         return formatResults(results, "search");
       } catch (err: any) {
         return {
@@ -375,7 +390,27 @@ export default function memoryTribal(api: any) {
     { optional: true }
   );
 
-  api.log?.info?.("[memory-tribal] Plugin loaded");
+  /**
+   * memory_metrics - Get safeguard metrics snapshot (optional)
+   */
+  api.registerTool(
+    {
+      name: "memory_metrics",
+      description: "Get a snapshot of all safeguard metrics: token budgets, circuit breaker state, smart trigger stats, and session dedup rates. Useful for diagnosing recall quality and tuning thresholds.",
+      parameters: Type.Object({}),
+      async execute(toolCallId: string, params: any, context: any) {
+        const sessionId = context?.sessionId ?? "unknown";
+        const turnId = context?.turnId ?? `turn-${Date.now()}`;
+        const text = safeguardMetrics.formatSnapshotMarkdown(sessionId, turnId);
+        return {
+          content: [{ type: "text", text }],
+        };
+      },
+    },
+    { optional: true }
+  );
+
+  api.log?.info?.("[memory-tribal] Plugin loaded (with Phase 4 metrics & alerting)");
 }
 
 function formatResults(results: any[], source: string) {

@@ -220,38 +220,48 @@ async def export_memories_route(
     request: ExportRequest,
     service: TribalMemoryService = Depends(get_memory_service),
 ) -> ExportResponse:
-    """Export memories to a portable bundle with optional filtering."""
-    from datetime import datetime as dt
+    """Export memories with optional tag/date filtering."""
+    from ..portability.embedding_metadata import (
+        create_embedding_metadata,
+    )
+    from ..services.import_export import (
+        ExportFilter,
+        export_memories,
+        parse_iso_datetime,
+    )
 
-    from ..portability.embedding_metadata import create_embedding_metadata
-    from ..services.import_export import ExportFilter, export_memories
+    # Validate dates
+    parsed_from, err = parse_iso_datetime(
+        request.date_from, "date_from",
+    )
+    if err:
+        return ExportResponse(success=False, error=err)
+    parsed_to, err = parse_iso_datetime(
+        request.date_to, "date_to",
+    )
+    if err:
+        return ExportResponse(success=False, error=err)
 
     try:
-        emb_svc = service.embedding_service
+        emb = service.embedding_service
         meta = create_embedding_metadata(
-            model_name=getattr(emb_svc, "model", "unknown"),
-            dimensions=getattr(emb_svc, "dimensions", 1536),
+            model_name=getattr(emb, "model", "unknown"),
+            dimensions=getattr(emb, "dimensions", 1536),
             provider="openai",
         )
 
-        filters = None
-        if request.tags or request.date_from or request.date_to:
-            filters = ExportFilter(
+        flt = None
+        if request.tags or parsed_from or parsed_to:
+            flt = ExportFilter(
                 tags=request.tags,
-                date_from=(
-                    dt.fromisoformat(request.date_from)
-                    if request.date_from else None
-                ),
-                date_to=(
-                    dt.fromisoformat(request.date_to)
-                    if request.date_to else None
-                ),
+                date_from=parsed_from,
+                date_to=parsed_to,
             )
 
         bundle = await export_memories(
             store=service.vector_store,
             embedding_metadata=meta,
-            filters=filters,
+            filters=flt,
         )
 
         return ExportResponse(
@@ -277,7 +287,21 @@ async def import_memories_route(
     from ..services.import_export import (
         ConflictResolution,
         import_memories,
+        validate_conflict_resolution,
+        validate_embedding_strategy,
     )
+
+    # Validate enum params
+    err = validate_conflict_resolution(
+        request.conflict_resolution,
+    )
+    if err:
+        return ImportResponse(success=False, error=err)
+    err = validate_embedding_strategy(
+        request.embedding_strategy,
+    )
+    if err:
+        return ImportResponse(success=False, error=err)
 
     try:
         bundle = PortableBundle.from_dict(request.bundle)
@@ -286,10 +310,10 @@ async def import_memories_route(
             success=False, error=f"Invalid bundle: {e}",
         )
 
-    emb_svc = service.embedding_service
+    emb = service.embedding_service
     target_meta = create_embedding_metadata(
-        model_name=getattr(emb_svc, "model", "unknown"),
-        dimensions=getattr(emb_svc, "dimensions", 1536),
+        model_name=getattr(emb, "model", "unknown"),
+        dimensions=getattr(emb, "dimensions", 1536),
         provider="openai",
     )
 
@@ -309,12 +333,12 @@ async def import_memories_route(
             bundle=bundle,
             store=service.vector_store,
             target_metadata=target_meta,
-            conflict_resolution=cr_map.get(
-                request.conflict_resolution, ConflictResolution.SKIP,
-            ),
-            embedding_strategy=es_map.get(
-                request.embedding_strategy, ReembeddingStrategy.AUTO,
-            ),
+            conflict_resolution=cr_map[
+                request.conflict_resolution
+            ],
+            embedding_strategy=es_map[
+                request.embedding_strategy
+            ],
         )
 
         return ImportResponse(

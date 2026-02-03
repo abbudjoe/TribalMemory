@@ -29,6 +29,9 @@ from tribalmemory.services.import_export import (
     ImportSummary,
     export_memories,
     import_memories,
+    validate_conflict_resolution,
+    validate_embedding_strategy,
+    parse_iso_datetime,
 )
 from tribalmemory.testing.mocks import MockEmbeddingService
 from tribalmemory.services.vector_store import InMemoryVectorStore
@@ -74,8 +77,8 @@ def embedding_metadata():
 
 
 @pytest.fixture
-async def populated_store(embedding_service):
-    """Store with 5 memories across different tags and dates."""
+async def populated_memory_store(embedding_service):
+    """InMemoryVectorStore with 5 memories across tags/dates."""
     store = InMemoryVectorStore(embedding_service)
 
     now = datetime.now(timezone.utc)
@@ -127,10 +130,10 @@ class TestExport:
     """Test memory export with filtering."""
 
     @pytest.mark.asyncio
-    async def test_export_all(self, populated_store, embedding_metadata):
+    async def test_export_all(self, populated_memory_store, embedding_metadata):
         """Export without filters should include all memories."""
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
         )
         assert isinstance(bundle, PortableBundle)
@@ -139,11 +142,11 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_filter_by_tags(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Export with tag filter should only include matching."""
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
             filters=ExportFilter(tags=["preferences"]),
         )
@@ -153,12 +156,12 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_filter_by_date_range(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Export with date range should only include matching."""
         now = datetime.now(timezone.utc)
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
             filters=ExportFilter(
                 date_from=now - timedelta(days=2),
@@ -170,12 +173,12 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_filter_combined(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Combined tag + date filter should intersect."""
         now = datetime.now(timezone.utc)
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
             filters=ExportFilter(
                 tags=["work"],
@@ -188,11 +191,11 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_empty_result(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Export with non-matching filter should return empty bundle."""
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
             filters=ExportFilter(tags=["nonexistent"]),
         )
@@ -201,11 +204,11 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_preserves_all_fields(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Exported entries should preserve all metadata."""
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
         )
         entry = next(
@@ -218,11 +221,11 @@ class TestExport:
 
     @pytest.mark.asyncio
     async def test_export_manifest_metadata(
-        self, populated_store, embedding_metadata,
+        self, populated_memory_store, embedding_metadata,
     ):
         """Manifest should include correct embedding metadata."""
         bundle = await export_memories(
-            store=populated_store,
+            store=populated_memory_store,
             embedding_metadata=embedding_metadata,
         )
         m = bundle.manifest
@@ -632,3 +635,107 @@ class TestRoundTrip:
 
         assert restored.manifest.memory_count == 1
         assert restored.entries[0].content == "Serialize me"
+
+
+# =============================================================================
+# Validation Tests (#3, #4, #7)
+# =============================================================================
+
+
+class TestValidation:
+    """Input validation for enum params and dates."""
+
+    def test_validate_conflict_resolution_valid(self):
+        assert validate_conflict_resolution("skip") is None
+        assert validate_conflict_resolution("overwrite") is None
+        assert validate_conflict_resolution("merge") is None
+
+    def test_validate_conflict_resolution_invalid(self):
+        err = validate_conflict_resolution("overwirte")
+        assert err is not None
+        assert "overwirte" in err
+
+    def test_validate_embedding_strategy_valid(self):
+        assert validate_embedding_strategy("auto") is None
+        assert validate_embedding_strategy("keep") is None
+        assert validate_embedding_strategy("drop") is None
+
+    def test_validate_embedding_strategy_invalid(self):
+        err = validate_embedding_strategy("yolo")
+        assert err is not None
+        assert "yolo" in err
+
+    def test_parse_iso_datetime_valid(self):
+        dt, err = parse_iso_datetime(
+            "2026-01-15T10:30:00", "test_field",
+        )
+        assert dt is not None
+        assert err is None
+
+    def test_parse_iso_datetime_none(self):
+        dt, err = parse_iso_datetime(None, "test_field")
+        assert dt is None
+        assert err is None
+
+    def test_parse_iso_datetime_invalid(self):
+        dt, err = parse_iso_datetime(
+            "not-a-date", "date_from",
+        )
+        assert dt is None
+        assert err is not None
+        assert "date_from" in err
+        assert "not-a-date" in err
+
+    def test_parse_iso_datetime_empty_string(self):
+        dt, err = parse_iso_datetime("", "test_field")
+        assert dt is None
+        assert err is None
+
+
+# =============================================================================
+# Upsert / Vector Store Integration (#1)
+# =============================================================================
+
+
+class TestUpsert:
+    """Test the upsert method on InMemoryVectorStore."""
+
+    @pytest.mark.asyncio
+    async def test_upsert_new_entry(self, embedding_service):
+        store = InMemoryVectorStore(embedding_service)
+        entry = _make_entry("New", entry_id="u1")
+        result = await store.upsert(entry)
+        assert result.success
+        got = await store.get("u1")
+        assert got.content == "New"
+
+    @pytest.mark.asyncio
+    async def test_upsert_replaces_existing(
+        self, embedding_service,
+    ):
+        store = InMemoryVectorStore(embedding_service)
+        old = _make_entry("Old", entry_id="u2")
+        await store.store(old)
+
+        new = _make_entry("Replaced", entry_id="u2")
+        result = await store.upsert(new)
+        assert result.success
+        got = await store.get("u2")
+        assert got.content == "Replaced"
+
+    @pytest.mark.asyncio
+    async def test_upsert_clears_tombstone(
+        self, embedding_service,
+    ):
+        """Upsert after delete should clear soft-delete flag."""
+        store = InMemoryVectorStore(embedding_service)
+        entry = _make_entry("Will be deleted", entry_id="u3")
+        await store.store(entry)
+        await store.delete("u3")
+        assert await store.get("u3") is None
+
+        revived = _make_entry("Revived", entry_id="u3")
+        await store.upsert(revived)
+        got = await store.get("u3")
+        assert got is not None
+        assert got.content == "Revived"

@@ -1,25 +1,31 @@
 """Import/export service for data migration (Issue #7).
 
-Provides filtered export and conflict-aware import of memory entries
-using the portable bundle format defined in
+Provides filtered export and conflict-aware import of memory
+entries using the portable bundle format defined in
 ``tribalmemory.portability.embedding_metadata``.
 
 Export supports filtering by:
 - Tags (any-match)
-- Date range (created_at)
+- Date range (``created_at``)
 
 Import supports conflict resolution:
 - SKIP (default): ignore entries whose ID already exists
 - OVERWRITE: replace existing entries unconditionally
 - MERGE: keep whichever entry has the newer ``updated_at``
+
+Timezone assumption:
+    All naive ``datetime`` objects are treated as UTC. This is
+    consistent with ``MemoryEntry.created_at`` and ``updated_at``
+    which default to ``datetime.utcnow()`` (naive UTC).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from ..interfaces import IVectorStore, MemoryEntry
 from ..portability.embedding_metadata import (
@@ -30,12 +36,23 @@ from ..portability.embedding_metadata import (
     import_bundle as portability_import_bundle,
 )
 
+logger = logging.getLogger(__name__)
+
+# Max entries fetched in a single export. If the store contains
+# more, the export will be silently truncated — a warning is
+# logged when this happens.
+MAX_EXPORT_ENTRIES = 100_000
+
+# Valid values for user-facing enum parameters
+VALID_CONFLICT_RESOLUTIONS = {"skip", "overwrite", "merge"}
+VALID_EMBEDDING_STRATEGIES = {"auto", "keep", "drop"}
+
 
 class ConflictResolution(Enum):
     """How to handle ID collisions on import."""
-    SKIP = "skip"           # Keep existing, ignore incoming
-    OVERWRITE = "overwrite"  # Replace existing with incoming
-    MERGE = "merge"          # Keep whichever has newer updated_at
+    SKIP = "skip"
+    OVERWRITE = "overwrite"
+    MERGE = "merge"
 
 
 @dataclass
@@ -45,8 +62,8 @@ class ExportFilter:
     Attributes:
         tags: Include entries matching *any* of these tags.
               ``None`` means no tag filter.
-        date_from: Include entries created on or after this time.
-        date_to: Include entries created on or before this time.
+        date_from: Include entries created on or after this.
+        date_to: Include entries created on or before this.
     """
     tags: Optional[list[str]] = None
     date_from: Optional[datetime] = None
@@ -65,36 +82,47 @@ class ImportSummary:
     error_details: list[str] = field(default_factory=list)
 
 
-# ------------------------------------------------------------------ #
-#  Export                                                              #
-# ------------------------------------------------------------------ #
+# -------------------------------------------------------------- #
+#  Export                                                          #
+# -------------------------------------------------------------- #
 
 
 async def export_memories(
     store: IVectorStore,
     embedding_metadata: EmbeddingMetadata,
     filters: Optional[ExportFilter] = None,
-    schema_version: str = "1.0",
+    schema_version: Literal["1.0"] = "1.0",
+    limit: int = MAX_EXPORT_ENTRIES,
 ) -> PortableBundle:
     """Export memories from a vector store as a portable bundle.
 
     Args:
         store: Vector store to export from.
-        embedding_metadata: Metadata describing the embedding model.
-        filters: Optional filters (tags, date range).
+        embedding_metadata: Metadata describing the embedding
+            model used by this store.
+        filters: Optional tag / date filters.
         schema_version: Bundle schema version.
+        limit: Max entries to fetch. Defaults to
+            ``MAX_EXPORT_ENTRIES``. A warning is logged when the
+            result set is truncated.
 
     Returns:
         A ``PortableBundle`` ready for serialization.
     """
-    # Fetch all non-deleted entries (tag filter handled by store)
     tag_filter = None
     if filters and filters.tags:
         tag_filter = {"tags": filters.tags}
 
-    entries = await store.list(limit=100_000, filters=tag_filter)
+    entries = await store.list(limit=limit, filters=tag_filter)
 
-    # Apply date range filter in Python (store doesn't support it)
+    if len(entries) >= limit:
+        logger.warning(
+            "Export hit limit of %d entries — result may be "
+            "truncated. Pass a higher limit to export_memories() "
+            "if needed.",
+            limit,
+        )
+
     if filters:
         entries = _apply_date_filter(entries, filters)
 
@@ -129,17 +157,21 @@ def _apply_date_filter(
     return result
 
 
-# ------------------------------------------------------------------ #
-#  Import                                                              #
-# ------------------------------------------------------------------ #
+# -------------------------------------------------------------- #
+#  Import                                                          #
+# -------------------------------------------------------------- #
 
 
 async def import_memories(
     bundle: PortableBundle,
     store: IVectorStore,
     target_metadata: EmbeddingMetadata,
-    conflict_resolution: ConflictResolution = ConflictResolution.SKIP,
-    embedding_strategy: ReembeddingStrategy = ReembeddingStrategy.AUTO,
+    conflict_resolution: ConflictResolution = (
+        ConflictResolution.SKIP
+    ),
+    embedding_strategy: ReembeddingStrategy = (
+        ReembeddingStrategy.AUTO
+    ),
 ) -> ImportSummary:
     """Import a portable bundle into a vector store.
 
@@ -148,14 +180,13 @@ async def import_memories(
         store: Target vector store.
         target_metadata: Embedding metadata of the target system.
         conflict_resolution: How to handle ID collisions.
-        embedding_strategy: How to handle embedding model mismatches.
+        embedding_strategy: How to handle embedding mismatches.
 
     Returns:
         ``ImportSummary`` with counts and error details.
     """
     summary = ImportSummary(total=len(bundle.entries))
 
-    # Handle embedding compatibility via portability layer
     import_result = portability_import_bundle(
         bundle=bundle,
         target_metadata=target_metadata,
@@ -168,17 +199,15 @@ async def import_memories(
             existing = await store.get(entry.id)
 
             if existing is None:
-                # New entry — store directly
                 result = await store.store(entry)
                 if result.success:
                     summary.imported += 1
                 else:
                     summary.errors += 1
                     summary.error_details.append(
-                        f"{entry.id}: {result.error}"
+                        _safe_error(entry.id, result.error),
                     )
             else:
-                # Conflict — apply resolution strategy
                 await _resolve_conflict(
                     entry, existing, store,
                     conflict_resolution, summary,
@@ -186,7 +215,7 @@ async def import_memories(
         except Exception as exc:
             summary.errors += 1
             summary.error_details.append(
-                f"{entry.id}: {exc}"
+                _safe_error(entry.id, str(exc)),
             )
 
     return summary
@@ -205,66 +234,96 @@ async def _resolve_conflict(
         return
 
     if resolution == ConflictResolution.OVERWRITE:
-        await _overwrite(incoming, store, summary)
+        await _upsert(incoming, store, summary)
         return
 
     if resolution == ConflictResolution.MERGE:
-        incoming_time = _ensure_tz_aware(incoming.updated_at)
-        existing_time = _ensure_tz_aware(existing.updated_at)
-
-        if incoming_time > existing_time:
-            await _overwrite(incoming, store, summary)
+        incoming_t = _ensure_tz_aware(incoming.updated_at)
+        existing_t = _ensure_tz_aware(existing.updated_at)
+        if incoming_t > existing_t:
+            await _upsert(incoming, store, summary)
         else:
             summary.skipped += 1
-        return
 
 
-async def _overwrite(
+async def _upsert(
     entry: MemoryEntry,
     store: IVectorStore,
     summary: ImportSummary,
 ) -> None:
-    """Replace existing entry.
-
-    For InMemoryVectorStore, delete() soft-deletes (adds to _deleted set)
-    and store() adds a new dict entry. We must clear the soft-delete flag
-    so get() can find the replacement. We use a new UUID-suffixed ID for
-    the replacement to avoid the tombstone, keeping the original ID in
-    the entry's content chain.
-
-    Actually, the simplest approach: delete + store with same ID. The
-    store.store() re-adds the key to _store which get() checks before
-    _deleted. But InMemoryVectorStore.get() checks _deleted first.
-
-    Workaround: directly manipulate the store if it's InMemoryVectorStore,
-    otherwise fall back to delete+store.
-    """
-    from .vector_store import InMemoryVectorStore
-
-    if isinstance(store, InMemoryVectorStore):
-        # Direct overwrite in memory store
-        store._store[entry.id] = entry
-        store._deleted.discard(entry.id)
+    """Insert-or-replace via the store's public upsert API."""
+    result = await store.upsert(entry)
+    if result.success:
         summary.overwritten += 1
     else:
-        await store.delete(entry.id)
-        result = await store.store(entry)
-        if result.success:
-            summary.overwritten += 1
-        else:
-            summary.errors += 1
-            summary.error_details.append(
-                f"{entry.id}: overwrite failed: {result.error}"
-            )
+        summary.errors += 1
+        summary.error_details.append(
+            _safe_error(entry.id, result.error),
+        )
 
 
-# ------------------------------------------------------------------ #
-#  Helpers                                                             #
-# ------------------------------------------------------------------ #
+# -------------------------------------------------------------- #
+#  Validation helpers (for MCP / HTTP layers)                      #
+# -------------------------------------------------------------- #
+
+
+def validate_conflict_resolution(value: str) -> str | None:
+    """Return an error message if *value* is not valid."""
+    if value not in VALID_CONFLICT_RESOLUTIONS:
+        return (
+            f"Invalid conflict_resolution '{value}'. "
+            f"Must be one of: {sorted(VALID_CONFLICT_RESOLUTIONS)}"
+        )
+    return None
+
+
+def validate_embedding_strategy(value: str) -> str | None:
+    """Return an error message if *value* is not valid."""
+    if value not in VALID_EMBEDDING_STRATEGIES:
+        return (
+            f"Invalid embedding_strategy '{value}'. "
+            f"Must be one of: {sorted(VALID_EMBEDDING_STRATEGIES)}"
+        )
+    return None
+
+
+def parse_iso_datetime(
+    value: str | None,
+    field_name: str,
+) -> tuple[datetime | None, str | None]:
+    """Parse an ISO 8601 string.
+
+    Returns:
+        ``(datetime, None)`` on success,
+        ``(None, error_msg)`` on failure.
+    """
+    if not value:
+        return None, None
+    try:
+        return datetime.fromisoformat(value), None
+    except (ValueError, TypeError) as exc:
+        return None, (
+            f"Invalid {field_name}: '{value}' "
+            f"is not a valid ISO 8601 datetime ({exc})"
+        )
+
+
+# -------------------------------------------------------------- #
+#  Internal helpers                                                #
+# -------------------------------------------------------------- #
 
 
 def _ensure_tz_aware(dt: datetime) -> datetime:
-    """Make a datetime timezone-aware (UTC) if it's naive."""
+    """Treat naive datetimes as UTC (project convention)."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _safe_error(entry_id: str, detail: str | None) -> str:
+    """Sanitize error detail for user-facing output."""
+    if not detail:
+        return f"{entry_id}: unknown error"
+    # Strip filesystem paths from error messages
+    safe = detail.split("\n")[0][:200]
+    return f"{entry_id}: {safe}"

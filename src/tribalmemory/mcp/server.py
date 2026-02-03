@@ -272,65 +272,61 @@ def create_server() -> FastMCP:
     ) -> str:
         """Export memories to a portable JSON bundle.
 
-        Supports filtering by tags and/or date range. The bundle
-        includes embedding metadata for cross-system portability.
-
         Args:
-            tags: Only export memories matching any of these tags.
-            date_from: ISO 8601 datetime — only include memories
-                created on or after this time.
-            date_to: ISO 8601 datetime — only include memories
-                created on or before this time.
-            output_path: If provided, write bundle JSON to this
-                file path. Otherwise return inline.
+            tags: Only export memories with any of these tags.
+            date_from: ISO 8601 lower bound (created_at).
+            date_to: ISO 8601 upper bound (created_at).
+            output_path: Write bundle to file (else inline).
 
         Returns:
-            JSON with: success, memory_count, manifest, and
-            optionally the entries (if no output_path).
+            JSON with: success, memory_count, manifest, entries.
         """
-        from datetime import datetime as dt
-
         from ..portability.embedding_metadata import (
             create_embedding_metadata,
         )
         from ..services.import_export import (
             ExportFilter,
             export_memories as do_export,
+            parse_iso_datetime,
         )
 
-        service = await get_memory_service()
+        # Validate dates
+        parsed_from, err = parse_iso_datetime(
+            date_from, "date_from",
+        )
+        if err:
+            return json.dumps({"success": False, "error": err})
+        parsed_to, err = parse_iso_datetime(
+            date_to, "date_to",
+        )
+        if err:
+            return json.dumps({"success": False, "error": err})
 
-        # Build embedding metadata from the service's embedding config
-        emb_svc = service.embedding_service
+        service = await get_memory_service()
+        emb = service.embedding_service
         meta = create_embedding_metadata(
-            model_name=getattr(emb_svc, "model", "unknown"),
-            dimensions=getattr(emb_svc, "dimensions", 1536),
+            model_name=getattr(emb, "model", "unknown"),
+            dimensions=getattr(emb, "dimensions", 1536),
             provider="openai",
         )
 
-        # Build filter
-        filters = None
-        if tags or date_from or date_to:
-            filters = ExportFilter(
+        flt = None
+        if tags or parsed_from or parsed_to:
+            flt = ExportFilter(
                 tags=tags,
-                date_from=(
-                    dt.fromisoformat(date_from) if date_from else None
-                ),
-                date_to=(
-                    dt.fromisoformat(date_to) if date_to else None
-                ),
+                date_from=parsed_from,
+                date_to=parsed_to,
             )
 
         try:
             bundle = await do_export(
                 store=service.vector_store,
                 embedding_metadata=meta,
-                filters=filters,
+                filters=flt,
             )
         except Exception as e:
             return json.dumps({
-                "success": False,
-                "error": str(e),
+                "success": False, "error": str(e),
             })
 
         bundle_dict = bundle.to_dict()
@@ -347,7 +343,7 @@ def create_server() -> FastMCP:
             except Exception as e:
                 return json.dumps({
                     "success": False,
-                    "error": f"Failed to write file: {e}",
+                    "error": f"Write failed: {e}",
                 })
 
         return json.dumps({
@@ -366,20 +362,14 @@ def create_server() -> FastMCP:
     ) -> str:
         """Import memories from a portable JSON bundle.
 
-        Provide either ``input_path`` (file) or ``bundle_json``
-        (inline JSON string).
-
         Args:
             input_path: Path to a bundle JSON file.
             bundle_json: Inline JSON string of the bundle.
-            conflict_resolution: How to handle ID collisions:
-                "skip" (default), "overwrite", or "merge".
-            embedding_strategy: How to handle embedding model
-                mismatches: "auto" (default), "keep", or "drop".
+            conflict_resolution: skip | overwrite | merge.
+            embedding_strategy: auto | keep | drop.
 
         Returns:
-            JSON with: success, imported, skipped, overwritten,
-            errors, needs_reembedding.
+            JSON with import summary.
         """
         from ..portability.embedding_metadata import (
             PortableBundle,
@@ -389,6 +379,8 @@ def create_server() -> FastMCP:
         from ..services.import_export import (
             ConflictResolution,
             import_memories as do_import,
+            validate_conflict_resolution,
+            validate_embedding_strategy,
         )
 
         if not input_path and not bundle_json:
@@ -396,6 +388,14 @@ def create_server() -> FastMCP:
                 "success": False,
                 "error": "Provide input_path or bundle_json",
             })
+
+        # Validate enum params
+        err = validate_conflict_resolution(conflict_resolution)
+        if err:
+            return json.dumps({"success": False, "error": err})
+        err = validate_embedding_strategy(embedding_strategy)
+        if err:
+            return json.dumps({"success": False, "error": err})
 
         # Parse bundle
         try:
@@ -412,14 +412,13 @@ def create_server() -> FastMCP:
             })
 
         service = await get_memory_service()
-        emb_svc = service.embedding_service
+        emb = service.embedding_service
         target_meta = create_embedding_metadata(
-            model_name=getattr(emb_svc, "model", "unknown"),
-            dimensions=getattr(emb_svc, "dimensions", 1536),
+            model_name=getattr(emb, "model", "unknown"),
+            dimensions=getattr(emb, "dimensions", 1536),
             provider="openai",
         )
 
-        # Map string params to enums
         cr_map = {
             "skip": ConflictResolution.SKIP,
             "overwrite": ConflictResolution.OVERWRITE,
@@ -436,17 +435,12 @@ def create_server() -> FastMCP:
                 bundle=bundle,
                 store=service.vector_store,
                 target_metadata=target_meta,
-                conflict_resolution=cr_map.get(
-                    conflict_resolution, ConflictResolution.SKIP,
-                ),
-                embedding_strategy=es_map.get(
-                    embedding_strategy, ReembeddingStrategy.AUTO,
-                ),
+                conflict_resolution=cr_map[conflict_resolution],
+                embedding_strategy=es_map[embedding_strategy],
             )
         except Exception as e:
             return json.dumps({
-                "success": False,
-                "error": str(e),
+                "success": False, "error": str(e),
             })
 
         return json.dumps({

@@ -344,7 +344,17 @@ class InMemoryVectorStore(IVectorStore):
             entries = [e for e in entries if any(t in e.tags for t in filters["tags"])]
         
         return entries[offset:offset + limit]
-    
+
+    async def upsert(self, entry: MemoryEntry) -> StoreResult:
+        """Insert or replace, clearing any soft-delete tombstone."""
+        self._deleted.discard(entry.id)
+        if entry.embedding is None:
+            entry.embedding = (
+                await self.embedding_service.embed(entry.content)
+            )
+        self._store[entry.id] = entry
+        return StoreResult(success=True, memory_id=entry.id)
+
     async def count(self, filters: Optional[dict] = None) -> int:
         entries = await self.list(limit=100000, filters=filters)
         return len(entries)

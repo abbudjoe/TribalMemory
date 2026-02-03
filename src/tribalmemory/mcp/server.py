@@ -4,6 +4,7 @@ Exposes Tribal Memory as MCP tools for Claude Code and other MCP clients.
 Uses stdio transport for integration with Claude Code.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -20,12 +21,23 @@ logger = logging.getLogger(__name__)
 
 # Global service instance (initialized on first use)
 _memory_service: Optional[TribalMemoryService] = None
+_service_lock = asyncio.Lock()
 
 
-def get_memory_service() -> TribalMemoryService:
-    """Get or create the memory service singleton."""
+async def get_memory_service() -> TribalMemoryService:
+    """Get or create the memory service singleton (thread-safe)."""
     global _memory_service
-    if _memory_service is None:
+    
+    # Fast path: already initialized
+    if _memory_service is not None:
+        return _memory_service
+    
+    # Slow path: initialize with lock to prevent race conditions
+    async with _service_lock:
+        # Double-check after acquiring lock
+        if _memory_service is not None:
+            return _memory_service
+            
         config = TribalMemoryConfig.from_env()
 
         # Override instance_id for MCP context
@@ -72,7 +84,16 @@ def create_server() -> FastMCP:
         Returns:
             JSON with: success, memory_id, duplicate_of (if rejected), error
         """
-        service = get_memory_service()
+        # Input validation
+        if not content or not content.strip():
+            return json.dumps({
+                "success": False,
+                "memory_id": None,
+                "duplicate_of": None,
+                "error": "Content cannot be empty",
+            })
+        
+        service = await get_memory_service()
 
         # Map string to MemorySource enum
         source_map = {
@@ -115,7 +136,16 @@ def create_server() -> FastMCP:
         Returns:
             JSON with: results (list of memories with similarity scores), query, count
         """
-        service = get_memory_service()
+        # Input validation
+        if not query or not query.strip():
+            return json.dumps({
+                "results": [],
+                "query": query,
+                "count": 0,
+                "error": "Query cannot be empty",
+            })
+        
+        service = await get_memory_service()
 
         # Clamp limit to valid range
         limit = max(1, min(50, limit))
@@ -165,7 +195,21 @@ def create_server() -> FastMCP:
         Returns:
             JSON with: success, memory_id (of new correction), error
         """
-        service = get_memory_service()
+        # Input validation
+        if not original_id or not original_id.strip():
+            return json.dumps({
+                "success": False,
+                "memory_id": None,
+                "error": "Original ID cannot be empty",
+            })
+        if not corrected_content or not corrected_content.strip():
+            return json.dumps({
+                "success": False,
+                "memory_id": None,
+                "error": "Corrected content cannot be empty",
+            })
+        
+        service = await get_memory_service()
 
         result = await service.correct(
             original_id=original_id,
@@ -189,7 +233,15 @@ def create_server() -> FastMCP:
         Returns:
             JSON with: success, memory_id
         """
-        service = get_memory_service()
+        # Input validation
+        if not memory_id or not memory_id.strip():
+            return json.dumps({
+                "success": False,
+                "memory_id": memory_id,
+                "error": "Memory ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
 
         success = await service.forget(memory_id)
 
@@ -205,7 +257,7 @@ def create_server() -> FastMCP:
         Returns:
             JSON with: total_memories, by_source_type, by_tag, by_instance, corrections
         """
-        service = get_memory_service()
+        service = await get_memory_service()
 
         stats = await service.get_stats()
 

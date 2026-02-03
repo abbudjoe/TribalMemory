@@ -354,7 +354,7 @@ def check_negation(text: str, keyword: str, window: int = 3) -> bool:
                 continue
             return True
 
-    return False if matched else False
+    return False
 
 
 def contains_date_pattern(text: str) -> bool:

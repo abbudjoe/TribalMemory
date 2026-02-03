@@ -1,13 +1,13 @@
 """OpenAI Embedding Provider."""
 
 import asyncio
-import math
 from datetime import datetime
 from typing import Optional
 import httpx
 
 from .base import EmbeddingProvider, ProviderHealth, ProviderStatus
 from ..config.providers import EmbeddingConfig
+from ...utils import normalize_embedding
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
@@ -18,6 +18,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
     def __init__(self, config: EmbeddingConfig):
         super().__init__(config)
         self._client: Optional[httpx.AsyncClient] = None
+    
+    def __repr__(self) -> str:
+        """Safe repr that masks API key to prevent accidental logging."""
+        return f"OpenAIEmbeddingProvider(model={self.config.model!r}, api_key=***)"
     
     @property
     def dimensions(self) -> int:
@@ -111,7 +115,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
                 if response.status_code == 200:
                     data = response.json()
                     embeddings = sorted(data["data"], key=lambda x: x["index"])
-                    return [self._normalize_embedding(e["embedding"]) for e in embeddings]
+                    return [normalize_embedding(e["embedding"]) for e in embeddings]
                 
                 elif response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 5))
@@ -145,10 +149,3 @@ class OpenAIEmbeddingProvider(EmbeddingProvider[EmbeddingConfig]):
         if len(encoded) > max_bytes:
             cleaned = encoded[:max_bytes].decode('utf-8', errors='ignore')
         return cleaned
-
-    def _normalize_embedding(self, embedding: list[float]) -> list[float]:
-        """Normalize embedding to unit length for consistent similarity math."""
-        norm = math.sqrt(sum(x * x for x in embedding))
-        if norm == 0:
-            return embedding
-        return [x / norm for x in embedding]

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult
 from src.tribalmemory.services.embeddings import OpenAIEmbeddingService
+from src.tribalmemory.utils import normalize_embedding
 from src.tribalmemory.services.vector_store import InMemoryVectorStore
 from src.tribalmemory.services.deduplication import SemanticDeduplicationService
 from src.tribalmemory.services.memory import TribalMemoryService, create_memory_service
@@ -37,17 +38,23 @@ class TestOpenAIEmbeddingService:
 
     def test_normalize_embedding_unit_length(self):
         """Test embedding normalization to unit length."""
-        service = OpenAIEmbeddingService(api_key="sk-test")
         vec = [3.0, 4.0]
-        normalized = service._normalize_embedding(vec)
+        normalized = normalize_embedding(vec)
         norm = sum(x * x for x in normalized) ** 0.5
         assert abs(norm - 1.0) < 0.0001
 
     def test_normalize_embedding_zero_vector(self):
         """Test normalization preserves zero vector."""
-        service = OpenAIEmbeddingService(api_key="sk-test")
         vec = [0.0, 0.0]
-        assert service._normalize_embedding(vec) == vec
+        assert normalize_embedding(vec) == vec
+    
+    def test_repr_masks_api_key(self):
+        """Test that repr() doesn't leak API keys."""
+        service = OpenAIEmbeddingService(api_key="sk-secret-key-12345")
+        repr_str = repr(service)
+        assert "sk-secret" not in repr_str
+        assert "***" in repr_str
+        assert "text-embedding-3-small" in repr_str
     
     @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
     @pytest.mark.integration

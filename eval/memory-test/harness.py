@@ -344,15 +344,12 @@ def check_negation(text: str, keyword: str, window: int = 3) -> bool:
         "not", "no", "never", "dont", "cant", "cannot", "isnt", "wasnt", "arent", "wont",
     }
 
-    matched = False
     for i in range(len(tokens) - len(key_tokens) + 1):
         if tokens[i:i + len(key_tokens)] == key_tokens:
-            matched = True
             start = max(0, i - window)
             context = set(tokens[start:i])
-            if context.intersection(negations):
-                continue
-            return True
+            if not context.intersection(negations):
+                return True
 
     return False
 

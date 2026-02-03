@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..interfaces import MemoryEntry
-from ..testing.mocks import MockEmbeddingService, MockMemoryService, MockVectorStore
+from ..testing.mocks import MockEmbeddingService, MockVectorStore
 from .corpus_generator import CorpusConfig, generate_corpus
 
 
@@ -142,7 +142,6 @@ async def benchmark_batch_embedding_throughput(
     Returns:
         ThroughputResult with throughput metrics.
     """
-    rng = random.Random(seed)
     service = MockEmbeddingService(embedding_dim=64, skip_latency=True)
 
     # Generate texts
@@ -199,30 +198,38 @@ async def benchmark_cache_effectiveness(
         entry.embedding = await embedding_service.embed(entry.content)
         await vector_store.store(entry)
 
-    # Generate query mix: some unique, some repeated
-    unique_queries = [
-        rng.choice(corpus).content[:50]
-        for _ in range(max(10, int(num_queries * (1 - repeat_ratio))))
-    ]
-    queries: list[str] = []
-    seen_queries: set[str] = set()
+    # Generate a pool of truly unique queries (sample without replacement)
+    pool_size = min(len(corpus), num_queries * 2)
+    unique_pool = rng.sample(corpus, k=pool_size)
+    unique_queries = list(dict.fromkeys(
+        entry.content[:50] for entry in unique_pool
+    ))  # Deduplicate while preserving order
+
+    seen_queries: list[str] = []  # Ordered list for repeat selection
+    seen_set: set[str] = set()
     cache_hits = 0
     cache_misses = 0
     hit_latencies: list[float] = []
     miss_latencies: list[float] = []
+    unique_idx = 0  # Track position in unique pool (no replacement)
 
     # Cache of embeddings to simulate cache behavior
     embedding_cache: dict[str, list[float]] = {}
 
     for i in range(num_queries):
         if rng.random() < repeat_ratio and seen_queries:
-            # Pick a previously seen query
-            query = rng.choice(list(seen_queries))
+            # Pick a previously seen query (repeat)
+            query = rng.choice(seen_queries)
             is_repeat = True
         else:
-            # Pick a unique query
-            query = rng.choice(unique_queries)
-            is_repeat = query in seen_queries
+            # Pick next unique query (sequential, no replacement)
+            if unique_idx < len(unique_queries):
+                query = unique_queries[unique_idx]
+                unique_idx += 1
+            else:
+                # Exhausted unique pool, fall back to random
+                query = rng.choice(unique_queries)
+            is_repeat = query in seen_set
 
         # Simulate cache: reuse embedding if seen before
         if query in embedding_cache:
@@ -242,7 +249,9 @@ async def benchmark_cache_effectiveness(
             cache_misses += 1
             miss_latencies.append(elapsed_ms)
 
-        seen_queries.add(query)
+        if query not in seen_set:
+            seen_queries.append(query)
+            seen_set.add(query)
 
     hit_rate = cache_hits / num_queries if num_queries > 0 else 0.0
 

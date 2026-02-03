@@ -7,19 +7,10 @@ Uses mock services for deterministic, CI-friendly benchmarks.
 Run with: PYTHONPATH=src pytest tests/test_performance.py -v
 """
 
-import asyncio
-import statistics
 import time
-from typing import Optional
-
 import pytest
 
-from tribalmemory.interfaces import MemoryEntry, MemorySource, RecallResult
-from tribalmemory.testing.mocks import (
-    MockEmbeddingService,
-    MockMemoryService,
-    MockVectorStore,
-)
+from tribalmemory.interfaces import MemoryEntry
 from tribalmemory.performance.corpus_generator import (
     generate_corpus,
     CorpusConfig,
@@ -103,6 +94,15 @@ class TestRetrievalLatency:
         # Document baseline: p99 should be under 500ms for mock store
         assert result.stats.p99 < 500.0, (
             f"p99 latency {result.stats.p99:.2f}ms exceeds 500ms threshold"
+        )
+
+    @pytest.mark.asyncio
+    async def test_retrieval_latency_10k(self):
+        """Measure retrieval latency with 10k memories (Issue #6 requirement)."""
+        result = await benchmark_retrieval_latency(corpus_size=10_000, num_queries=15)
+        assert result.stats.p50 >= 0
+        assert result.stats.p99 < 1500.0, (
+            f"p99 latency {result.stats.p99:.2f}ms exceeds 1500ms threshold"
         )
 
     @pytest.mark.asyncio

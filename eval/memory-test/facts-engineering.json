@@ -1,0 +1,466 @@
+{
+  "version": "1.0",
+  "targetFile": "MEMORY_ENGINEERING.md",
+  "description": "Engineering depth test — architecture, code, debugging, config",
+  "facts": [
+    {
+      "id": 1,
+      "category": "architecture",
+      "fact": "Auth service is separate from Gateway for independent scaling and security isolation",
+      "questions": {
+        "direct": "Why is the Auth service separate from the Gateway?",
+        "indirect": "What's the trade-off with the auth architecture?",
+        "reasoning": "If auth needs to scale, does it require Gateway changes?"
+      },
+      "required": ["scale", "independent", "security", "isolation"],
+      "bonus": ["2ms", "latency", "attack surface"]
+    },
+    {
+      "id": 2,
+      "category": "architecture",
+      "fact": "gRPC chosen over REST for 10x smaller payloads and bidirectional streaming",
+      "questions": {
+        "direct": "Why was gRPC chosen over REST for internal services?",
+        "indirect": "What protocol do internal services use?",
+        "reasoning": "How does the choice of gRPC affect debugging?"
+      },
+      "required": ["grpc"],
+      "bonus": ["binary", "streaming", "protobuf", "3ms", "latency"]
+    },
+    {
+      "id": 3,
+      "category": "code",
+      "fact": "CacheEntry uses Vec<u8> for key/value to avoid UTF-8 validation overhead",
+      "questions": {
+        "direct": "Why does CacheEntry use Vec<u8> instead of String?",
+        "indirect": "What type is used for cache keys?",
+        "reasoning": "Would using String for cache keys cause issues?"
+      },
+      "required": ["utf-8", "binary", "overhead", "validation"],
+      "bonus": ["vec", "u8", "protobuf", "hash"]
+    },
+    {
+      "id": 4,
+      "category": "code",
+      "fact": "Retry pattern uses jitter to prevent thundering herd",
+      "questions": {
+        "direct": "Why does the retry pattern include jitter?",
+        "indirect": "How do retries handle concurrent failures?",
+        "reasoning": "What would happen without jitter in the retry logic?"
+      },
+      "required": ["thundering herd", "jitter"],
+      "bonus": ["2024-10-15", "incident", "load spike"]
+    },
+    {
+      "id": 5,
+      "category": "code",
+      "fact": "once_cell used over lazy_static because it doesn't require macros",
+      "questions": {
+        "direct": "Why is once_cell used instead of lazy_static?",
+        "indirect": "How is the Config singleton implemented?"
+      },
+      "required": ["once_cell", "macro"],
+      "bonus": ["lazy_static", "error message"]
+    },
+    {
+      "id": 6,
+      "category": "api",
+      "fact": "Cache Get has allow_stale parameter to return expired entries",
+      "questions": {
+        "direct": "What does the allow_stale parameter do in Cache Get?",
+        "indirect": "Can you get expired cache entries?",
+        "reasoning": "When would you use allow_stale=true?"
+      },
+      "required": ["stale", "expired"],
+      "bonus": ["allow_stale", "fresh", "unavailable"]
+    },
+    {
+      "id": 7,
+      "category": "api",
+      "fact": "Rate limit for Get is 10,000 per second per client IP",
+      "questions": {
+        "direct": "What's the rate limit for Cache Get?",
+        "indirect": "How many Get requests can a client make per second?"
+      },
+      "required": ["10,000", "10000"],
+      "bonus": ["per second", "client ip"]
+    },
+    {
+      "id": 8,
+      "category": "api",
+      "fact": "Exceeded rate limit returns RESOURCE_EXHAUSTED with retry-after header",
+      "questions": {
+        "direct": "What happens when rate limit is exceeded?",
+        "indirect": "What status code indicates rate limiting?"
+      },
+      "required": ["resource_exhausted", "exhausted"],
+      "bonus": ["retry-after", "header"]
+    },
+    {
+      "id": 9,
+      "category": "config",
+      "fact": "Redis appendfsync is everysec, not always, because always caused 200ms spikes",
+      "questions": {
+        "direct": "Why is Redis appendfsync set to everysec instead of always?",
+        "indirect": "What's the Redis durability setting?",
+        "reasoning": "What's the trade-off with appendfsync everysec?"
+      },
+      "required": ["200ms", "spike", "latency"],
+      "bonus": ["everysec", "always", "1 second", "data loss"]
+    },
+    {
+      "id": 10,
+      "category": "config",
+      "fact": "HYPERION_CACHE_SIZE_MB defaults to 4096 (4GB)",
+      "questions": {
+        "direct": "What's the default cache size for Hyperion?",
+        "indirect": "How much memory does the cache use by default?"
+      },
+      "required": ["4096", "4gb", "4 gb"],
+      "bonus": ["default", "hyperion_cache_size"]
+    },
+    {
+      "id": 11,
+      "category": "config",
+      "fact": "Raft election timeout is 1500ms (10x the 150ms heartbeat)",
+      "questions": {
+        "direct": "What's the Raft election timeout?",
+        "indirect": "How long before a new leader election starts?",
+        "reasoning": "Why is election timeout 10x the heartbeat?"
+      },
+      "required": ["1500", "1.5"],
+      "bonus": ["10x", "heartbeat", "150"]
+    },
+    {
+      "id": 12,
+      "category": "config",
+      "fact": "enable_compression feature flag enables LZ4 for values over 1KB",
+      "questions": {
+        "direct": "What compression is used and when?",
+        "indirect": "Are cache values compressed?"
+      },
+      "required": ["lz4", "1kb"],
+      "bonus": ["compression", "feature flag"]
+    },
+    {
+      "id": 13,
+      "category": "debugging",
+      "fact": "2024-10-15 thundering herd incident caused by 50K entries expiring simultaneously",
+      "questions": {
+        "direct": "What caused the 2024-10-15 incident?",
+        "indirect": "What was the thundering herd incident?",
+        "reasoning": "How was the thundering herd problem fixed?"
+      },
+      "required": ["50k", "expir", "simultaneous"],
+      "bonus": ["jitter", "stagger", "ttl", "circuit breaker"]
+    },
+    {
+      "id": 14,
+      "category": "debugging",
+      "fact": "Memory leak in v2.3.0 caused by cloning CacheEntry in hot path instead of borrowing",
+      "questions": {
+        "direct": "What caused the memory leak in v2.3.0?",
+        "indirect": "Why did v2.3.0 have OOM issues?",
+        "reasoning": "How was the memory leak detected?"
+      },
+      "required": ["clone", "borrow"],
+      "bonus": ["heaptrack", "pr #847", "reference"]
+    },
+    {
+      "id": 15,
+      "category": "debugging",
+      "fact": "Split brain on 2024-12-03 caused by election timeout being too tight at 1.5 seconds",
+      "questions": {
+        "direct": "What caused the split brain incident?",
+        "indirect": "Why did two nodes think they were leader?",
+        "reasoning": "How was split brain prevented after the fix?"
+      },
+      "required": ["election timeout", "partition", "1.5"],
+      "bonus": ["lease", "leader", "network"]
+    },
+    {
+      "id": 16,
+      "category": "debugging",
+      "fact": "ETIMEOUT on cold starts caused by lazy initialization of DB pool, fixed by eager warmup",
+      "questions": {
+        "direct": "What causes ETIMEOUT on cold starts?",
+        "indirect": "Why does the first request after deploy timeout?",
+        "reasoning": "How was the cold start timeout fixed?"
+      },
+      "required": ["lazy", "pool", "warmup"],
+      "bonus": ["500ms", "100ms", "acquire", "eager"]
+    },
+    {
+      "id": 17,
+      "category": "dependencies",
+      "fact": "Tokio pinned to 1.35.1 because 1.36 has io_uring regression",
+      "questions": {
+        "direct": "Why is Tokio pinned to 1.35.1?",
+        "indirect": "Is Tokio on the latest version?",
+        "reasoning": "What issue prevents upgrading Tokio?"
+      },
+      "required": ["1.35", "regression", "io_uring"],
+      "bonus": ["1.36", "tokio#6298"]
+    },
+    {
+      "id": 18,
+      "category": "dependencies",
+      "fact": "Node 18 used instead of 20 because better-sqlite3 lacks Node 20 musl prebuilds",
+      "questions": {
+        "direct": "Why is Node 18 used instead of Node 20?",
+        "indirect": "What Node version does nexctl use?",
+        "reasoning": "When can we upgrade to Node 20?"
+      },
+      "required": ["better-sqlite3", "musl", "prebuild"],
+      "bonus": ["alpine", "docker", "3 minute"]
+    },
+    {
+      "id": 19,
+      "category": "dependencies",
+      "fact": "Rust MSRV is 1.72 because Ubuntu 22.04 LTS ships that version",
+      "questions": {
+        "direct": "What's the minimum supported Rust version?",
+        "indirect": "Why can't we use async fn in traits?",
+        "reasoning": "When will the Rust MSRV be updated?"
+      },
+      "required": ["1.72", "ubuntu 22.04"],
+      "bonus": ["msrv", "2025-04", "async fn"]
+    },
+    {
+      "id": 20,
+      "category": "performance",
+      "fact": "Get hit p99 latency is 2.1ms with 120k ops/s throughput",
+      "questions": {
+        "direct": "What's the p99 latency for cache Get hits?",
+        "indirect": "How fast is the cache?",
+        "reasoning": "Is 2.1ms p99 acceptable for session storage?"
+      },
+      "required": ["2.1ms", "2.1"],
+      "bonus": ["120k", "p99"]
+    },
+    {
+      "id": 21,
+      "category": "performance",
+      "fact": "Switching from std::HashMap to hashbrown gave 15% throughput increase",
+      "questions": {
+        "direct": "What HashMap implementation is used and why?",
+        "indirect": "What optimization improved throughput by 15%?"
+      },
+      "required": ["hashbrown", "15%"],
+      "bonus": ["std::hashmap", "throughput"]
+    },
+    {
+      "id": 22,
+      "category": "performance",
+      "fact": "io_uring on Linux reduced latency by 20%",
+      "questions": {
+        "direct": "What's the benefit of io_uring?",
+        "indirect": "Is there a Linux-specific optimization?"
+      },
+      "required": ["io_uring", "20%"],
+      "bonus": ["linux", "latency"]
+    },
+    {
+      "id": 23,
+      "category": "security",
+      "fact": "HMAC on all writes to prevent cache poisoning",
+      "questions": {
+        "direct": "How is cache poisoning prevented?",
+        "indirect": "Are cache writes authenticated?"
+      },
+      "required": ["hmac"],
+      "bonus": ["poison", "verified", "write"]
+    },
+    {
+      "id": 24,
+      "category": "security",
+      "fact": "Max value size is 512KB to prevent DoS via large values",
+      "questions": {
+        "direct": "What's the maximum cache value size?",
+        "indirect": "Can you store 1MB values in the cache?"
+      },
+      "required": ["512kb", "512"],
+      "bonus": ["dos", "reject", "large"]
+    },
+    {
+      "id": 25,
+      "category": "security",
+      "fact": "Secrets loaded from Vault at startup, never in environment variables",
+      "questions": {
+        "direct": "How are secrets managed?",
+        "indirect": "Are secrets in environment variables?"
+      },
+      "required": ["vault"],
+      "bonus": ["never", "environment", "startup"]
+    },
+    {
+      "id": 26,
+      "category": "troubleshooting",
+      "fact": "Connection refused to CockroachDB usually means DNS not resolved, wait 30s",
+      "questions": {
+        "direct": "What causes 'connection refused' to CockroachDB?",
+        "indirect": "Why can't I connect to the database after deploy?"
+      },
+      "required": ["dns", "30"],
+      "bonus": ["wait", "restart", "endpoint"]
+    },
+    {
+      "id": 27,
+      "category": "troubleshooting",
+      "fact": "Raft leader not found means cluster is in election, wait 5 seconds",
+      "questions": {
+        "direct": "What causes 'Raft leader not found' errors?",
+        "indirect": "Why are Raft operations failing?"
+      },
+      "required": ["election", "5 second", "wait"],
+      "bonus": ["leader", "retry"]
+    },
+    {
+      "id": 28,
+      "category": "troubleshooting",
+      "fact": "Force cache eviction via POST /admin/cache/evict?count=10000",
+      "questions": {
+        "direct": "How do you force cache eviction?",
+        "indirect": "What's the emergency endpoint for high memory?"
+      },
+      "required": ["/admin/cache/evict", "evict"],
+      "bonus": ["post", "count", "10000"]
+    },
+    {
+      "id": 29,
+      "category": "history",
+      "fact": "v1.0 was single-node with REST API, v2.0 added Raft and gRPC",
+      "questions": {
+        "direct": "What changed between v1.0 and v2.0?",
+        "indirect": "When was Raft consensus added?"
+      },
+      "required": ["raft", "single-node", "v2"],
+      "bonus": ["grpc", "rest", "2024-09"]
+    },
+    {
+      "id": 30,
+      "category": "history",
+      "fact": "v3.0 planned for 2025-02 with cross-region replication",
+      "questions": {
+        "direct": "What's planned for v3.0?",
+        "indirect": "When will cross-region replication be available?"
+      },
+      "required": ["cross-region", "replication"],
+      "bonus": ["v3", "2025-02", "tiered"]
+    }
+  ],
+  "negatives": [
+    {
+      "id": "neg1",
+      "question": "What's the database password?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg2", 
+      "question": "What are the AWS access keys?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg3",
+      "question": "What's the IP address of the production database?",
+      "plausibility": "high"
+    },
+    {
+      "id": "neg4",
+      "question": "What's the Kubernetes namespace for staging?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg5",
+      "question": "What CPU architecture is the cluster running on?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg6",
+      "question": "Who wrote the original CacheEntry code?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg7",
+      "question": "What's the Grafana dashboard URL?",
+      "plausibility": "medium"
+    },
+    {
+      "id": "neg8",
+      "question": "What testing framework is used?",
+      "plausibility": "high"
+    }
+  ],
+  "synthesis": [
+    {
+      "id": "syn1",
+      "question": "What are all the performance optimizations made to Hyperion?",
+      "components": [
+        {"fact": "hashbrown 15%", "required": ["hashbrown", "15%"]},
+        {"fact": "io_uring 20%", "required": ["io_uring", "20%"]},
+        {"fact": "connection pooling 30%", "required": ["connection pool", "30%"]},
+        {"fact": "LZ4 compression 40%", "required": ["lz4", "compression", "40%"]}
+      ],
+      "expected": "hashbrown (15% throughput), io_uring (20% latency), connection pooling (30% p99), LZ4 compression (40% bandwidth)"
+    },
+    {
+      "id": "syn2",
+      "question": "What were all the major incidents and their root causes?",
+      "components": [
+        {"fact": "Thundering herd from mass expiry", "required": ["thundering", "expir"]},
+        {"fact": "Memory leak from clone", "required": ["memory leak", "clone"]},
+        {"fact": "Split brain from timeout", "required": ["split brain", "timeout"]},
+        {"fact": "Cold start from lazy init", "required": ["cold start", "lazy"]}
+      ],
+      "expected": "Thundering herd (mass TTL expiry), memory leak (clone in hot path), split brain (election timeout), cold start (lazy DB pool)"
+    },
+    {
+      "id": "syn3",
+      "question": "What are all the security measures in place?",
+      "components": [
+        {"fact": "HMAC on writes", "required": ["hmac"]},
+        {"fact": "Max value size", "required": ["512kb", "max"]},
+        {"fact": "mTLS required", "required": ["mtls"]},
+        {"fact": "Vault for secrets", "required": ["vault"]}
+      ],
+      "expected": "HMAC on writes, 512KB max value size, mTLS required, secrets from Vault"
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "adv1",
+      "question": "Is the Redis appendfsync set to 'always' for maximum durability?",
+      "confusion_target": "Actually everysec, not always",
+      "expected": "No, it's set to everysec because always caused 200ms spikes",
+      "type": "false_premise"
+    },
+    {
+      "id": "adv2",
+      "question": "The memory leak was in v2.4.0, right?",
+      "confusion_target": "Was v2.3.0, not v2.4.0",
+      "expected": "No, it was v2.3.0",
+      "type": "version_confusion"
+    },
+    {
+      "id": "adv3",
+      "question": "What's the Raft heartbeat interval of 1500ms?",
+      "confusion_target": "1500ms is election timeout, heartbeat is 150ms",
+      "expected": "Heartbeat is 150ms, 1500ms is the election timeout",
+      "type": "number_confusion"
+    },
+    {
+      "id": "adv4",
+      "question": "Why is Tokio pinned to 1.36.1?",
+      "confusion_target": "Pinned to 1.35.1, not 1.36.1",
+      "expected": "It's pinned to 1.35.1, not 1.36 - 1.36 has the io_uring regression",
+      "type": "version_confusion"
+    },
+    {
+      "id": "adv5",
+      "question": "Is lazy_static used for the Config singleton?",
+      "confusion_target": "once_cell is used, not lazy_static",
+      "expected": "No, once_cell is used because it doesn't require macros",
+      "type": "false_premise"
+    }
+  ]
+}

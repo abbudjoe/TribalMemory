@@ -401,7 +401,7 @@ export default function memoryTribal(api: any) {
       async execute(toolCallId: string, params: any, context: any) {
         const sessionId = context?.sessionId ?? "unknown";
         const turnId = context?.turnId ?? `turn-${Date.now()}`;
-        const text = safeguardMetrics.formatSnapshot(sessionId, turnId);
+        const text = safeguardMetrics.formatSnapshotMarkdown(sessionId, turnId);
         return {
           content: [{ type: "text", text }],
         };

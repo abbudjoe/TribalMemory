@@ -263,6 +263,202 @@ def create_server() -> FastMCP:
 
         return json.dumps(stats)
 
+    @mcp.tool()
+    async def tribal_export(
+        tags: Optional[list[str]] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> str:
+        """Export memories to a portable JSON bundle.
+
+        Args:
+            tags: Only export memories with any of these tags.
+            date_from: ISO 8601 lower bound (created_at).
+            date_to: ISO 8601 upper bound (created_at).
+            output_path: Write bundle to file (else inline).
+
+        Returns:
+            JSON with: success, memory_count, manifest, entries.
+        """
+        from ..portability.embedding_metadata import (
+            create_embedding_metadata,
+        )
+        from ..services.import_export import (
+            ExportFilter,
+            export_memories as do_export,
+            parse_iso_datetime,
+        )
+
+        # Validate dates
+        parsed_from, err = parse_iso_datetime(
+            date_from, "date_from",
+        )
+        if err:
+            return json.dumps({"success": False, "error": err})
+        parsed_to, err = parse_iso_datetime(
+            date_to, "date_to",
+        )
+        if err:
+            return json.dumps({"success": False, "error": err})
+
+        service = await get_memory_service()
+        emb = service.embedding_service
+        meta = create_embedding_metadata(
+            model_name=getattr(emb, "model", "unknown"),
+            dimensions=getattr(emb, "dimensions", 1536),
+            provider="openai",
+        )
+
+        flt = None
+        if tags or parsed_from or parsed_to:
+            flt = ExportFilter(
+                tags=tags,
+                date_from=parsed_from,
+                date_to=parsed_to,
+            )
+
+        try:
+            bundle = await do_export(
+                store=service.vector_store,
+                embedding_metadata=meta,
+                filters=flt,
+            )
+        except Exception as e:
+            return json.dumps({
+                "success": False, "error": str(e),
+            })
+
+        bundle_dict = bundle.to_dict()
+
+        if output_path:
+            try:
+                with open(output_path, "w") as f:
+                    json.dump(bundle_dict, f, default=str)
+                return json.dumps({
+                    "success": True,
+                    "memory_count": bundle.manifest.memory_count,
+                    "output_path": output_path,
+                })
+            except Exception as e:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Write failed: {e}",
+                })
+
+        return json.dumps({
+            "success": True,
+            "memory_count": bundle.manifest.memory_count,
+            "manifest": bundle_dict["manifest"],
+            "entries": bundle_dict["entries"],
+        }, default=str)
+
+    @mcp.tool()
+    async def tribal_import(
+        input_path: Optional[str] = None,
+        bundle_json: Optional[str] = None,
+        conflict_resolution: str = "skip",
+        embedding_strategy: str = "auto",
+        dry_run: bool = False,
+    ) -> str:
+        """Import memories from a portable JSON bundle.
+
+        Args:
+            input_path: Path to a bundle JSON file.
+            bundle_json: Inline JSON string of the bundle.
+            conflict_resolution: skip | overwrite | merge.
+            embedding_strategy: auto | keep | drop.
+            dry_run: Preview what would change without writing.
+
+        Returns:
+            JSON with import summary.
+        """
+        from ..portability.embedding_metadata import (
+            PortableBundle,
+            ReembeddingStrategy,
+            create_embedding_metadata,
+        )
+        from ..services.import_export import (
+            ConflictResolution,
+            import_memories as do_import,
+            validate_conflict_resolution,
+            validate_embedding_strategy,
+        )
+
+        if not input_path and not bundle_json:
+            return json.dumps({
+                "success": False,
+                "error": "Provide input_path or bundle_json",
+            })
+
+        # Validate enum params
+        err = validate_conflict_resolution(conflict_resolution)
+        if err:
+            return json.dumps({"success": False, "error": err})
+        err = validate_embedding_strategy(embedding_strategy)
+        if err:
+            return json.dumps({"success": False, "error": err})
+
+        # Parse bundle
+        try:
+            if input_path:
+                with open(input_path) as f:
+                    raw = json.load(f)
+            else:
+                raw = json.loads(bundle_json)
+            bundle = PortableBundle.from_dict(raw)
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": f"Failed to parse bundle: {e}",
+            })
+
+        service = await get_memory_service()
+        emb = service.embedding_service
+        target_meta = create_embedding_metadata(
+            model_name=getattr(emb, "model", "unknown"),
+            dimensions=getattr(emb, "dimensions", 1536),
+            provider="openai",
+        )
+
+        cr_map = {
+            "skip": ConflictResolution.SKIP,
+            "overwrite": ConflictResolution.OVERWRITE,
+            "merge": ConflictResolution.MERGE,
+        }
+        es_map = {
+            "auto": ReembeddingStrategy.AUTO,
+            "keep": ReembeddingStrategy.KEEP,
+            "drop": ReembeddingStrategy.DROP,
+        }
+
+        try:
+            summary = await do_import(
+                bundle=bundle,
+                store=service.vector_store,
+                target_metadata=target_meta,
+                conflict_resolution=cr_map[conflict_resolution],
+                embedding_strategy=es_map[embedding_strategy],
+                dry_run=dry_run,
+            )
+        except Exception as e:
+            return json.dumps({
+                "success": False, "error": str(e),
+            })
+
+        return json.dumps({
+            "success": True,
+            "dry_run": summary.dry_run,
+            "total": summary.total,
+            "imported": summary.imported,
+            "skipped": summary.skipped,
+            "overwritten": summary.overwritten,
+            "errors": summary.errors,
+            "needs_reembedding": summary.needs_reembedding,
+            "duration_ms": round(summary.duration_ms, 1),
+            "error_details": summary.error_details,
+        })
+
     return mcp
 
 

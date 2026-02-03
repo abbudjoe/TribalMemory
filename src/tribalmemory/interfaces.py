@@ -149,6 +149,15 @@ class IVectorStore(ABC):
     async def delete(self, memory_id: str) -> bool:
         """Delete a memory (soft delete with tombstone)."""
         pass
+
+    async def upsert(self, entry: MemoryEntry) -> StoreResult:
+        """Insert or replace a memory entry by ID.
+
+        Default implementation: delete existing + store new.
+        Subclasses may override for atomic upsert support.
+        """
+        await self.delete(entry.id)
+        return await self.store(entry)
     
     @abstractmethod
     async def list(

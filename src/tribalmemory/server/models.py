@@ -142,3 +142,65 @@ class ForgetResponse(BaseModel):
 class ShutdownResponse(BaseModel):
     """Response from shutdown request."""
     status: str
+
+
+# =============================================================================
+# Import/Export Models (Issue #7)
+# =============================================================================
+
+class ExportRequest(BaseModel):
+    """Request to export memories."""
+    tags: Optional[list[str]] = Field(
+        default=None,
+        description="Filter: only memories matching any of these tags",
+    )
+    date_from: Optional[str] = Field(
+        default=None,
+        description="Filter: ISO 8601 datetime lower bound (created_at)",
+    )
+    date_to: Optional[str] = Field(
+        default=None,
+        description="Filter: ISO 8601 datetime upper bound (created_at)",
+    )
+
+
+class ExportResponse(BaseModel):
+    """Response containing the exported bundle."""
+    success: bool
+    memory_count: int = 0
+    bundle: Optional[dict] = None
+    error: Optional[str] = None
+
+
+class ImportRequest(BaseModel):
+    """Request to import memories from a bundle."""
+    bundle: dict = Field(
+        ..., description="Portable bundle (manifest + entries)",
+    )
+    conflict_resolution: str = Field(
+        default="skip",
+        description="Conflict strategy: skip | overwrite | merge",
+    )
+    embedding_strategy: str = Field(
+        default="auto",
+        description="Embedding strategy: auto | keep | drop",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview changes without writing",
+    )
+
+
+class ImportResponse(BaseModel):
+    """Response from import operation."""
+    success: bool
+    total: int = 0
+    imported: int = 0
+    skipped: int = 0
+    overwritten: int = 0
+    errors: int = 0
+    needs_reembedding: bool = False
+    dry_run: bool = False
+    duration_ms: float = 0.0
+    error_details: list[str] = Field(default_factory=list)
+    error: Optional[str] = None

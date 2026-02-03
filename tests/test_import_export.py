@@ -119,7 +119,11 @@ async def populated_memory_store(embedding_service):
     for entry in entries:
         await store.store(entry)
 
-    return store
+    yield store
+
+    # Explicit cleanup to prevent state leakage
+    store._store.clear()
+    store._deleted.clear()
 
 
 # =============================================================================
@@ -936,7 +940,7 @@ class TestStreamingExport:
 
 
 class TestImportMetrics:
-    """Import should include duration_ms in summary."""
+    """Import should include duration_ms and progress callbacks."""
 
     def _make_bundle(self, entries, meta):
         from tribalmemory.portability.embedding_metadata import (
@@ -961,3 +965,66 @@ class TestImportMetrics:
         )
         assert summary.duration_ms >= 0
         assert isinstance(summary.duration_ms, float)
+
+    @pytest.mark.asyncio
+    async def test_progress_callback_called(
+        self, embedding_service, embedding_metadata,
+    ):
+        """on_progress should be called for each entry."""
+        store = InMemoryVectorStore(embedding_service)
+        entries = [
+            _make_entry("A", entry_id="p1"),
+            _make_entry("B", entry_id="p2"),
+            _make_entry("C", entry_id="p3"),
+        ]
+        bundle = self._make_bundle(entries, embedding_metadata)
+
+        calls: list[tuple[int, int]] = []
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            on_progress=lambda cur, tot: calls.append(
+                (cur, tot),
+            ),
+        )
+        assert summary.imported == 3
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+
+    @pytest.mark.asyncio
+    async def test_progress_callback_with_dry_run(
+        self, embedding_service, embedding_metadata,
+    ):
+        """on_progress works in dry-run mode too."""
+        store = InMemoryVectorStore(embedding_service)
+        bundle = self._make_bundle(
+            [_make_entry("X", entry_id="pd1")],
+            embedding_metadata,
+        )
+
+        calls: list[tuple[int, int]] = []
+        await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            dry_run=True,
+            on_progress=lambda c, t: calls.append((c, t)),
+        )
+        assert calls == [(1, 1)]
+
+    @pytest.mark.asyncio
+    async def test_no_progress_callback_is_fine(
+        self, embedding_service, embedding_metadata,
+    ):
+        """Omitting on_progress should not raise."""
+        store = InMemoryVectorStore(embedding_service)
+        bundle = self._make_bundle(
+            [_make_entry("Y", entry_id="np1")],
+            embedding_metadata,
+        )
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+        )
+        assert summary.imported == 1

@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -226,6 +226,13 @@ async def export_memories_streaming(
 # -------------------------------------------------------------- #
 
 
+"""Type alias for an import progress callback.
+
+Called after each entry is processed with (current, total).
+"""
+ProgressCallback = Callable[[int, int], None]
+
+
 async def import_memories(
     bundle: PortableBundle,
     store: IVectorStore,
@@ -237,6 +244,7 @@ async def import_memories(
         ReembeddingStrategy.AUTO
     ),
     dry_run: bool = False,
+    on_progress: Optional[ProgressCallback] = None,
 ) -> ImportSummary:
     """Import a portable bundle into a vector store.
 
@@ -248,13 +256,17 @@ async def import_memories(
         embedding_strategy: How to handle embedding mismatches.
         dry_run: If True, compute the summary without writing
             anything. Useful for previewing changes.
+        on_progress: Optional callback invoked after each entry
+            with ``(current_index, total_count)``. Useful for
+            progress bars on large imports.
 
     Returns:
         ``ImportSummary`` with counts and error details.
     """
     t0 = time.monotonic()
+    total = len(bundle.entries)
     summary = ImportSummary(
-        total=len(bundle.entries),
+        total=total,
         dry_run=dry_run,
     )
 
@@ -265,7 +277,7 @@ async def import_memories(
     )
     summary.needs_reembedding = import_result.needs_embedding
 
-    for entry in import_result.entries:
+    for idx, entry in enumerate(import_result.entries):
         try:
             existing = await store.get(entry.id)
 
@@ -279,7 +291,9 @@ async def import_memories(
                     else:
                         summary.errors += 1
                         summary.error_details.append(
-                            _safe_error(entry.id, result.error),
+                            _safe_error(
+                                entry.id, result.error,
+                            ),
                         )
             else:
                 if dry_run:
@@ -297,6 +311,9 @@ async def import_memories(
             summary.error_details.append(
                 _safe_error(entry.id, str(exc)),
             )
+
+        if on_progress is not None:
+            on_progress(idx + 1, total)
 
     summary.duration_ms = (time.monotonic() - t0) * 1000
 

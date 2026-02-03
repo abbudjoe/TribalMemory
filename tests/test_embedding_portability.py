@@ -201,7 +201,7 @@ class TestReembeddingStrategy:
 
         result = import_bundle(bundle, target_meta, strategy=ReembeddingStrategy.KEEP)
         assert result.entries[0].embedding == [1.0, 2.0]
-        assert result.reembedded is False
+        assert result.needs_embedding is False
 
     def test_strategy_drop_clears_embeddings(self):
         """DROP strategy should clear embeddings for later re-generation."""
@@ -212,7 +212,7 @@ class TestReembeddingStrategy:
 
         result = import_bundle(bundle, target_meta, strategy=ReembeddingStrategy.DROP)
         assert result.entries[0].embedding is None
-        assert result.reembedded is False
+        assert result.needs_embedding is True
 
     def test_strategy_auto_keeps_compatible(self):
         """AUTO strategy should keep embeddings when models are compatible."""
@@ -222,7 +222,7 @@ class TestReembeddingStrategy:
 
         result = import_bundle(bundle, meta, strategy=ReembeddingStrategy.AUTO)
         assert result.entries[0].embedding == [1.0, 2.0]
-        assert result.reembedded is False
+        assert result.needs_embedding is False
 
     def test_strategy_auto_drops_incompatible(self):
         """AUTO strategy should drop embeddings when models differ."""
@@ -233,7 +233,46 @@ class TestReembeddingStrategy:
 
         result = import_bundle(bundle, target_meta, strategy=ReembeddingStrategy.AUTO)
         assert result.entries[0].embedding is None
-        assert result.reembedded is False
+        assert result.needs_embedding is True
+
+
+class TestValidation:
+    """Test input validation."""
+
+    def test_dimension_mismatch_raises(self):
+        """Creating a bundle with wrong embedding dimensions should raise."""
+        entries = [MemoryEntry(content="test", embedding=[1.0, 2.0, 3.0])]
+        meta = create_embedding_metadata("model", 1536)  # Expects 1536, got 3
+        with pytest.raises(ValueError, match="3 dimensions.*expected 1536"):
+            create_portable_bundle(entries, meta)
+
+    def test_entries_without_embeddings_pass_validation(self):
+        """Entries with no embedding should not trigger dimension check."""
+        entries = [MemoryEntry(content="test", embedding=None)]
+        meta = create_embedding_metadata("model", 1536)
+        bundle = create_portable_bundle(entries, meta)
+        assert len(bundle.entries) == 1
+
+    def test_unsupported_schema_version_raises(self):
+        """Importing a bundle with unknown schema version should raise."""
+        meta = create_embedding_metadata("model", 2)
+        manifest = EmbeddingManifest(
+            schema_version="99.0",
+            embedding_metadata=meta,
+            memory_count=0,
+        )
+        bundle = PortableBundle(manifest=manifest, entries=[])
+        target = create_embedding_metadata("model", 2)
+        with pytest.raises(ValueError, match="Unsupported schema version"):
+            import_bundle(bundle, target)
+
+    def test_supported_schema_version_passes(self):
+        """Schema version 1.0 should import without error."""
+        entries = [MemoryEntry(content="test", embedding=[1.0, 2.0])]
+        meta = create_embedding_metadata("model", 2)
+        bundle = create_portable_bundle(entries, meta)
+        result = import_bundle(bundle, meta)
+        assert len(result.entries) == 1
 
 
 class TestPortableMemorySpec:

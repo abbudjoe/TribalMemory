@@ -10,7 +10,7 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
 const DEFAULT_MAX_RESULTS = 5;
 const DEFAULT_MIN_SCORE = 0.1;
 const ID_PREFIX = "tribal-memory:";
-const ID_SLICE_LENGTH = 8;
+// Full UUID used in path to eliminate collision risk (Issue #8)
 
 interface SearchOptions {
   maxResults?: number;
@@ -129,7 +129,7 @@ export class TribalClient {
         }
         return {
           id: r.memory.id,
-          path: `${ID_PREFIX}${r.memory.id.slice(0, ID_SLICE_LENGTH)}`,
+          path: `${ID_PREFIX}${r.memory.id}`,
           score: r.similarity_score,
           snippet: r.memory.content,
           source: r.memory.source_type,

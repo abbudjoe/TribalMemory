@@ -80,6 +80,32 @@ describe("TribalClient", () => {
         source: "user_explicit",
       });
     });
+
+    it("uses full UUID in path (no truncation)", async () => {
+      const fullUuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{
+            memory: {
+              id: fullUuid,
+              content: "Test content",
+              source_type: "user_explicit",
+              tags: [],
+            },
+            similarity_score: 0.9,
+            retrieval_time_ms: 5,
+          }],
+        }),
+      });
+
+      const results = await client.recall("test");
+
+      expect(results).toHaveLength(1);
+      expect(results[0].path).toBe(`tribal-memory:${fullUuid}`);
+      // Ensure full ID is preserved, not truncated
+      expect(results[0].path).toContain(fullUuid);
+    });
   });
 
   describe("remember()", () => {

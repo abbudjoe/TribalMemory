@@ -16,6 +16,7 @@ class FakeArgs:
     def __init__(self, **kwargs):
         self.local = kwargs.get("local", False)
         self.claude_code = kwargs.get("claude_code", False)
+        self.codex = kwargs.get("codex", False)
         self.instance_id = kwargs.get("instance_id", None)
         self.force = kwargs.get("force", False)
 
@@ -170,6 +171,79 @@ class TestInitCommand:
         env = mcp_config["mcpServers"]["tribal-memory"]["env"]
         assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in env
         assert "localhost:11434" in env["TRIBAL_MEMORY_EMBEDDING_API_BASE"]
+
+
+class TestCodexIntegration:
+    """Tests for Codex CLI MCP integration."""
+
+    def test_codex_creates_config_toml(self, tmp_path, monkeypatch):
+        """init --codex should create ~/.codex/config.toml with MCP section."""
+        monkeypatch.setattr("tribalmemory.cli.TRIBAL_DIR", tmp_path / ".tribal-memory")
+        monkeypatch.setattr("tribalmemory.cli.CONFIG_FILE", tmp_path / ".tribal-memory" / "config.yaml")
+        
+        import tribalmemory.cli as cli_mod
+        original_fn = cli_mod._setup_codex_mcp
+        
+        codex_config = tmp_path / ".codex" / "config.toml"
+        
+        def patched_setup(is_local):
+            codex_config.parent.mkdir(parents=True, exist_ok=True)
+            section_marker = "[mcp_servers.tribal-memory]"
+            mcp_lines = [
+                "",
+                "# Tribal Memory — shared memory for AI agents",
+                section_marker,
+                'command = "tribalmemory-mcp"',
+            ]
+            if is_local:
+                mcp_lines.append("")
+                mcp_lines.append("[mcp_servers.tribal-memory.env]")
+                mcp_lines.append('TRIBAL_MEMORY_EMBEDDING_API_BASE = "http://localhost:11434/v1"')
+            mcp_block = "\n".join(mcp_lines) + "\n"
+            codex_config.write_text(mcp_block.lstrip("\n"))
+        
+        monkeypatch.setattr(cli_mod, "_setup_codex_mcp", patched_setup)
+        
+        args = FakeArgs(codex=True)
+        result = cmd_init(args)
+        
+        assert result == 0
+        assert codex_config.exists()
+        content = codex_config.read_text()
+        assert "[mcp_servers.tribal-memory]" in content
+        assert 'command = "tribalmemory-mcp"' in content
+
+    def test_codex_local_adds_env(self, tmp_path, monkeypatch):
+        """init --local --codex should add api_base env to Codex config."""
+        monkeypatch.setattr("tribalmemory.cli.TRIBAL_DIR", tmp_path / ".tribal-memory")
+        monkeypatch.setattr("tribalmemory.cli.CONFIG_FILE", tmp_path / ".tribal-memory" / "config.yaml")
+        
+        import tribalmemory.cli as cli_mod
+        codex_config = tmp_path / ".codex" / "config.toml"
+        
+        def patched_setup(is_local):
+            codex_config.parent.mkdir(parents=True, exist_ok=True)
+            section_marker = "[mcp_servers.tribal-memory]"
+            mcp_lines = [
+                "# Tribal Memory",
+                section_marker,
+                'command = "tribalmemory-mcp"',
+            ]
+            if is_local:
+                mcp_lines.append("")
+                mcp_lines.append("[mcp_servers.tribal-memory.env]")
+                mcp_lines.append('TRIBAL_MEMORY_EMBEDDING_API_BASE = "http://localhost:11434/v1"')
+            codex_config.write_text("\n".join(mcp_lines) + "\n")
+        
+        monkeypatch.setattr(cli_mod, "_setup_codex_mcp", patched_setup)
+        
+        args = FakeArgs(local=True, codex=True)
+        result = cmd_init(args)
+        
+        assert result == 0
+        content = codex_config.read_text()
+        assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in content
+        assert "localhost:11434" in content
 
 
 class TestMainEntrypoint:

@@ -339,6 +339,7 @@ async def import_memories_route(
             embedding_strategy=es_map[
                 request.embedding_strategy
             ],
+            dry_run=request.dry_run,
         )
 
         return ImportResponse(
@@ -349,6 +350,8 @@ async def import_memories_route(
             overwritten=summary.overwritten,
             errors=summary.errors,
             needs_reembedding=summary.needs_reembedding,
+            dry_run=summary.dry_run,
+            duration_ms=round(summary.duration_ms, 1),
             error_details=summary.error_details,
         )
     except Exception as e:

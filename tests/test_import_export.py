@@ -28,6 +28,7 @@ from tribalmemory.services.import_export import (
     ExportFilter,
     ImportSummary,
     export_memories,
+    export_memories_streaming,
     import_memories,
     validate_conflict_resolution,
     validate_embedding_strategy,
@@ -739,3 +740,224 @@ class TestUpsert:
         got = await store.get("u3")
         assert got is not None
         assert got.content == "Revived"
+
+
+# =============================================================================
+# Dry-Run Tests (Follow-up #1)
+# =============================================================================
+
+
+class TestDryRun:
+    """Import dry-run previews changes without writing."""
+
+    def _make_bundle(self, entries, meta):
+        from tribalmemory.portability.embedding_metadata import (
+            create_portable_bundle,
+        )
+        return create_portable_bundle(entries=entries,
+                                      embedding_metadata=meta)
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_imports(
+        self, embedding_service, embedding_metadata,
+    ):
+        """Dry run should count imports without writing."""
+        store = InMemoryVectorStore(embedding_service)
+        bundle = self._make_bundle(
+            [_make_entry("A", entry_id="d1")],
+            embedding_metadata,
+        )
+
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            dry_run=True,
+        )
+        assert summary.dry_run is True
+        assert summary.imported == 1
+
+        # Nothing was actually written
+        all_entries = await store.list()
+        assert len(all_entries) == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_skips(
+        self, embedding_service, embedding_metadata,
+    ):
+        """Dry run should count skips for conflicts."""
+        store = InMemoryVectorStore(embedding_service)
+        existing = _make_entry("Existing", entry_id="d2")
+        await store.store(existing)
+
+        bundle = self._make_bundle(
+            [_make_entry("Conflict", entry_id="d2")],
+            embedding_metadata,
+        )
+
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            conflict_resolution=ConflictResolution.SKIP,
+            dry_run=True,
+        )
+        assert summary.skipped == 1
+        assert summary.imported == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_overwrites(
+        self, embedding_service, embedding_metadata,
+    ):
+        """Dry run should count would-be overwrites."""
+        store = InMemoryVectorStore(embedding_service)
+        existing = _make_entry("Old", entry_id="d3")
+        await store.store(existing)
+
+        bundle = self._make_bundle(
+            [_make_entry("New", entry_id="d3")],
+            embedding_metadata,
+        )
+
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            conflict_resolution=ConflictResolution.OVERWRITE,
+            dry_run=True,
+        )
+        assert summary.overwritten == 1
+
+        # Original still untouched
+        entry = await store.get("d3")
+        assert entry.content == "Old"
+
+    @pytest.mark.asyncio
+    async def test_dry_run_includes_duration(
+        self, embedding_service, embedding_metadata,
+    ):
+        store = InMemoryVectorStore(embedding_service)
+        bundle = self._make_bundle(
+            [_make_entry("X", entry_id="d4")],
+            embedding_metadata,
+        )
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+            dry_run=True,
+        )
+        assert summary.duration_ms >= 0
+
+
+# =============================================================================
+# Streaming Export Tests (Follow-up #3)
+# =============================================================================
+
+
+class TestStreamingExport:
+    """export_memories_streaming yields entries one at a time."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_yields_all(
+        self, populated_memory_store, embedding_metadata,
+    ):
+        entries = []
+        async for e in export_memories_streaming(
+            store=populated_memory_store,
+            embedding_metadata=embedding_metadata,
+        ):
+            entries.append(e)
+        assert len(entries) == 5
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_tag_filter(
+        self, populated_memory_store, embedding_metadata,
+    ):
+        entries = []
+        async for e in export_memories_streaming(
+            store=populated_memory_store,
+            embedding_metadata=embedding_metadata,
+            filters=ExportFilter(tags=["preferences"]),
+        ):
+            entries.append(e)
+        assert len(entries) == 2
+        for e in entries:
+            assert "preferences" in e.tags
+
+    @pytest.mark.asyncio
+    async def test_streaming_with_date_filter(
+        self, populated_memory_store, embedding_metadata,
+    ):
+        now = datetime.now(timezone.utc)
+        entries = []
+        async for e in export_memories_streaming(
+            store=populated_memory_store,
+            embedding_metadata=embedding_metadata,
+            filters=ExportFilter(
+                date_from=now - timedelta(days=2),
+            ),
+        ):
+            entries.append(e)
+        # entries from last 2 days: entry-3, -4, -5
+        assert len(entries) == 3
+
+    @pytest.mark.asyncio
+    async def test_streaming_empty_store(
+        self, embedding_service, embedding_metadata,
+    ):
+        store = InMemoryVectorStore(embedding_service)
+        entries = []
+        async for e in export_memories_streaming(
+            store=store,
+            embedding_metadata=embedding_metadata,
+        ):
+            entries.append(e)
+        assert len(entries) == 0
+
+    @pytest.mark.asyncio
+    async def test_streaming_small_batch_size(
+        self, populated_memory_store, embedding_metadata,
+    ):
+        """Small batch size should still yield all entries."""
+        entries = []
+        async for e in export_memories_streaming(
+            store=populated_memory_store,
+            embedding_metadata=embedding_metadata,
+            batch_size=2,
+        ):
+            entries.append(e)
+        assert len(entries) == 5
+
+
+# =============================================================================
+# Import Metrics Tests (Follow-up #2)
+# =============================================================================
+
+
+class TestImportMetrics:
+    """Import should include duration_ms in summary."""
+
+    def _make_bundle(self, entries, meta):
+        from tribalmemory.portability.embedding_metadata import (
+            create_portable_bundle,
+        )
+        return create_portable_bundle(entries=entries,
+                                      embedding_metadata=meta)
+
+    @pytest.mark.asyncio
+    async def test_import_includes_duration(
+        self, embedding_service, embedding_metadata,
+    ):
+        store = InMemoryVectorStore(embedding_service)
+        bundle = self._make_bundle(
+            [_make_entry("Timed", entry_id="t1")],
+            embedding_metadata,
+        )
+        summary = await import_memories(
+            bundle=bundle,
+            store=store,
+            target_metadata=embedding_metadata,
+        )
+        assert summary.duration_ms >= 0
+        assert isinstance(summary.duration_ms, float)

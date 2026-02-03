@@ -359,6 +359,7 @@ def create_server() -> FastMCP:
         bundle_json: Optional[str] = None,
         conflict_resolution: str = "skip",
         embedding_strategy: str = "auto",
+        dry_run: bool = False,
     ) -> str:
         """Import memories from a portable JSON bundle.
 
@@ -367,6 +368,7 @@ def create_server() -> FastMCP:
             bundle_json: Inline JSON string of the bundle.
             conflict_resolution: skip | overwrite | merge.
             embedding_strategy: auto | keep | drop.
+            dry_run: Preview what would change without writing.
 
         Returns:
             JSON with import summary.
@@ -437,6 +439,7 @@ def create_server() -> FastMCP:
                 target_metadata=target_meta,
                 conflict_resolution=cr_map[conflict_resolution],
                 embedding_strategy=es_map[embedding_strategy],
+                dry_run=dry_run,
             )
         except Exception as e:
             return json.dumps({
@@ -445,12 +448,14 @@ def create_server() -> FastMCP:
 
         return json.dumps({
             "success": True,
+            "dry_run": summary.dry_run,
             "total": summary.total,
             "imported": summary.imported,
             "skipped": summary.skipped,
             "overwritten": summary.overwritten,
             "errors": summary.errors,
             "needs_reembedding": summary.needs_reembedding,
+            "duration_ms": round(summary.duration_ms, 1),
             "error_details": summary.error_details,
         })
 

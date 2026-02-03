@@ -185,6 +185,10 @@ class ImportRequest(BaseModel):
         default="auto",
         description="Embedding strategy: auto | keep | drop",
     )
+    dry_run: bool = Field(
+        default=False,
+        description="Preview changes without writing",
+    )
 
 
 class ImportResponse(BaseModel):
@@ -196,5 +200,7 @@ class ImportResponse(BaseModel):
     overwritten: int = 0
     errors: int = 0
     needs_reembedding: bool = False
+    dry_run: bool = False
+    duration_ms: float = 0.0
     error_details: list[str] = Field(default_factory=list)
     error: Optional[str] = None

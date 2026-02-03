@@ -188,8 +188,11 @@ pytest -m integration
 4. ✅ No type errors
 5. ✅ Documentation updated if needed
 6. ✅ Commit messages are clear
+7. ✅ `@claude review this PR` comment posted (see PR Workflow below)
 
 ### PR Workflow
+
+**All changes must follow this flow. No exceptions.**
 
 1. **Create your feature branch:**
 
@@ -212,17 +215,29 @@ pytest -m integration
 
 4. **Open a Pull Request** on GitHub
 
-5. **Fill out the PR template** with:
-   - What the change does
-   - Why it's needed
-   - How it was tested
-   - Any breaking changes
+5. **Post the mandatory review trigger:**
+   
+   Comment on your PR: **`@claude review this PR`**
+   
+   ⚠️ **CRITICAL**: This comment must be standalone — do not combine with other text.
 
-6. **Wait for review** — Maintainers will review your PR
+6. **Check Claude Code's review comments**
 
-7. **Address feedback** — Make requested changes and push updates
+7. **Fix all identified issues**
 
-8. **Merge** — Once approved, a maintainer will merge your PR
+8. **Commit fixes and push**
+
+9. **Issues remaining?** → Go back to step 5 (re-trigger Claude review)
+
+10. **When clean**: Comment `@abbudjoe ready for merge`
+
+11. **Joe reviews and merges**
+
+**Important Notes:**
+- ❌ No merges without Claude Code review
+- ❌ No skipping the `@claude review this PR` comment
+- ❌ Do NOT rely on automatic GitHub Action triggers
+- ✅ The `@claude` comment must be standalone
 
 ### PR Review Guidelines
 

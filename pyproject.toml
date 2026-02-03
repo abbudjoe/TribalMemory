@@ -70,6 +70,7 @@ markers = [
     "slow: Slow running tests",
     "benchmark: Standard benchmark integration tests",
     "integration: Tests requiring external services (API keys)",
+    "security: Security and vulnerability tests",
 ]
 
 [tool.ruff]

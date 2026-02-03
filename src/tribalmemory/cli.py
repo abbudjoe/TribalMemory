@@ -24,6 +24,7 @@ except ImportError:
 
 TRIBAL_DIR = Path.home() / ".tribal-memory"
 CONFIG_FILE = TRIBAL_DIR / "config.yaml"
+DEFAULT_INSTANCE_ID = "default"
 
 # MCP config for Claude Code (claude_desktop_config.json)
 CLAUDE_CODE_MCP_CONFIG = {
@@ -68,7 +69,7 @@ embedding:
   model: nomic-embed-text   # Run: ollama pull nomic-embed-text
   api_base: http://localhost:11434/v1
   dimensions: 768
-  api_key: unused           # Ollama doesn't need a key
+  # api_key not needed for local Ollama
 
 db:
   provider: lancedb
@@ -80,9 +81,9 @@ server:
 """
 
 
-def cmd_init(args):
-    """Initialize Tribal Memory configuration and MCP integration."""
-    instance_id = args.instance_id or "default"
+def cmd_init(args: argparse.Namespace) -> int:
+    """Initialize Tribal Memory config and MCP integration."""
+    instance_id = args.instance_id or DEFAULT_INSTANCE_ID
     db_path = str(TRIBAL_DIR / "lancedb")
 
     # Create config directory
@@ -156,7 +157,11 @@ def _setup_claude_code_mcp(is_local: bool):
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(
+                f"⚠️  Existing config has invalid JSON: {e}"
+            )
+            print(f"   Creating fresh config at {config_path}")
             existing = {}
     else:
         existing = {}
@@ -218,29 +223,32 @@ def _setup_codex_mcp(is_local: bool):
     print(f"✅ Codex CLI MCP config updated: {codex_config_path}")
 
 
-def cmd_serve(args):
+def cmd_serve(args: argparse.Namespace) -> None:
     """Start the HTTP server."""
-    from .server.app import main as server_main
-    # Re-inject args for the server's argparse
-    sys.argv = ["tribalmemory"]
-    if args.host:
-        sys.argv.extend(["--host", args.host])
-    if args.port:
-        sys.argv.extend(["--port", str(args.port)])
-    if args.config:
-        sys.argv.extend(["--config", args.config])
-    if args.log_level:
-        sys.argv.extend(["--log-level", args.log_level])
-    server_main()
+    from .server.app import run_server
+    from .server.config import TribalMemoryConfig
+
+    config_path = args.config
+    if config_path:
+        config = TribalMemoryConfig.from_file(config_path)
+    else:
+        config = TribalMemoryConfig.from_env()
+
+    run_server(
+        config=config,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level or "info",
+    )
 
 
-def cmd_mcp(args):
+def cmd_mcp(args: argparse.Namespace) -> None:
     """Start the MCP server (stdio)."""
     from .mcp.server import main as mcp_main
     mcp_main()
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="tribalmemory",

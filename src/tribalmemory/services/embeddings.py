@@ -15,22 +15,33 @@ from ..utils import normalize_embedding
 
 
 class OpenAIEmbeddingService(IEmbeddingService):
-    """OpenAI embedding service using text-embedding-3-small.
+    """OpenAI-compatible embedding service.
+    
+    Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
     
     Features:
     - Async HTTP calls with retry logic
     - Batch embedding support
     - Rate limiting awareness
-    - Configurable model and dimensions
+    - Configurable model, dimensions, and API base URL
+    - Local-only mode (Ollama) — no API key needed
     
     Usage:
+        # OpenAI
         service = OpenAIEmbeddingService(api_key="sk-...")
-        embedding = await service.embed("Hello world")
+        
+        # Ollama (local)
+        service = OpenAIEmbeddingService(
+            api_base="http://localhost:11434/v1",
+            model="nomic-embed-text",
+            dimensions=768,
+        )
     """
     
     DEFAULT_MODEL = "text-embedding-3-small"
     DEFAULT_DIMENSIONS = 1536
     DEFAULT_API_BASE = "https://api.openai.com/v1"
+    LOCAL_API_KEY_PLACEHOLDER = "local-no-key-needed"
     
     def __init__(
         self,
@@ -65,21 +76,34 @@ class OpenAIEmbeddingService(IEmbeddingService):
             the _client object or include it in error reports. For production,
             consider using a secrets manager rather than environment variables.
         """
+        # Validate dimensions
+        if dimensions < 1 or dimensions > 8192:
+            raise ValueError(
+                f"Dimensions must be between 1 and 8192, got {dimensions}"
+            )
+        
         # Build the API URL from api_base
         self.api_url = self._resolve_api_url(api_base)
+        
+        # Determine if this is a local (non-OpenAI) service
+        is_local = (
+            api_base is not None
+            and api_base.strip() != ""
+            and "api.openai.com" not in api_base.lower()
+        )
         
         # For local services (non-OpenAI), api_key is optional
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.backoff_base = backoff_base
         self.backoff_max = backoff_max
-        is_local = api_base is not None and "openai.com" not in (api_base or "")
-        if not self.api_key and not is_local:
-            raise ValueError(
-                "OpenAI API key required. Pass api_key or set OPENAI_API_KEY env var."
-            )
-        # Use a dummy key for local services that don't need auth
         if not self.api_key:
-            self.api_key = "unused"
+            if not is_local:
+                raise ValueError(
+                    "OpenAI API key required. Pass api_key "
+                    "or set OPENAI_API_KEY env var."
+                )
+            # Use a placeholder for local services (e.g., Ollama)
+            self.api_key = self.LOCAL_API_KEY_PLACEHOLDER
         
         self.model = model
         self.dimensions = dimensions
@@ -98,12 +122,23 @@ class OpenAIEmbeddingService(IEmbeddingService):
         
         Returns:
             Full URL ending in /embeddings.
-        """
-        if api_base is None:
-            return f"{OpenAIEmbeddingService.DEFAULT_API_BASE}/embeddings"
         
-        # Strip trailing slash
-        base = api_base.rstrip("/")
+        Raises:
+            ValueError: If api_base is not a valid HTTP(S) URL.
+        """
+        if api_base is None or api_base.strip() == "":
+            return (
+                f"{OpenAIEmbeddingService.DEFAULT_API_BASE}"
+                "/embeddings"
+            )
+        
+        base = api_base.strip().rstrip("/")
+        
+        # Basic URL validation
+        if base and not base.startswith(("http://", "https://")):
+            raise ValueError(
+                f"api_base must be an HTTP(S) URL, got: {base}"
+            )
         
         # If already ends with /embeddings, use as-is
         if base.endswith("/embeddings"):
@@ -167,8 +202,19 @@ class OpenAIEmbeddingService(IEmbeddingService):
                     continue
                 
                 else:
-                    error_detail = response.json().get("error", {}).get("message", response.text)
-                    raise RuntimeError(f"OpenAI API error ({response.status_code}): {error_detail}")
+                    try:
+                        error_detail = (
+                            response.json()
+                            .get("error", {})
+                            .get("message", response.text)
+                        )
+                    except Exception:
+                        error_detail = response.text[:200]
+                    raise RuntimeError(
+                        f"Embedding API error "
+                        f"({response.status_code}): "
+                        f"{error_detail}"
+                    )
                     
             except httpx.TimeoutException as e:
                 last_error = e

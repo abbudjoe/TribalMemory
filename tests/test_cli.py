@@ -52,7 +52,7 @@ class TestInitCommand:
         assert "localhost:11434" in content
         assert "nomic-embed-text" in content
         assert "768" in content
-        assert "unused" in content
+        assert "api_key not needed" in content
 
     def test_init_custom_instance_id(self, tmp_path, monkeypatch):
         """init --instance-id should set custom ID."""

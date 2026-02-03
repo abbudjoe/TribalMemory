@@ -42,13 +42,14 @@ class TestApiBaseSupport:
         )
         assert service.api_url == "http://localhost:11434/v1/embeddings"
 
-    def test_api_key_not_required_for_local(self):
+    def test_api_key_not_required_for_local(self, monkeypatch):
         """When api_base is set (local model), api_key should not be required."""
-        # Ollama doesn't need an API key
+        # Clear env so we can test the no-key path
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         service = OpenAIEmbeddingService(
             api_base="http://localhost:11434/v1",
         )
-        assert service.api_key is not None  # Should have a dummy key
+        assert service.api_key == OpenAIEmbeddingService.LOCAL_API_KEY_PLACEHOLDER
 
     def test_custom_dimensions(self):
         """Custom dimensions should be configurable (e.g., 768 for nomic-embed-text)."""
@@ -87,6 +88,39 @@ class TestApiBaseSupport:
             mock_client.post.assert_called_once()
             call_url = mock_client.post.call_args[0][0]
             assert "localhost:11434" in call_url
+
+
+class TestEdgeCases:
+    """Edge cases identified in review."""
+
+    def test_empty_api_base_treated_as_none(self):
+        """Empty string api_base should behave like None (use OpenAI)."""
+        service = OpenAIEmbeddingService(
+            api_key="sk-test",
+            api_base="",
+        )
+        assert "api.openai.com" in service.api_url
+
+    def test_invalid_api_base_raises(self):
+        """Non-HTTP api_base should raise ValueError."""
+        with pytest.raises(ValueError, match="HTTP"):
+            OpenAIEmbeddingService(
+                api_key="sk-test",
+                api_base="ftp://bad-protocol.local",
+            )
+
+    def test_invalid_dimensions_raises(self):
+        """Dimensions outside valid range should raise."""
+        with pytest.raises(ValueError, match="Dimensions"):
+            OpenAIEmbeddingService(
+                api_key="sk-test",
+                dimensions=0,
+            )
+        with pytest.raises(ValueError, match="Dimensions"):
+            OpenAIEmbeddingService(
+                api_key="sk-test",
+                dimensions=10000,
+            )
 
 
 class TestConfigApiBase:

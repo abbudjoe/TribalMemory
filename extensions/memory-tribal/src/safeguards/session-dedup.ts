@@ -7,7 +7,13 @@
  *
  * Identity is based on path + line range (or path + snippet hash
  * when line info is unavailable).
+ *
+ * Plugin config mapping:
+ * - `sessionDedupEnabled` → controls whether this module runs
+ * - `dedupCooldownMs` → maps to `SessionDedupConfig.cooldownMs`
  */
+
+import { createHash } from "crypto";
 
 export interface SessionDedupConfig {
   /** Cooldown in ms before a deduped result can reappear (default: 300000 = 5 min) */
@@ -32,14 +38,11 @@ interface MemoryResult {
 }
 
 /**
- * Simple string hash (djb2) for snippet-based identity.
+ * SHA-256 based hash for snippet identity. Truncated to 16 hex chars
+ * for compact keys while maintaining negligible collision probability.
  */
 function hashString(str: string): string {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
-  }
-  return hash.toString(36);
+  return createHash("sha256").update(str).digest("hex").substring(0, 16);
 }
 
 /**
@@ -120,6 +123,18 @@ export class SessionDedup {
    */
   getConfig(): SessionDedupConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Get session state for debugging/inspection.
+   * @returns Key count and tracked keys, or null if session unknown.
+   */
+  getSessionState(
+    sessionId: string,
+  ): { keyCount: number; keys: string[] } | null {
+    const seen = this.sessions.get(sessionId);
+    if (!seen) return null;
+    return { keyCount: seen.size, keys: Array.from(seen.keys()) };
   }
 
   /**

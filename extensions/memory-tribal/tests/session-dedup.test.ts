@@ -41,6 +41,15 @@ describe("SessionDedup", () => {
       expect(other).toHaveLength(1);
     });
 
+    it("should not dedup results seen only in other sessions", () => {
+      const r1 = [{ path: "a.md", startLine: 1, endLine: 5, snippet: "x", score: 0.9 }];
+      const r2 = [{ path: "b.md", startLine: 1, endLine: 5, snippet: "y", score: 0.8 }];
+      dedup.filter("s1", r1); // s1 sees r1
+      dedup.filter("s2", r2); // s2 sees r2
+      // s1 should still accept r2 (never seen it before)
+      expect(dedup.filter("s1", r2)).toHaveLength(1);
+    });
+
     it("should filter duplicates but keep unique results", () => {
       const batch1 = [
         { path: "MEMORY.md", startLine: 5, endLine: 15, snippet: "a", score: 0.8 },
@@ -147,6 +156,19 @@ describe("SessionDedup", () => {
       expect(stats.totalSeen).toBe(0);
       expect(stats.totalDeduped).toBe(0);
     });
+
+    it("should expose session state for debugging", () => {
+      expect(dedup.getSessionState("s1")).toBeNull();
+      const results = [
+        { path: "a.md", startLine: 1, endLine: 5, snippet: "x", score: 0.9 },
+        { path: "b.md", startLine: 10, endLine: 20, snippet: "y", score: 0.8 },
+      ];
+      dedup.filter("s1", results);
+      const state = dedup.getSessionState("s1");
+      expect(state).not.toBeNull();
+      expect(state!.keyCount).toBe(2);
+      expect(state!.keys).toHaveLength(2);
+    });
   });
 
   describe("memory cleanup", () => {
@@ -160,6 +182,35 @@ describe("SessionDedup", () => {
       expect(small.filter("s1", r)).toHaveLength(1);
       // s3 should still be tracked (was not evicted)
       expect(small.filter("s3", r)).toHaveLength(0);
+    });
+
+    it("should verify all non-evicted sessions survive", () => {
+      const small = new SessionDedup({ maxSessions: 3 });
+      const r = [{ path: "a.md", startLine: 1, endLine: 5, snippet: "x", score: 0.9 }];
+      small.filter("s1", r);
+      small.filter("s2", r);
+      small.filter("s3", r);
+      small.filter("s4", r); // evicts s1, order: [s2, s3, s4]
+      // Check retained sessions first (won't cause evictions)
+      expect(small.filter("s2", r)).toHaveLength(0); // retained
+      expect(small.filter("s3", r)).toHaveLength(0); // retained
+      expect(small.filter("s4", r)).toHaveLength(0); // retained
+      // Use getSessionState to verify s1 was evicted without side effects
+      expect(small.getSessionState("s1")).toBeNull();
+    });
+
+    it("should move touched sessions to end of LRU queue", () => {
+      const small = new SessionDedup({ maxSessions: 2 });
+      const r = [{ path: "a.md", startLine: 1, endLine: 5, snippet: "x", score: 0.9 }];
+      small.filter("s1", r); // order: [s1]
+      small.filter("s2", r); // order: [s1, s2]
+      small.filter("s1", r); // touch s1, order: [s2, s1]
+      small.filter("s3", r); // evicts s2 (now oldest), order: [s1, s3]
+      // Check retained sessions first
+      expect(small.filter("s1", r)).toHaveLength(0); // s1 retained (touched)
+      expect(small.filter("s3", r)).toHaveLength(0); // s3 retained
+      // Verify s2 was evicted
+      expect(small.getSessionState("s2")).toBeNull();
     });
   });
 });

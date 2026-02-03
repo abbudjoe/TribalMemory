@@ -9,8 +9,12 @@ const DEFAULT_TIMEOUT_MS = 10000;
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 const DEFAULT_MAX_RESULTS = 5;
 const DEFAULT_MIN_SCORE = 0.1;
+/**
+ * Path format: "tribal-memory:{full-uuid}"
+ * Used as the unique identifier in SearchResult.path for memory entries.
+ * Full UUID eliminates collision risk at any corpus size.
+ */
 const ID_PREFIX = "tribal-memory:";
-const ID_SLICE_LENGTH = 8;
 
 interface SearchOptions {
   maxResults?: number;
@@ -20,6 +24,7 @@ interface SearchOptions {
 
 interface SearchResult {
   id: string;
+  /** Unique path in format "tribal-memory:{full-uuid}". Uses the complete memory ID. */
   path: string;
   startLine?: number;
   endLine?: number;
@@ -129,7 +134,7 @@ export class TribalClient {
         }
         return {
           id: r.memory.id,
-          path: `${ID_PREFIX}${r.memory.id.slice(0, ID_SLICE_LENGTH)}`,
+          path: `${ID_PREFIX}${r.memory.id}`,
           score: r.similarity_score,
           snippet: r.memory.content,
           source: r.memory.source_type,

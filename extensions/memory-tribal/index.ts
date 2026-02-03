@@ -20,59 +20,101 @@ import { CircuitBreaker } from "./src/safeguards/circuit-breaker";
 import { SmartTrigger } from "./src/safeguards/smart-triggers";
 import { SessionDedup } from "./src/safeguards/session-dedup";
 import { SafeguardMetrics } from "./src/safeguards/metrics";
+import type { MemoryResult } from "./src/types";
 
 interface PluginConfig {
   tribalServerUrl: string;
+
+  // --- Query cache ---
   queryCacheEnabled: boolean;
+  /** Min successful retrievals before caching a query (default: 3) */
+  queryCacheMinSuccesses: number;
+
+  // --- Query expansion ---
   queryExpansionEnabled: boolean;
+
+  // --- Feedback ---
   feedbackEnabled: boolean;
-  minCacheSuccesses: number;
-  /** Max tokens returned per single memory_search call (default: 500) */
+
+  // --- Token budgets ---
+  /** Max tokens per single memory_search call (default: 500) */
   maxTokensPerRecall: number;
   /** Max tokens of memory content per agent turn (default: 750) */
   maxTokensPerTurn: number;
-  /** Max tokens of memory content across entire session (default: 5000) */
+  /** Max tokens across entire session (default: 5000) */
   maxTokensPerSession: number;
-  /** Max tokens per individual memory snippet (default: 100) */
+  /** Max tokens per individual snippet (default: 100) */
   maxTokensPerSnippet: number;
-  /** Consecutive empty recalls before circuit breaker trips (default: 5) */
-  maxConsecutiveEmpty: number;
-  /** Circuit breaker cooldown in ms (default: 300000 = 5 minutes) */
-  circuitBreakerCooldownMs: number;
-  /** Enable smart trigger skip for low-value queries (default: true) */
-  smartTriggersEnabled: boolean;
-  /** Minimum query length to trigger recall (default: 2) */
-  minQueryLength: number;
-  /** Skip emoji-only queries (default: true) */
-  skipEmojiOnly: boolean;
-  /** Enable session deduplication to prevent re-injecting same memory (default: true) */
-  sessionDedupEnabled: boolean;
-  /** Cooldown in ms before a deduped memory can reappear (default: 300000 = 5 min) */
-  dedupCooldownMs: number;
-  /** Max age in ms before stale turn data is cleaned up (default: 1800000 = 30 min) */
+  /** Max age in ms before stale turn data is cleaned (default: 1800000) */
   turnMaxAgeMs: number;
+
+  // --- Circuit breaker ---
+  /** Consecutive empty recalls before tripping (default: 5) */
+  circuitBreakerMaxEmpty: number;
+  /** Cooldown in ms after tripping (default: 300000 = 5 min) */
+  circuitBreakerCooldownMs: number;
+
+  // --- Smart triggers ---
+  /** Enable smart trigger skip for low-value queries (default: true) */
+  smartTriggerEnabled: boolean;
+  /** Minimum query length to trigger recall (default: 2) */
+  smartTriggerMinQueryLength: number;
+  /** Skip emoji-only queries (default: true) */
+  smartTriggerSkipEmojiOnly: boolean;
+
+  // --- Session dedup ---
+  /** Enable session deduplication (default: true) */
+  sessionDedupEnabled: boolean;
+  /** Cooldown in ms before deduped memory reappears (default: 300000) */
+  sessionDedupCooldownMs: number;
 }
 
 export default function memoryTribal(api: any) {
   const config: PluginConfig = api.config?.plugins?.entries?.["memory-tribal"]?.config ?? {
     tribalServerUrl: "http://localhost:18790",
     queryCacheEnabled: true,
+    queryCacheMinSuccesses: 3,
     queryExpansionEnabled: true,
     feedbackEnabled: true,
-    minCacheSuccesses: 3,
     maxTokensPerRecall: 500,
     maxTokensPerTurn: 750,
     maxTokensPerSession: 5000,
     maxTokensPerSnippet: 100,
-    maxConsecutiveEmpty: 5,
-    circuitBreakerCooldownMs: 5 * 60 * 1000,
-    smartTriggersEnabled: true,
-    minQueryLength: 2,
-    skipEmojiOnly: true,
-    sessionDedupEnabled: true,
-    dedupCooldownMs: 5 * 60 * 1000,
     turnMaxAgeMs: 30 * 60 * 1000,
+    circuitBreakerMaxEmpty: 5,
+    circuitBreakerCooldownMs: 5 * 60 * 1000,
+    smartTriggerEnabled: true,
+    smartTriggerMinQueryLength: 2,
+    smartTriggerSkipEmojiOnly: true,
+    sessionDedupEnabled: true,
+    sessionDedupCooldownMs: 5 * 60 * 1000,
   };
+
+  // Backward compatibility: accept old config names with warning
+  const raw = api.config?.plugins?.entries?.["memory-tribal"]?.config;
+  if (raw) {
+    const renames: Record<string, string> = {
+      minCacheSuccesses: "queryCacheMinSuccesses",
+      maxConsecutiveEmpty: "circuitBreakerMaxEmpty",
+      smartTriggersEnabled: "smartTriggerEnabled",
+      minQueryLength: "smartTriggerMinQueryLength",
+      skipEmojiOnly: "smartTriggerSkipEmojiOnly",
+      dedupCooldownMs: "sessionDedupCooldownMs",
+    };
+    const migrated: string[] = [];
+    for (const [oldKey, newKey] of Object.entries(renames)) {
+      if (oldKey in raw && !(newKey in raw)) {
+        (config as any)[newKey] = raw[oldKey];
+        migrated.push(oldKey);
+      }
+    }
+    if (migrated.length > 0) {
+      api.log?.warn?.(
+        `[memory-tribal] Deprecated config names: ${migrated.join(", ")}. ` +
+        `See README for migration table.`,
+      );
+    }
+  }
 
   // Initialize persistence layer
   let persistence: PersistenceLayer | null = null;
@@ -84,7 +126,7 @@ export default function memoryTribal(api: any) {
   }
 
   // Initialize components
-  const queryCache = new QueryCache(config.minCacheSuccesses, persistence);
+  const queryCache = new QueryCache(config.queryCacheMinSuccesses, persistence);
   const queryExpander = new QueryExpander(persistence);
   const feedbackTracker = new FeedbackTracker(persistence);
   const tribalClient = new TribalClient(config.tribalServerUrl);
@@ -99,15 +141,15 @@ export default function memoryTribal(api: any) {
     maxTokensPerSnippet: config.maxTokensPerSnippet,
   });
   const circuitBreaker = new CircuitBreaker({
-    maxConsecutiveEmpty: config.maxConsecutiveEmpty,
+    maxConsecutiveEmpty: config.circuitBreakerMaxEmpty,
     cooldownMs: config.circuitBreakerCooldownMs,
   });
   const smartTrigger = new SmartTrigger({
-    minQueryLength: config.minQueryLength,
-    skipEmojiOnly: config.skipEmojiOnly,
+    minQueryLength: config.smartTriggerMinQueryLength,
+    skipEmojiOnly: config.smartTriggerSkipEmojiOnly,
   });
   const sessionDedup = new SessionDedup({
-    cooldownMs: config.dedupCooldownMs,
+    cooldownMs: config.sessionDedupCooldownMs,
   });
   const safeguardMetrics = new SafeguardMetrics({
     tokenBudget,
@@ -163,7 +205,7 @@ export default function memoryTribal(api: any) {
 
       try {
         // Step 0a: Smart trigger — skip low-value queries
-        if (config.smartTriggersEnabled) {
+        if (config.smartTriggerEnabled) {
           const classification = smartTrigger.classify(query);
           if (classification.skip) {
             api.log?.debug?.(`[memory-tribal] Smart trigger skip: ${classification.reason}`);
@@ -198,7 +240,7 @@ export default function memoryTribal(api: any) {
         }
 
         // Step 3: Search with expanded queries
-        let results: any[] = [];
+        let results: MemoryResult[] = [];
         
         if (!useBuiltinFallback) {
           try {
@@ -247,7 +289,7 @@ export default function memoryTribal(api: any) {
         // Step 9: Apply token budgets
         const turnId = context?.turnId ?? `turn-${Date.now()}`;
         let totalRecallTokens = 0;
-        const budgetedResults: any[] = [];
+        const budgetedResults: MemoryResult[] = [];
 
         for (const result of results) {
           const text = result.snippet ?? result.text ?? "";
@@ -256,7 +298,7 @@ export default function memoryTribal(api: any) {
           // Check per-recall cap — break (not continue) to preserve budget for
           // future searches. Since results are ranked by relevance, skipping the
           // current high-quality result to fit a lower-quality one wastes budget.
-          if (totalRecallTokens + tokens > config.perRecallCap) break;
+          if (totalRecallTokens + tokens > config.maxTokensPerRecall) break;
           // Check per-turn cap
           if (!tokenBudget.canUseForTurn(turnId, tokens)) break;
           // Check per-session cap
@@ -424,7 +466,7 @@ export default function memoryTribal(api: any) {
   api.log?.info?.("[memory-tribal] Plugin loaded (with Phase 4 metrics & alerting)");
 }
 
-function formatResults(results: any[], source: string) {
+function formatResults(results: MemoryResult[], source: string) {
   if (!results || results.length === 0) {
     return {
       content: [{ type: "text", text: "No matches found." }],

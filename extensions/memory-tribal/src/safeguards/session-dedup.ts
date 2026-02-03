@@ -10,7 +10,7 @@
  *
  * Plugin config mapping:
  * - `sessionDedupEnabled` → controls whether this module runs
- * - `dedupCooldownMs` → maps to `SessionDedupConfig.cooldownMs`
+ * - `sessionDedupCooldownMs` → maps to `SessionDedupConfig.cooldownMs`
  */
 
 import { createHash } from "crypto";
@@ -27,15 +27,7 @@ const DEFAULT_CONFIG: SessionDedupConfig = {
   maxSessions: 1000,
 };
 
-interface MemoryResult {
-  path?: string;
-  startLine?: number;
-  endLine?: number;
-  snippet?: string;
-  text?: string;
-  score?: number;
-  [key: string]: unknown;
-}
+import type { MemoryResult } from "../types";
 
 /**
  * SHA-256 based hash for snippet identity. Truncated to 16 hex chars

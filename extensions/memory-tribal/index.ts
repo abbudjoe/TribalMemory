@@ -17,6 +17,7 @@ import { PersistenceLayer } from "./src/persistence";
 import { TokenBudget } from "./src/safeguards/token-budget";
 import { SnippetTruncator } from "./src/safeguards/truncation";
 import { CircuitBreaker } from "./src/safeguards/circuit-breaker";
+import { SmartTrigger } from "./src/safeguards/smart-triggers";
 
 interface PluginConfig {
   tribalServerUrl: string;
@@ -36,6 +37,12 @@ interface PluginConfig {
   maxConsecutiveEmpty: number;
   /** Circuit breaker cooldown in ms (default: 300000 = 5 minutes) */
   circuitBreakerCooldownMs: number;
+  /** Enable smart trigger skip for low-value queries (default: true) */
+  smartTriggersEnabled: boolean;
+  /** Minimum query length to trigger recall (default: 2) */
+  minQueryLength: number;
+  /** Skip emoji-only queries (default: true) */
+  skipEmojiOnly: boolean;
 }
 
 export default function memoryTribal(api: any) {
@@ -51,6 +58,9 @@ export default function memoryTribal(api: any) {
     maxTokensPerSnippet: 100,
     maxConsecutiveEmpty: 5,
     circuitBreakerCooldownMs: 5 * 60 * 1000,
+    smartTriggersEnabled: true,
+    minQueryLength: 2,
+    skipEmojiOnly: true,
   };
 
   // Initialize persistence layer
@@ -80,6 +90,10 @@ export default function memoryTribal(api: any) {
   const circuitBreaker = new CircuitBreaker({
     maxConsecutiveEmpty: config.maxConsecutiveEmpty,
     cooldownMs: config.circuitBreakerCooldownMs,
+  });
+  const smartTrigger = new SmartTrigger({
+    minQueryLength: config.minQueryLength,
+    skipEmojiOnly: config.skipEmojiOnly,
   });
 
   // Fallback to built-in memory search if tribal server unavailable
@@ -120,7 +134,18 @@ export default function memoryTribal(api: any) {
       const sessionId = context?.sessionId ?? "unknown";
 
       try {
-        // Step 0: Check circuit breaker
+        // Step 0a: Smart trigger — skip low-value queries
+        if (config.smartTriggersEnabled) {
+          const classification = smartTrigger.classify(query);
+          if (classification.skip) {
+            api.log?.debug?.(`[memory-tribal] Smart trigger skip: ${classification.reason}`);
+            return {
+              content: [{ type: "text", text: "No recall needed for this query." }],
+            };
+          }
+        }
+
+        // Step 0b: Check circuit breaker
         if (circuitBreaker.isTripped(sessionId)) {
           api.log?.debug?.(`[memory-tribal] Circuit breaker tripped for session ${sessionId}`);
           return {

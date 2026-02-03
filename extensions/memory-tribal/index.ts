@@ -25,11 +25,11 @@ interface PluginConfig {
   feedbackEnabled: boolean;
   minCacheSuccesses: number;
   /** Max tokens returned per single memory_search call (default: 500) */
-  perRecallCap: number;
+  maxTokensPerRecall: number;
   /** Max tokens of memory content per agent turn (default: 750) */
-  perTurnCap: number;
+  maxTokensPerTurn: number;
   /** Max tokens of memory content across entire session (default: 5000) */
-  perSessionCap: number;
+  maxTokensPerSession: number;
   /** Max tokens per individual memory snippet (default: 100) */
   maxTokensPerSnippet: number;
   /** Consecutive empty recalls before circuit breaker trips (default: 5) */
@@ -45,9 +45,9 @@ export default function memoryTribal(api: any) {
     queryExpansionEnabled: true,
     feedbackEnabled: true,
     minCacheSuccesses: 3,
-    perRecallCap: 500,
-    perTurnCap: 750,
-    perSessionCap: 5000,
+    maxTokensPerRecall: 500,
+    maxTokensPerTurn: 750,
+    maxTokensPerSession: 5000,
     maxTokensPerSnippet: 100,
     maxConsecutiveEmpty: 5,
     circuitBreakerCooldownMs: 5 * 60 * 1000,
@@ -70,9 +70,9 @@ export default function memoryTribal(api: any) {
 
   // Initialize safeguards
   const tokenBudget = new TokenBudget({
-    perRecallCap: config.perRecallCap,
-    perTurnCap: config.perTurnCap,
-    perSessionCap: config.perSessionCap,
+    perRecallCap: config.maxTokensPerRecall,
+    perTurnCap: config.maxTokensPerTurn,
+    perSessionCap: config.maxTokensPerSession,
   });
   const snippetTruncator = new SnippetTruncator({
     maxTokensPerSnippet: config.maxTokensPerSnippet,
@@ -200,8 +200,9 @@ export default function memoryTribal(api: any) {
           const text = result.snippet ?? result.text ?? "";
           const tokens = tokenBudget.countTokens(text);
 
-          // Check per-recall cap — break (not continue) because results are
-          // ranked by relevance; skipping to less-relevant results wastes budget
+          // Check per-recall cap — break (not continue) to preserve budget for
+          // future searches. Since results are ranked by relevance, skipping the
+          // current high-quality result to fit a lower-quality one wastes budget.
           if (totalRecallTokens + tokens > config.perRecallCap) break;
           // Check per-turn cap
           if (!tokenBudget.canUseForTurn(turnId, tokens)) break;

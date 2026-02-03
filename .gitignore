@@ -37,3 +37,4 @@ Thumbs.db
 # Project specific
 baseline-data/
 evaluation-results/
+node_modules/

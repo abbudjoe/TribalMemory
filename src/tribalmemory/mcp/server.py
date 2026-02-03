@@ -263,6 +263,203 @@ def create_server() -> FastMCP:
 
         return json.dumps(stats)
 
+    @mcp.tool()
+    async def tribal_export(
+        tags: Optional[list[str]] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> str:
+        """Export memories to a portable JSON bundle.
+
+        Supports filtering by tags and/or date range. The bundle
+        includes embedding metadata for cross-system portability.
+
+        Args:
+            tags: Only export memories matching any of these tags.
+            date_from: ISO 8601 datetime — only include memories
+                created on or after this time.
+            date_to: ISO 8601 datetime — only include memories
+                created on or before this time.
+            output_path: If provided, write bundle JSON to this
+                file path. Otherwise return inline.
+
+        Returns:
+            JSON with: success, memory_count, manifest, and
+            optionally the entries (if no output_path).
+        """
+        from datetime import datetime as dt
+
+        from ..portability.embedding_metadata import (
+            create_embedding_metadata,
+        )
+        from ..services.import_export import (
+            ExportFilter,
+            export_memories as do_export,
+        )
+
+        service = await get_memory_service()
+
+        # Build embedding metadata from the service's embedding config
+        emb_svc = service.embedding_service
+        meta = create_embedding_metadata(
+            model_name=getattr(emb_svc, "model", "unknown"),
+            dimensions=getattr(emb_svc, "dimensions", 1536),
+            provider="openai",
+        )
+
+        # Build filter
+        filters = None
+        if tags or date_from or date_to:
+            filters = ExportFilter(
+                tags=tags,
+                date_from=(
+                    dt.fromisoformat(date_from) if date_from else None
+                ),
+                date_to=(
+                    dt.fromisoformat(date_to) if date_to else None
+                ),
+            )
+
+        try:
+            bundle = await do_export(
+                store=service.vector_store,
+                embedding_metadata=meta,
+                filters=filters,
+            )
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
+        bundle_dict = bundle.to_dict()
+
+        if output_path:
+            try:
+                with open(output_path, "w") as f:
+                    json.dump(bundle_dict, f, default=str)
+                return json.dumps({
+                    "success": True,
+                    "memory_count": bundle.manifest.memory_count,
+                    "output_path": output_path,
+                })
+            except Exception as e:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Failed to write file: {e}",
+                })
+
+        return json.dumps({
+            "success": True,
+            "memory_count": bundle.manifest.memory_count,
+            "manifest": bundle_dict["manifest"],
+            "entries": bundle_dict["entries"],
+        }, default=str)
+
+    @mcp.tool()
+    async def tribal_import(
+        input_path: Optional[str] = None,
+        bundle_json: Optional[str] = None,
+        conflict_resolution: str = "skip",
+        embedding_strategy: str = "auto",
+    ) -> str:
+        """Import memories from a portable JSON bundle.
+
+        Provide either ``input_path`` (file) or ``bundle_json``
+        (inline JSON string).
+
+        Args:
+            input_path: Path to a bundle JSON file.
+            bundle_json: Inline JSON string of the bundle.
+            conflict_resolution: How to handle ID collisions:
+                "skip" (default), "overwrite", or "merge".
+            embedding_strategy: How to handle embedding model
+                mismatches: "auto" (default), "keep", or "drop".
+
+        Returns:
+            JSON with: success, imported, skipped, overwritten,
+            errors, needs_reembedding.
+        """
+        from ..portability.embedding_metadata import (
+            PortableBundle,
+            ReembeddingStrategy,
+            create_embedding_metadata,
+        )
+        from ..services.import_export import (
+            ConflictResolution,
+            import_memories as do_import,
+        )
+
+        if not input_path and not bundle_json:
+            return json.dumps({
+                "success": False,
+                "error": "Provide input_path or bundle_json",
+            })
+
+        # Parse bundle
+        try:
+            if input_path:
+                with open(input_path) as f:
+                    raw = json.load(f)
+            else:
+                raw = json.loads(bundle_json)
+            bundle = PortableBundle.from_dict(raw)
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": f"Failed to parse bundle: {e}",
+            })
+
+        service = await get_memory_service()
+        emb_svc = service.embedding_service
+        target_meta = create_embedding_metadata(
+            model_name=getattr(emb_svc, "model", "unknown"),
+            dimensions=getattr(emb_svc, "dimensions", 1536),
+            provider="openai",
+        )
+
+        # Map string params to enums
+        cr_map = {
+            "skip": ConflictResolution.SKIP,
+            "overwrite": ConflictResolution.OVERWRITE,
+            "merge": ConflictResolution.MERGE,
+        }
+        es_map = {
+            "auto": ReembeddingStrategy.AUTO,
+            "keep": ReembeddingStrategy.KEEP,
+            "drop": ReembeddingStrategy.DROP,
+        }
+
+        try:
+            summary = await do_import(
+                bundle=bundle,
+                store=service.vector_store,
+                target_metadata=target_meta,
+                conflict_resolution=cr_map.get(
+                    conflict_resolution, ConflictResolution.SKIP,
+                ),
+                embedding_strategy=es_map.get(
+                    embedding_strategy, ReembeddingStrategy.AUTO,
+                ),
+            )
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
+        return json.dumps({
+            "success": True,
+            "total": summary.total,
+            "imported": summary.imported,
+            "skipped": summary.skipped,
+            "overwritten": summary.overwritten,
+            "errors": summary.errors,
+            "needs_reembedding": summary.needs_reembedding,
+            "error_details": summary.error_details,
+        })
+
     return mcp
 
 

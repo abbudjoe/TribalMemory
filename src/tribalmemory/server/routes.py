@@ -20,6 +20,10 @@ from .models import (
     ForgetResponse,
     ShutdownResponse,
     SourceType,
+    ExportRequest,
+    ExportResponse,
+    ImportRequest,
+    ImportResponse,
 )
 
 router = APIRouter(prefix="/v1", tags=["memory"])
@@ -209,6 +213,122 @@ async def stats(
         by_tag=stats_data.get("by_tag", {}),
         instance_id=instance_id,
     )
+
+
+@router.post("/export", response_model=ExportResponse)
+async def export_memories_route(
+    request: ExportRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> ExportResponse:
+    """Export memories to a portable bundle with optional filtering."""
+    from datetime import datetime as dt
+
+    from ..portability.embedding_metadata import create_embedding_metadata
+    from ..services.import_export import ExportFilter, export_memories
+
+    try:
+        emb_svc = service.embedding_service
+        meta = create_embedding_metadata(
+            model_name=getattr(emb_svc, "model", "unknown"),
+            dimensions=getattr(emb_svc, "dimensions", 1536),
+            provider="openai",
+        )
+
+        filters = None
+        if request.tags or request.date_from or request.date_to:
+            filters = ExportFilter(
+                tags=request.tags,
+                date_from=(
+                    dt.fromisoformat(request.date_from)
+                    if request.date_from else None
+                ),
+                date_to=(
+                    dt.fromisoformat(request.date_to)
+                    if request.date_to else None
+                ),
+            )
+
+        bundle = await export_memories(
+            store=service.vector_store,
+            embedding_metadata=meta,
+            filters=filters,
+        )
+
+        return ExportResponse(
+            success=True,
+            memory_count=bundle.manifest.memory_count,
+            bundle=bundle.to_dict(),
+        )
+    except Exception as e:
+        return ExportResponse(success=False, error=str(e))
+
+
+@router.post("/import", response_model=ImportResponse)
+async def import_memories_route(
+    request: ImportRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> ImportResponse:
+    """Import memories from a portable bundle."""
+    from ..portability.embedding_metadata import (
+        PortableBundle,
+        ReembeddingStrategy,
+        create_embedding_metadata,
+    )
+    from ..services.import_export import (
+        ConflictResolution,
+        import_memories,
+    )
+
+    try:
+        bundle = PortableBundle.from_dict(request.bundle)
+    except Exception as e:
+        return ImportResponse(
+            success=False, error=f"Invalid bundle: {e}",
+        )
+
+    emb_svc = service.embedding_service
+    target_meta = create_embedding_metadata(
+        model_name=getattr(emb_svc, "model", "unknown"),
+        dimensions=getattr(emb_svc, "dimensions", 1536),
+        provider="openai",
+    )
+
+    cr_map = {
+        "skip": ConflictResolution.SKIP,
+        "overwrite": ConflictResolution.OVERWRITE,
+        "merge": ConflictResolution.MERGE,
+    }
+    es_map = {
+        "auto": ReembeddingStrategy.AUTO,
+        "keep": ReembeddingStrategy.KEEP,
+        "drop": ReembeddingStrategy.DROP,
+    }
+
+    try:
+        summary = await import_memories(
+            bundle=bundle,
+            store=service.vector_store,
+            target_metadata=target_meta,
+            conflict_resolution=cr_map.get(
+                request.conflict_resolution, ConflictResolution.SKIP,
+            ),
+            embedding_strategy=es_map.get(
+                request.embedding_strategy, ReembeddingStrategy.AUTO,
+            ),
+        )
+
+        return ImportResponse(
+            success=True,
+            total=summary.total,
+            imported=summary.imported,
+            skipped=summary.skipped,
+            overwritten=summary.overwritten,
+            errors=summary.errors,
+            needs_reembedding=summary.needs_reembedding,
+            error_details=summary.error_details,
+        )
+    except Exception as e:
+        return ImportResponse(success=False, error=str(e))
 
 
 @router.post("/shutdown", response_model=ShutdownResponse)

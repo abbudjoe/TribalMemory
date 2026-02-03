@@ -24,6 +24,7 @@ interface SearchOptions {
 
 interface SearchResult {
   id: string;
+  /** Unique path in format "tribal-memory:{full-uuid}". Uses the complete memory ID. */
   path: string;
   startLine?: number;
   endLine?: number;

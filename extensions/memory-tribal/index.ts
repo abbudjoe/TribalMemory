@@ -49,8 +49,21 @@ export default function memoryTribal(api: any) {
 
   // Fallback to built-in memory search if tribal server unavailable
   let useBuiltinFallback = false;
+  let lastFallbackTime = 0;
+  const FALLBACK_RETRY_MS = 60_000; // Retry tribal server every 60 seconds
 
-  const pathForId = (id: string) => `tribal-memory:${id.slice(0, 8)}`;
+  const shouldRetryTribal = () => {
+    if (!useBuiltinFallback) return true;
+    const now = Date.now();
+    if (now - lastFallbackTime >= FALLBACK_RETRY_MS) {
+      useBuiltinFallback = false;
+      api.log?.info?.("[memory-tribal] Retrying tribal server after fallback period");
+      return true;
+    }
+    return false;
+  };
+
+  const pathForId = (id: string) => `tribal-memory:${id.slice(0, 16)}`;
   const invalidatePath = (path: string) => {
     queryCache.invalidatePath(path);
     if (persistence) {
@@ -98,12 +111,13 @@ export default function memoryTribal(api: any) {
         // Step 3: Search with expanded queries
         let results: any[] = [];
         
-        if (!useBuiltinFallback) {
+        if (shouldRetryTribal()) {
           try {
             results = await tribalClient.search(queries, { maxResults, minScore });
           } catch (err) {
             api.log?.warn?.(`[memory-tribal] Tribal server unavailable, using builtin fallback`);
             useBuiltinFallback = true;
+            lastFallbackTime = Date.now();
           }
         }
 

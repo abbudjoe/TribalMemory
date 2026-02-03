@@ -17,6 +17,42 @@
 - Storage: local vector store + metadata store, with export and import.
 - Optional Sync: push and pull bundles or deltas to a remote endpoint.
 
+**Quick Start Example**
+
+```python
+from tribalmemory import TribalMemoryClient
+
+# Initialize client
+client = TribalMemoryClient(base_url="http://localhost:18790")
+
+# Store a memory
+result = await client.remember(
+    content="User prefers dark mode and compact layouts",
+    tags=["preferences", "ui"],
+    source_type="user_explicit"
+)
+print(f"Stored: {result.memory_id}")
+
+# Recall relevant memories
+memories = await client.recall(
+    query="What are the user's UI preferences?",
+    limit=5,
+    min_relevance=0.3
+)
+for m in memories:
+    print(f"[{m.similarity_score:.2f}] {m.content}")
+
+# Correct a memory
+await client.correct(
+    original_id=result.memory_id,
+    corrected_content="User prefers dark mode, compact layouts, and high contrast"
+)
+
+# Export for portability
+bundle = await client.export(tags=["preferences"])
+# -> portable JSON bundle with manifest
+```
+
 **Core API (Versioned)**
 All endpoints are under `v1` and return JSON. Requests should include `user_id` and `workspace_id`.
 

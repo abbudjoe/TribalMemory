@@ -128,8 +128,40 @@ Scope values:
 - Deprecations follow a documented timeline.
 - Import should accept earlier schemas with a conversion step.
 
+**Embedding Portability (Resolved)**
+
+Strategy: **Metadata + optional re-embedding** (see `EmbeddingMetadata` in
+`tribalmemory.portability.embedding_metadata`).
+
+Every export bundle includes an `embedding_metadata` block in the manifest:
+
+```json
+{
+  "manifest": {
+    "schema_version": "1.0",
+    "embedding": {
+      "model_name": "text-embedding-3-small",
+      "dimensions": 1536,
+      "provider": "openai"
+    },
+    "memory_count": 42
+  },
+  "entries": [...]
+}
+```
+
+On import, three strategies are available via `ReembeddingStrategy`:
+
+- **KEEP**: Use existing embeddings as-is (fast, but cross-model similarity won't work)
+- **DROP**: Clear embeddings; the importing system must re-embed with its own model
+- **AUTO** (default): Keep embeddings if source and target models are compatible
+  (same `model_name` and `dimensions`), otherwise drop them
+
+This approach avoids model lock-in: bundles are self-describing, and any system
+can import them regardless of which embedding model it uses. The content is always
+preserved; only the vector representations may need regeneration.
+
 **Open Questions**
-- Should embeddings be stored per model or re-embedded on import?
 - Do we allow multiple embedding models in a single store?
 - How should conflicts be resolved when two corrections race?
 

@@ -50,13 +50,14 @@ def _extract_tool_names(server):
     return None
 
 
-def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
+@pytest.mark.asyncio
+async def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
     class DummyService:
         pass
 
     dummy = DummyService()
 
-    def fake_create_memory_service(instance_id, db_path, openai_api_key):
+    def fake_create_memory_service(instance_id, db_path, openai_api_key, **kwargs):
         assert instance_id == "mcp-claude-code"
         assert db_path == str(tmp_path / "db")
         assert openai_api_key == "sk-test"
@@ -67,6 +68,9 @@ def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
 
     class DummyEmbedding:
         api_key = "sk-test"
+        api_base = None
+        model = "test"
+        dimensions = 1536
 
     class DummyConfig:
         db = DummyDb()
@@ -76,11 +80,11 @@ def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "create_memory_service", fake_create_memory_service)
     monkeypatch.setattr(mcp_server.TribalMemoryConfig, "from_env", classmethod(lambda cls: DummyConfig()))
 
-    service = mcp_server.get_memory_service()
+    service = await mcp_server.get_memory_service()
     assert service is dummy
 
     # Subsequent calls should return cached instance
-    service2 = mcp_server.get_memory_service()
+    service2 = await mcp_server.get_memory_service()
     assert service2 is dummy
 
 

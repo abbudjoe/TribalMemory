@@ -18,6 +18,7 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
+from .reranker import IReranker, NoopReranker, create_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class TribalMemoryService(IMemoryService):
         hybrid_vector_weight: float = 0.7,
         hybrid_text_weight: float = 0.3,
         hybrid_candidate_multiplier: int = 4,
+        reranker: Optional[IReranker] = None,
     ):
         self.instance_id = instance_id
         self.embedding_service = embedding_service
@@ -59,6 +61,7 @@ class TribalMemoryService(IMemoryService):
         self.hybrid_vector_weight = hybrid_vector_weight
         self.hybrid_text_weight = hybrid_text_weight
         self.hybrid_candidate_multiplier = hybrid_candidate_multiplier
+        self.reranker = reranker or NoopReranker()
         
         self.dedup_service = SemanticDeduplicationService(
             vector_store=vector_store,
@@ -164,7 +167,7 @@ class TribalMemoryService(IMemoryService):
         min_relevance: float,
         filters: Optional[dict],
     ) -> list[RecallResult]:
-        """Hybrid recall: vector + BM25 combined."""
+        """Hybrid recall: vector + BM25 combined, then reranked."""
         candidate_limit = limit * self.hybrid_candidate_multiplier
 
         # 1. Vector search — get wide candidate pool
@@ -192,17 +195,20 @@ class TribalMemoryService(IMemoryService):
             self.hybrid_text_weight,
         )
 
-        # 5. Build final results — need full MemoryEntry for each
+        # 5. Build candidate results for reranking — need full MemoryEntry for each
         # Create lookup from vector results
         entry_map = {r.memory.id: r for r in vector_results}
 
+        # Get 2*limit candidates before reranking (to give reranker more choices)
+        rerank_pool_size = min(limit * 2, len(merged))
+        
         # For BM25-only hits, fetch from vector store
-        final_results: list[RecallResult] = []
-        for m in merged[:limit]:
+        candidates: list[RecallResult] = []
+        for m in merged[:rerank_pool_size]:
             if m["id"] in entry_map:
                 recall_result = entry_map[m["id"]]
                 # Update score to hybrid score
-                final_results.append(RecallResult(
+                candidates.append(RecallResult(
                     memory=recall_result.memory,
                     similarity_score=m["final_score"],
                     retrieval_time_ms=recall_result.retrieval_time_ms,
@@ -211,13 +217,16 @@ class TribalMemoryService(IMemoryService):
                 # BM25-only hit — fetch from store
                 entry = await self.vector_store.get(m["id"])
                 if entry and m["final_score"] >= min_relevance * 0.5:
-                    final_results.append(RecallResult(
+                    candidates.append(RecallResult(
                         memory=entry,
                         similarity_score=m["final_score"],
                         retrieval_time_ms=0,
                     ))
 
-        return self._filter_superseded(final_results)
+        # 6. Rerank candidates
+        reranked = self.reranker.rerank(query, candidates, top_k=limit)
+
+        return self._filter_superseded(reranked)
     
     async def correct(
         self,
@@ -297,6 +306,9 @@ def create_memory_service(
     hybrid_vector_weight: float = 0.7,
     hybrid_text_weight: float = 0.3,
     hybrid_candidate_multiplier: int = 4,
+    reranking: str = "heuristic",
+    recency_decay_days: float = 30.0,
+    tag_boost_weight: float = 0.1,
 ) -> TribalMemoryService:
     """Factory function to create a memory service with sensible defaults.
     
@@ -315,6 +327,10 @@ def create_memory_service(
         hybrid_candidate_multiplier: Multiplier for candidate pool size
             (default: 4). Retrieves 4× limit from each source before
             merging.
+        reranking: Reranking mode: "auto", "cross-encoder", "heuristic", "none"
+            (default: "heuristic").
+        recency_decay_days: Half-life for recency boost (default: 30.0).
+        tag_boost_weight: Weight for tag match boost (default: 0.1).
     
     Returns:
         Configured TribalMemoryService ready for use.
@@ -376,6 +392,15 @@ def create_memory_service(
             logger.warning(f"FTS store init failed: {e}. Using vector-only.")
             fts_store = None
     
+    # Create reranker
+    from ..server.config import SearchConfig
+    search_config = SearchConfig(
+        reranking=reranking,
+        recency_decay_days=recency_decay_days,
+        tag_boost_weight=tag_boost_weight,
+    )
+    reranker = create_reranker(search_config)
+    
     return TribalMemoryService(
         instance_id=instance_id,
         embedding_service=embedding_service,
@@ -385,4 +410,5 @@ def create_memory_service(
         hybrid_vector_weight=hybrid_vector_weight,
         hybrid_text_weight=hybrid_text_weight,
         hybrid_candidate_multiplier=hybrid_candidate_multiplier,
+        reranker=reranker,
     )

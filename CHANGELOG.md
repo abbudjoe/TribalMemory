@@ -5,6 +5,52 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-04
+
+### Added
+
+#### Graph-Enriched Search
+- **Entity extraction** at store time using pattern-based extraction
+  - Recognizes service names (kebab-case: `auth-service`, `user-db`)
+  - Recognizes 40+ technology names (PostgreSQL, Redis, Kafka, etc.)
+  - Extracts relationships (`uses`, `connects_to`, `stores_in`, etc.)
+- **GraphStore** with SQLite backend for entity/relationship storage
+  - No external dependencies (Neo4j, etc.) — local-first
+  - Multi-hop traversal via `find_connected(entity, hops)`
+  - Memory-to-entity associations with provenance
+
+#### Entity-Centric Queries
+- `recall_entity(name, hops, limit)` for entity-focused recall
+  - "Tell me everything about auth-service"
+  - Traverses relationship graph to find connected memories
+- `get_entity_graph(name, hops)` for visualization/debugging
+- `tribal_recall_entity` MCP tool for Claude Code integration
+- `tribal_entity_graph` MCP tool for graph exploration
+
+#### Graph-Aware Hybrid Recall
+- `recall()` now supports `graph_expansion` parameter (default: True)
+- Extracts entities from query, expands candidates via graph
+- Scoring: 1-hop = 0.85, 2-hop = 0.70 (configurable via class constants)
+- Respects `min_relevance` for graph results
+- Batch fetching with `asyncio.gather()` for performance
+
+#### Retrieval Method Tracking
+- `RecallResult.retrieval_method` field indicates result source:
+  - `"vector"`: Pure vector similarity
+  - `"hybrid"`: Vector + BM25 merge
+  - `"graph"`: Entity graph traversal
+  - `"entity"`: Direct entity match
+- `RetrievalMethod` Literal type for type safety
+
+### Changed
+- `IMemoryService.recall()` interface updated with `graph_expansion` parameter
+- Factory function `create_memory_service()` now initializes GraphStore
+- Graph cleanup integrated into `forget()` method
+
+### Performance
+- Capped graph expansion to `limit * GRAPH_EXPANSION_BUFFER` to prevent memory issues
+- Concurrent memory fetching for graph results
+
 ## [0.2.0] - 2026-02-04
 
 ### Added
@@ -83,6 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session deduplication
 - Embedding portability metadata
 
+[0.3.0]: https://github.com/abbudjoe/TribalMemory/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/abbudjoe/TribalMemory/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/abbudjoe/TribalMemory/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/abbudjoe/TribalMemory/compare/v0.1.1...v0.1.2

@@ -1,5 +1,6 @@
 """Tribal Memory Service - Main API for agents."""
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -37,6 +38,11 @@ class TribalMemoryService(IMemoryService):
         await service.remember("Joe prefers TypeScript")
         results = await service.recall("What language for Wally?")
     """
+    
+    # Graph expansion scoring constants
+    GRAPH_1HOP_SCORE = 0.85  # Score for direct entity mentions
+    GRAPH_2HOP_SCORE = 0.70  # Score for connected entity mentions
+    GRAPH_EXPANSION_BUFFER = 2  # Multiplier for candidate pool before fetching
     
     def __init__(
         self,
@@ -169,6 +175,12 @@ class TribalMemoryService(IMemoryService):
             min_relevance: Minimum similarity score
             tags: Filter by tags (e.g., ["work", "preferences"])
             graph_expansion: Expand candidates via entity graph (default True)
+        
+        Returns:
+            List of RecallResult objects with retrieval_method indicating source:
+            - "vector": Pure vector similarity search
+            - "hybrid": Vector + BM25 merge
+            - "graph": Entity graph traversal (1-hop or 2-hop)
         """
         try:
             query_embedding = await self.embedding_service.embed(query)
@@ -310,10 +322,10 @@ class TribalMemoryService(IMemoryService):
             query: The original query string.
             existing_results: Results from vector/hybrid search.
             limit: Maximum total results.
-            min_relevance: Minimum relevance threshold.
+            min_relevance: Minimum relevance threshold (filters graph results too).
             
         Returns:
-            Combined results with graph-expanded memories.
+            Combined results with graph-expanded memories, sorted by score.
         """
         # Extract entities from query
         query_entities = self.entity_extractor.extract(query)
@@ -333,7 +345,8 @@ class TribalMemoryService(IMemoryService):
             for mid in direct_ids:
                 if mid not in existing_ids:
                     graph_memory_ids.add(mid)
-                    entity_to_hops[mid] = 1
+                    # Use setdefault to preserve shortest path (1-hop takes precedence)
+                    entity_to_hops.setdefault(mid, 1)
             
             # Connected entities (2 hops)
             connected = self.graph_store.find_connected(entity.name, hops=1)
@@ -342,37 +355,52 @@ class TribalMemoryService(IMemoryService):
                     connected_entity.name
                 )
                 for mid in connected_ids:
-                    if mid not in existing_ids and mid not in graph_memory_ids:
+                    if mid not in existing_ids:
                         graph_memory_ids.add(mid)
-                        entity_to_hops[mid] = 2
+                        # Use setdefault to preserve shortest path
+                        entity_to_hops.setdefault(mid, 2)
         
         if not graph_memory_ids:
             return existing_results
+        
+        # Cap graph candidates to prevent memory leak (#2)
+        max_graph_candidates = limit * self.GRAPH_EXPANSION_BUFFER
+        if len(graph_memory_ids) > max_graph_candidates:
+            # Prioritize 1-hop over 2-hop when capping
+            one_hop_ids = [mid for mid in graph_memory_ids if entity_to_hops[mid] == 1]
+            two_hop_ids = [mid for mid in graph_memory_ids if entity_to_hops[mid] == 2]
+            
+            capped_ids: list[str] = []
+            capped_ids.extend(one_hop_ids[:max_graph_candidates])
+            remaining = max_graph_candidates - len(capped_ids)
+            if remaining > 0:
+                capped_ids.extend(two_hop_ids[:remaining])
+            
+            graph_memory_ids = set(capped_ids)
         
         # Fetch graph-connected memories
         graph_results: list[RecallResult] = []
         for memory_id in graph_memory_ids:
             entry = await self.vector_store.get(memory_id)
             if entry:
-                # Score based on hop distance: 1-hop = 0.85, 2-hop = 0.70
-                hops = entity_to_hops.get(memory_id, 2)
-                graph_score = 0.85 if hops == 1 else 0.70
+                # Score based on hop distance using class constants
+                hops = entity_to_hops[memory_id]  # Fail fast if logic is wrong (#3)
+                graph_score = (
+                    self.GRAPH_1HOP_SCORE if hops == 1 
+                    else self.GRAPH_2HOP_SCORE
+                )
                 
-                graph_results.append(RecallResult(
-                    memory=entry,
-                    similarity_score=graph_score,
-                    retrieval_time_ms=0,
-                    retrieval_method="graph",
-                ))
+                # Filter by min_relevance (#4)
+                if graph_score >= min_relevance:
+                    graph_results.append(RecallResult(
+                        memory=entry,
+                        similarity_score=graph_score,
+                        retrieval_time_ms=0,
+                        retrieval_method="graph",
+                    ))
         
-        # Merge: existing results first, then graph results
-        # Sort graph results by score
-        graph_results.sort(key=lambda r: r.similarity_score, reverse=True)
-        
-        # Combine and limit
+        # Combine existing + graph results (#10: single sort, no redundant pre-sort)
         combined = existing_results + graph_results
-        
-        # Re-sort by score and limit
         combined.sort(key=lambda r: r.similarity_score, reverse=True)
         
         return combined[:limit]

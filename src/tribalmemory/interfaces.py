@@ -7,8 +7,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 import uuid
+
+# Valid retrieval methods for RecallResult
+RetrievalMethod = Literal["vector", "graph", "hybrid", "entity"]
 
 
 class MemorySource(Enum):
@@ -75,16 +78,12 @@ class RecallResult:
         memory: The recalled memory entry.
         similarity_score: Relevance score (0.0-1.0 for vector, 1.0 for exact entity match).
         retrieval_time_ms: Time taken for retrieval.
-        retrieval_method: How this result was found:
-            - "vector": Vector similarity search
-            - "graph": Entity graph traversal
-            - "hybrid": Combined vector + graph
-            - "entity": Direct entity match (from recall_entity)
+        retrieval_method: How this result was found (see RetrievalMethod type).
     """
     memory: MemoryEntry
     similarity_score: float
     retrieval_time_ms: float
-    retrieval_method: str = "vector"
+    retrieval_method: RetrievalMethod = "vector"
     
     def __repr__(self) -> str:
         return f"RecallResult(score={self.similarity_score:.3f}, method={self.retrieval_method}, memory_id={self.memory.id[:8]}...)"
@@ -327,6 +326,7 @@ class IMemoryService(ABC):
         limit: int = 5,
         min_relevance: float = 0.7,
         tags: Optional[list[str]] = None,
+        graph_expansion: bool = True,
     ) -> list[RecallResult]:
         """Recall relevant memories for a query.
         
@@ -335,6 +335,13 @@ class IMemoryService(ABC):
             limit: Maximum results
             min_relevance: Minimum similarity score
             tags: Filter by tags (e.g., ["work", "preferences"])
+            graph_expansion: Expand candidates via entity graph (default True)
+        
+        Returns:
+            List of RecallResult objects with retrieval_method indicating source:
+            - "vector": Vector similarity search
+            - "hybrid": Vector + BM25 merge
+            - "graph": Entity graph traversal
         """
         pass
     

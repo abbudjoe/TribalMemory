@@ -4,6 +4,16 @@
 
 One memory store, many agents. Teach Claude Code something — Codex already knows it. That's not just persistence — it's **cross-agent intelligence**.
 
+<p align="center">
+  <img src="docs/assets/one-brain-two-agents.gif" alt="One Brain, Two Agents — Claude Code stores memories, Codex recalls them" width="700">
+  <br>
+  <em>Claude Code stores architecture decisions → Codex recalls them instantly</em>
+</p>
+
+[![asciinema demo](https://img.shields.io/badge/demo-asciinema-d40000)](https://asciinema.org/a/ZM74iIXzM07SV21P)
+[![PyPI](https://img.shields.io/pypi/v/tribalmemory)](https://pypi.org/project/tribalmemory/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 ## Why
 
 Every AI coding assistant starts fresh. Claude Code doesn't know what you told Codex. Codex doesn't know what you told Claude. You repeat yourself constantly.

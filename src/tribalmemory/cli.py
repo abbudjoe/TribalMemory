@@ -163,11 +163,20 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
     _update_mcp_config(claude_cli_config, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Code CLI config updated: {claude_cli_config}")
 
-    # Also update Claude Desktop config if it exists
-    for desktop_path in claude_desktop_paths:
-        if desktop_path.exists():
-            _update_mcp_config(desktop_path, mcp_entry, create_if_missing=False)
-            print(f"✅ Claude Desktop config updated: {desktop_path}")
+    # Also update Claude Desktop config (create platform-appropriate path)
+    desktop_path = _get_claude_desktop_config_path()
+    _update_mcp_config(desktop_path, mcp_entry, create_if_missing=True)
+    print(f"✅ Claude Desktop config updated: {desktop_path}")
+
+
+def _get_claude_desktop_config_path() -> Path:
+    """Get the platform-appropriate Claude Desktop config path."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    elif sys.platform == "win32":
+        return Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
+    else:
+        return Path.home() / ".claude" / "claude_desktop_config.json"
 
 
 def _update_mcp_config(

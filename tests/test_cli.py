@@ -115,9 +115,24 @@ class TestInitCommand:
         assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in env
         assert "localhost:11434" in env["TRIBAL_MEMORY_EMBEDDING_API_BASE"]
 
-    def test_init_claude_code_updates_existing_desktop_config(self, cli_env):
-        """init --claude-code should also update Claude Desktop config if it exists."""
-        # Create a pre-existing Claude Desktop config
+    def test_init_claude_code_creates_desktop_config(self, cli_env):
+        """init --claude-code should create both CLI and Desktop configs."""
+        result = cmd_init(FakeArgs(claude_code=True))
+
+        assert result == 0
+        # CLI config
+        cli_config = cli_env / ".claude.json"
+        assert cli_config.exists()
+        cli_mcp = json.loads(cli_config.read_text())
+        assert "tribal-memory" in cli_mcp["mcpServers"]
+        # Desktop config (Linux path under fake home)
+        desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
+        assert desktop_config.exists()
+        desktop_mcp = json.loads(desktop_config.read_text())
+        assert "tribal-memory" in desktop_mcp["mcpServers"]
+
+    def test_init_claude_code_preserves_existing_desktop_entries(self, cli_env):
+        """init --claude-code should not clobber existing Desktop MCP entries."""
         desktop_dir = cli_env / ".claude"
         desktop_dir.mkdir(parents=True, exist_ok=True)
         desktop_config = desktop_dir / "claude_desktop_config.json"
@@ -126,10 +141,6 @@ class TestInitCommand:
         result = cmd_init(FakeArgs(claude_code=True))
 
         assert result == 0
-        # CLI config should be created
-        cli_config = cli_env / ".claude.json"
-        assert cli_config.exists()
-        # Desktop config should be updated (not overwritten)
         desktop_mcp = json.loads(desktop_config.read_text())
         assert "tribal-memory" in desktop_mcp["mcpServers"]
         assert "other" in desktop_mcp["mcpServers"]  # preserved

@@ -27,6 +27,35 @@ TRIBAL_DIR = Path.home() / ".tribal-memory"
 CONFIG_FILE = TRIBAL_DIR / "config.yaml"
 DEFAULT_INSTANCE_ID = "default"
 
+# Path to the global Claude Code instructions file (relative to home)
+CLAUDE_INSTRUCTIONS_FILE = Path(".claude") / "CLAUDE.md"
+
+# Section marker used to detect if auto-capture instructions already exist
+_AUTO_CAPTURE_MARKER = "## Tribal Memory — Auto-Capture"
+
+AUTO_CAPTURE_INSTRUCTIONS = f"""\
+
+{_AUTO_CAPTURE_MARKER}
+
+You have access to Tribal Memory — a shared memory system for AI agents.
+Use it proactively:
+
+**After completing tasks, making decisions, or learning something:**
+- Call `tribal_remember` to store the insight with relevant tags
+- Good memories: architectural decisions, bug fixes, "gotchas", user preferences,
+  project conventions, API quirks, things that took a while to figure out
+- Bad memories: trivial actions ("I ran the tests"), obvious facts, temporary state
+
+**Before answering questions about prior work:**
+- Call `tribal_recall` to search for relevant context first
+- Search by topic, not exact phrases — it's semantic search
+
+**Tips:**
+- Use tags to organize: `["python", "debugging"]`, `["api", "auth"]`
+- One clear insight per memory is better than a wall of text
+- If you're unsure whether to remember something, remember it — recall is cheap
+"""
+
 # MCP config for Claude Code CLI and Claude Desktop
 CLAUDE_CODE_MCP_CONFIG = {
     "mcpServers": {
@@ -56,7 +85,7 @@ db:
 server:
   host: 127.0.0.1
   port: 18790
-"""
+{auto_capture_line}"""
 
 LOCAL_CONFIG_TEMPLATE = """\
 # Tribal Memory Configuration — Local Mode (Zero Cloud)
@@ -79,7 +108,7 @@ db:
 server:
   host: 127.0.0.1
   port: 18790
-"""
+{auto_capture_line}"""
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -90,16 +119,23 @@ def cmd_init(args: argparse.Namespace) -> int:
     # Create config directory
     TRIBAL_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Auto-capture config line (only included when flag is set)
+    auto_capture_line = ""
+    if args.auto_capture:
+        auto_capture_line = "\nauto_capture: true\n"
+
     # Choose template
     if args.local:
         config_content = LOCAL_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
+            auto_capture_line=auto_capture_line,
         )
     else:
         config_content = OPENAI_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
+            auto_capture_line=auto_capture_line,
         )
 
     # Write config
@@ -125,14 +161,48 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.codex:
         _setup_codex_mcp(args.local)
 
+    # Set up auto-capture instructions
+    if args.auto_capture:
+        _setup_auto_capture()
+
     print()
     print("🚀 Start the server:")
     print("   tribalmemory serve")
     print()
     print("🧠 Or use with Claude Code (MCP):")
     print("   tribalmemory-mcp")
+
+    if not args.auto_capture:
+        print()
+        print("💡 Want Claude to remember things automatically?")
+        print("   tribalmemory init --auto-capture --force")
     
     return 0
+
+
+def _setup_auto_capture() -> None:
+    """Write auto-capture instructions to ~/.claude/CLAUDE.md.
+    
+    Appends memory usage instructions so Claude Code proactively uses
+    tribal_remember and tribal_recall without being explicitly asked.
+    Skips if instructions are already present (idempotent).
+    """
+    claude_md = Path.home() / CLAUDE_INSTRUCTIONS_FILE
+    claude_md.parent.mkdir(parents=True, exist_ok=True)
+
+    if claude_md.exists():
+        existing = claude_md.read_text()
+        if _AUTO_CAPTURE_MARKER in existing:
+            print(f"✅ Auto-capture instructions already present: {claude_md}")
+            return
+        # Append to existing file
+        if not existing.endswith("\n"):
+            existing += "\n"
+        claude_md.write_text(existing + AUTO_CAPTURE_INSTRUCTIONS)
+    else:
+        claude_md.write_text(AUTO_CAPTURE_INSTRUCTIONS.lstrip("\n"))
+
+    print(f"✅ Auto-capture instructions written: {claude_md}")
 
 
 def _setup_claude_code_mcp(is_local: bool) -> None:
@@ -332,6 +402,8 @@ def main() -> None:
                              help="Configure Claude Code MCP integration")
     init_parser.add_argument("--codex", action="store_true",
                              help="Configure Codex CLI MCP integration")
+    init_parser.add_argument("--auto-capture", action="store_true",
+                             help="Enable auto-capture (writes CLAUDE.md instructions)")
     init_parser.add_argument("--instance-id", type=str, default=None,
                              help="Instance identifier (default: 'default')")
     init_parser.add_argument("--force", action="store_true",

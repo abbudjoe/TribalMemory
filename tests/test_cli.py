@@ -8,7 +8,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from tribalmemory.cli import cmd_init, main, _resolve_mcp_command
+from tribalmemory.cli import (
+    cmd_init, main, _resolve_mcp_command,
+    AUTO_CAPTURE_INSTRUCTIONS, CLAUDE_INSTRUCTIONS_FILE,
+)
 
 
 class FakeArgs:
@@ -19,6 +22,7 @@ class FakeArgs:
         self.codex = kwargs.get("codex", False)
         self.instance_id = kwargs.get("instance_id", None)
         self.force = kwargs.get("force", False)
+        self.auto_capture = kwargs.get("auto_capture", False)
 
 
 @pytest.fixture
@@ -259,6 +263,76 @@ class TestCodexIntegration:
         codex_config = cli_env / ".codex" / "config.toml"
         content = codex_config.read_text()
         assert fake_path in content
+
+
+class TestAutoCapture:
+    """Tests for --auto-capture flag."""
+
+    def test_auto_capture_creates_claude_instructions(self, cli_env):
+        """--auto-capture should write memory instructions to CLAUDE.md."""
+        result = cmd_init(FakeArgs(auto_capture=True))
+
+        assert result == 0
+        claude_md = cli_env / CLAUDE_INSTRUCTIONS_FILE
+        assert claude_md.exists()
+        content = claude_md.read_text()
+        assert "tribal_remember" in content
+        assert "tribal_recall" in content
+
+    def test_auto_capture_appends_to_existing_claude_md(self, cli_env):
+        """--auto-capture should append to existing CLAUDE.md, not overwrite."""
+        claude_dir = cli_env / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        claude_md = claude_dir / "CLAUDE.md"
+        claude_md.write_text("# Existing instructions\n\nDo stuff.\n")
+
+        result = cmd_init(FakeArgs(auto_capture=True))
+
+        assert result == 0
+        content = claude_md.read_text()
+        assert "# Existing instructions" in content  # preserved
+        assert "Do stuff." in content  # preserved
+        assert "tribal_remember" in content  # appended
+
+    def test_auto_capture_skips_if_already_present(self, cli_env):
+        """--auto-capture should not duplicate if instructions already exist."""
+        claude_dir = cli_env / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        claude_md = claude_dir / "CLAUDE.md"
+        claude_md.write_text(AUTO_CAPTURE_INSTRUCTIONS)
+
+        result = cmd_init(FakeArgs(auto_capture=True))
+
+        assert result == 0
+        content = claude_md.read_text()
+        # Should appear exactly once
+        assert content.count("tribal_remember") == AUTO_CAPTURE_INSTRUCTIONS.count(
+            "tribal_remember"
+        )
+
+    def test_no_auto_capture_skips_claude_md(self, cli_env):
+        """Without --auto-capture, CLAUDE.md should not be created."""
+        result = cmd_init(FakeArgs())
+
+        assert result == 0
+        claude_md = cli_env / ".claude" / "CLAUDE.md"
+        assert not claude_md.exists()
+
+    def test_auto_capture_sets_config_flag(self, cli_env):
+        """--auto-capture should add auto_capture: true to config.yaml."""
+        result = cmd_init(FakeArgs(auto_capture=True))
+
+        assert result == 0
+        config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "auto_capture: true" in config
+
+    def test_no_auto_capture_omits_config_flag(self, cli_env):
+        """Without --auto-capture, config should not have auto_capture: true."""
+        result = cmd_init(FakeArgs())
+
+        assert result == 0
+        config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "auto_capture: true" not in config
 
 
 class TestMainEntrypoint:

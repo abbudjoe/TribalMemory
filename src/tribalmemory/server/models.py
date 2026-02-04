@@ -243,7 +243,7 @@ class SessionSearchRequest(BaseModel):
         default=None,
         description="Filter to specific session (optional)"
     )
-    max_results: int = Field(default=5, ge=1, le=50, description="Maximum results")
+    limit: int = Field(default=5, ge=1, le=50, description="Maximum results")
     min_relevance: float = Field(
         default=0.0,
         ge=0.0,

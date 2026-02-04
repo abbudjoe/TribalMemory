@@ -20,6 +20,32 @@ Every AI coding assistant starts fresh. Claude Code doesn't know what you told C
 
 Tribal Memory is a shared memory server that any AI agent can connect to. Store a memory from one agent, recall it from another. It just works.
 
+## Install
+
+**macOS:**
+```bash
+# Install uv (https://docs.astral.sh/uv/)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Restart your terminal, or run:
+source ~/.zshrc
+
+# Install tribalmemory
+uv tool install tribalmemory
+```
+
+> **Why uv?** macOS blocks `pip install` into the system Python with "externally-managed-environment" errors. `uv tool install` handles isolated environments automatically.
+
+**Linux:**
+```bash
+pip install tribalmemory
+
+# Or with uv:
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+# source ~/.bashrc
+# uv tool install tribalmemory
+```
+
 ## Quick Start
 
 ### Option A: Local Mode (Zero Cloud, Zero Cost)
@@ -27,8 +53,6 @@ Tribal Memory is a shared memory server that any AI agent can connect to. Store 
 No API keys. No cloud. Everything runs on your machine.
 
 ```bash
-pip install tribalmemory
-
 # Set up with local Ollama embeddings
 tribalmemory init --local
 
@@ -42,8 +66,6 @@ tribalmemory serve
 ### Option B: OpenAI Embeddings
 
 ```bash
-pip install tribalmemory
-
 # Set up with OpenAI
 export OPENAI_API_KEY=sk-...
 tribalmemory init

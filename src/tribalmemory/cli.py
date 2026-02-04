@@ -140,6 +140,7 @@ def _setup_claude_code_mcp(is_local: bool):
     claude_config_paths = [
         Path.home() / ".claude" / "claude_desktop_config.json",  # Claude Code CLI (all platforms)
         Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # Claude Desktop (macOS)
+        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",  # Claude Desktop (Windows)
     ]
 
     config_path = None

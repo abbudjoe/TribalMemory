@@ -68,7 +68,7 @@ class TestApiBaseSupport:
         service = OpenAIEmbeddingService(
             api_key="unused",
             api_base="http://localhost:11434/v1",
-            dimensions=4,
+            dimensions=4,  # Small dimension for mock response
         )
 
         mock_response = MagicMock()

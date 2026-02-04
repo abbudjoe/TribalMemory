@@ -152,18 +152,23 @@ class TribalMemoryService(IMemoryService):
         limit: int = 5,
         min_relevance: float = 0.7,
         tags: Optional[list[str]] = None,
+        graph_expansion: bool = True,
     ) -> list[RecallResult]:
-        """Recall relevant memories using hybrid search.
+        """Recall relevant memories using hybrid search with optional graph expansion.
         
         When hybrid search is enabled (FTS store available), combines
         vector similarity with BM25 keyword matching for better results.
         Falls back to vector-only search when FTS is unavailable.
+        
+        When graph expansion is enabled, entities are extracted from the query
+        and the candidate pool is expanded via entity graph traversal.
         
         Args:
             query: Natural language query
             limit: Maximum results
             min_relevance: Minimum similarity score
             tags: Filter by tags (e.g., ["work", "preferences"])
+            graph_expansion: Expand candidates via entity graph (default True)
         """
         try:
             query_embedding = await self.embedding_service.embed(query)
@@ -173,17 +178,33 @@ class TribalMemoryService(IMemoryService):
         filters = {"tags": tags} if tags else None
 
         if self.hybrid_search and self.fts_store:
-            return await self._hybrid_recall(
+            results = await self._hybrid_recall(
                 query, query_embedding, limit, min_relevance, filters
             )
+        else:
+            # Vector-only fallback
+            vector_results = await self.vector_store.recall(
+                query_embedding,
+                limit=limit,
+                min_similarity=min_relevance,
+                filters=filters,
+            )
+            # Mark as vector retrieval
+            results = [
+                RecallResult(
+                    memory=r.memory,
+                    similarity_score=r.similarity_score,
+                    retrieval_time_ms=r.retrieval_time_ms,
+                    retrieval_method="vector",
+                )
+                for r in vector_results
+            ]
         
-        # Vector-only fallback
-        results = await self.vector_store.recall(
-            query_embedding,
-            limit=limit,
-            min_similarity=min_relevance,
-            filters=filters,
-        )
+        # Graph expansion: find additional memories via entity connections
+        if graph_expansion and self.graph_enabled and self.entity_extractor:
+            results = await self._expand_via_graph(
+                query, results, limit, min_relevance
+            )
         
         return self._filter_superseded(results)
 
@@ -249,12 +270,13 @@ class TribalMemoryService(IMemoryService):
         # Build candidate list
         candidates: list[RecallResult] = []
         
-        # Add cached vector hits
+        # Add cached vector hits (mark as hybrid since we used BM25 merge)
         for m, recall_result in cached_hits:
             candidates.append(RecallResult(
                 memory=recall_result.memory,
                 similarity_score=m["final_score"],
                 retrieval_time_ms=recall_result.retrieval_time_ms,
+                retrieval_method="hybrid",
             ))
         
         # Add fetched BM25-only hits
@@ -264,12 +286,96 @@ class TribalMemoryService(IMemoryService):
                     memory=entry,
                     similarity_score=m["final_score"],
                     retrieval_time_ms=0,
+                    retrieval_method="hybrid",
                 ))
 
         # 6. Rerank candidates
         reranked = self.reranker.rerank(query, candidates, top_k=limit)
 
         return self._filter_superseded(reranked)
+
+    async def _expand_via_graph(
+        self,
+        query: str,
+        existing_results: list[RecallResult],
+        limit: int,
+        min_relevance: float,
+    ) -> list[RecallResult]:
+        """Expand recall candidates via entity graph traversal.
+        
+        Extracts entities from the query, finds memories connected to those
+        entities via the graph, and merges them with existing results.
+        
+        Args:
+            query: The original query string.
+            existing_results: Results from vector/hybrid search.
+            limit: Maximum total results.
+            min_relevance: Minimum relevance threshold.
+            
+        Returns:
+            Combined results with graph-expanded memories.
+        """
+        # Extract entities from query
+        query_entities = self.entity_extractor.extract(query)
+        if not query_entities:
+            return existing_results
+        
+        # Collect memory IDs from existing results to avoid duplicates
+        existing_ids = {r.memory.id for r in existing_results}
+        
+        # Find memories connected to query entities via graph
+        graph_memory_ids: set[str] = set()
+        entity_to_hops: dict[str, int] = {}  # Track hop distance for scoring
+        
+        for entity in query_entities:
+            # Direct mentions (1 hop)
+            direct_ids = self.graph_store.get_memories_for_entity(entity.name)
+            for mid in direct_ids:
+                if mid not in existing_ids:
+                    graph_memory_ids.add(mid)
+                    entity_to_hops[mid] = 1
+            
+            # Connected entities (2 hops)
+            connected = self.graph_store.find_connected(entity.name, hops=1)
+            for connected_entity in connected:
+                connected_ids = self.graph_store.get_memories_for_entity(
+                    connected_entity.name
+                )
+                for mid in connected_ids:
+                    if mid not in existing_ids and mid not in graph_memory_ids:
+                        graph_memory_ids.add(mid)
+                        entity_to_hops[mid] = 2
+        
+        if not graph_memory_ids:
+            return existing_results
+        
+        # Fetch graph-connected memories
+        graph_results: list[RecallResult] = []
+        for memory_id in graph_memory_ids:
+            entry = await self.vector_store.get(memory_id)
+            if entry:
+                # Score based on hop distance: 1-hop = 0.85, 2-hop = 0.70
+                hops = entity_to_hops.get(memory_id, 2)
+                graph_score = 0.85 if hops == 1 else 0.70
+                
+                graph_results.append(RecallResult(
+                    memory=entry,
+                    similarity_score=graph_score,
+                    retrieval_time_ms=0,
+                    retrieval_method="graph",
+                ))
+        
+        # Merge: existing results first, then graph results
+        # Sort graph results by score
+        graph_results.sort(key=lambda r: r.similarity_score, reverse=True)
+        
+        # Combine and limit
+        combined = existing_results + graph_results
+        
+        # Re-sort by score and limit
+        combined.sort(key=lambda r: r.similarity_score, reverse=True)
+        
+        return combined[:limit]
     
     async def correct(
         self,
@@ -381,9 +487,6 @@ class TribalMemoryService(IMemoryService):
             return []
         
         # Fetch full memory entries
-        # Note: For entity-based recall, similarity_score represents match confidence
-        # (1.0 = exact entity match). This differs from vector similarity scores.
-        # Consider adding RecallResult.retrieval_method in a future release.
         results: list[RecallResult] = []
         for memory_id in list(direct_memories)[:limit]:
             entry = await self.vector_store.get(memory_id)
@@ -392,6 +495,7 @@ class TribalMemoryService(IMemoryService):
                     memory=entry,
                     similarity_score=1.0,  # Entity match confidence (exact)
                     retrieval_time_ms=0,
+                    retrieval_method="entity",
                 ))
         
         return results

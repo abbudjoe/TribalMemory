@@ -94,11 +94,11 @@ class TestInitCommand:
         assert "old config" not in config_file.read_text()
 
     def test_init_claude_code_creates_mcp_config(self, cli_env):
-        """init --claude-code should write Claude MCP config."""
+        """init --claude-code should write Claude Code CLI config (~/.claude.json)."""
         result = cmd_init(FakeArgs(claude_code=True))
 
         assert result == 0
-        claude_config = cli_env / ".claude" / "claude_desktop_config.json"
+        claude_config = cli_env / ".claude.json"
         assert claude_config.exists()
         mcp = json.loads(claude_config.read_text())
         assert "tribal-memory" in mcp["mcpServers"]
@@ -109,11 +109,30 @@ class TestInitCommand:
         result = cmd_init(FakeArgs(local=True, claude_code=True))
 
         assert result == 0
-        claude_config = cli_env / ".claude" / "claude_desktop_config.json"
+        claude_config = cli_env / ".claude.json"
         mcp = json.loads(claude_config.read_text())
         env = mcp["mcpServers"]["tribal-memory"]["env"]
         assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in env
         assert "localhost:11434" in env["TRIBAL_MEMORY_EMBEDDING_API_BASE"]
+
+    def test_init_claude_code_updates_existing_desktop_config(self, cli_env):
+        """init --claude-code should also update Claude Desktop config if it exists."""
+        # Create a pre-existing Claude Desktop config
+        desktop_dir = cli_env / ".claude"
+        desktop_dir.mkdir(parents=True, exist_ok=True)
+        desktop_config = desktop_dir / "claude_desktop_config.json"
+        desktop_config.write_text(json.dumps({"mcpServers": {"other": {"command": "other-cmd"}}}) + "\n")
+
+        result = cmd_init(FakeArgs(claude_code=True))
+
+        assert result == 0
+        # CLI config should be created
+        cli_config = cli_env / ".claude.json"
+        assert cli_config.exists()
+        # Desktop config should be updated (not overwritten)
+        desktop_mcp = json.loads(desktop_config.read_text())
+        assert "tribal-memory" in desktop_mcp["mcpServers"]
+        assert "other" in desktop_mcp["mcpServers"]  # preserved
 
 
 class TestCodexIntegration:

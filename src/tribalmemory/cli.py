@@ -135,41 +135,21 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def _setup_claude_code_mcp(is_local: bool) -> None:
-    """Add Tribal Memory to Claude Code's MCP configuration."""
-    # Claude Code MCP config paths by platform
-    claude_config_paths = [
-        Path.home() / ".claude" / "claude_desktop_config.json",  # Claude Code CLI (all platforms)
-        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # Claude Desktop (macOS)
-        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",  # Claude Desktop (Windows)
+    """Add Tribal Memory to Claude Code's MCP configuration.
+    
+    Claude Code CLI reads MCP servers from ~/.claude.json (user scope).
+    Claude Desktop reads from platform-specific claude_desktop_config.json.
+    We update both if they exist, and always ensure ~/.claude.json is set.
+    """
+    # Claude Code CLI config (primary — this is what `claude` CLI reads)
+    claude_cli_config = Path.home() / ".claude.json"
+    
+    # Claude Desktop config paths (secondary — update if they exist)
+    claude_desktop_paths = [
+        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # macOS
+        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",  # Windows
+        Path.home() / ".claude" / "claude_desktop_config.json",  # Legacy / Linux
     ]
-
-    config_path = None
-    for p in claude_config_paths:
-        if p.exists():
-            config_path = p
-            break
-
-    if config_path is None:
-        # Create default location
-        config_path = claude_config_paths[0]
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Read existing config or start fresh
-    if config_path.exists():
-        try:
-            existing = json.loads(config_path.read_text())
-        except json.JSONDecodeError as e:
-            print(
-                f"⚠️  Existing config has invalid JSON: {e}"
-            )
-            print(f"   Creating fresh config at {config_path}")
-            existing = {}
-    else:
-        existing = {}
-
-    # Merge MCP server config
-    if "mcpServers" not in existing:
-        existing["mcpServers"] = {}
 
     mcp_entry = {
         "command": "tribalmemory-mcp",
@@ -179,10 +159,39 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
     if is_local:
         mcp_entry["env"]["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
 
-    existing["mcpServers"]["tribal-memory"] = mcp_entry
+    # Always update Claude Code CLI config (~/.claude.json)
+    _update_mcp_config(claude_cli_config, mcp_entry, create_if_missing=True)
+    print(f"✅ Claude Code CLI config updated: {claude_cli_config}")
 
+    # Also update Claude Desktop config if it exists
+    for desktop_path in claude_desktop_paths:
+        if desktop_path.exists():
+            _update_mcp_config(desktop_path, mcp_entry, create_if_missing=False)
+            print(f"✅ Claude Desktop config updated: {desktop_path}")
+
+
+def _update_mcp_config(
+    config_path: Path, mcp_entry: dict, create_if_missing: bool = False
+) -> None:
+    """Update an MCP config file with the tribal-memory server entry."""
+    if config_path.exists():
+        try:
+            existing = json.loads(config_path.read_text())
+        except json.JSONDecodeError as e:
+            print(f"⚠️  Existing config has invalid JSON: {e}")
+            print(f"   Creating fresh config at {config_path}")
+            existing = {}
+    elif create_if_missing:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+    else:
+        return
+
+    if "mcpServers" not in existing:
+        existing["mcpServers"] = {}
+
+    existing["mcpServers"]["tribal-memory"] = mcp_entry
     config_path.write_text(json.dumps(existing, indent=2) + "\n")
-    print(f"✅ Claude Code MCP config updated: {config_path}")
 
 
 def _setup_codex_mcp(is_local: bool) -> None:

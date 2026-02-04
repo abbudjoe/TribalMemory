@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from ..interfaces import MemorySource, MemoryEntry
 from ..services import TribalMemoryService
+from ..services.session_store import SessionStore, SessionMessage
 from .models import (
     RememberRequest,
     RecallRequest,
@@ -24,6 +25,11 @@ from .models import (
     ExportResponse,
     ImportRequest,
     ImportResponse,
+    SessionIngestRequest,
+    SessionIngestResponse,
+    SessionSearchRequest,
+    SessionSearchResponse,
+    SessionChunkResponse,
 )
 
 router = APIRouter(prefix="/v1", tags=["memory"])
@@ -38,6 +44,17 @@ def get_memory_service() -> TribalMemoryService:
     if _memory_service is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     return _memory_service
+
+
+def get_session_store() -> SessionStore:
+    """Dependency injection for session store.
+    
+    This is set by the app during startup.
+    """
+    from .app import _session_store
+    if _session_store is None:
+        raise HTTPException(status_code=503, detail="Session store not initialized")
+    return _session_store
 
 
 def get_instance_id() -> str:
@@ -376,3 +393,54 @@ async def shutdown() -> ShutdownResponse:
         0.5, lambda: os.kill(os.getpid(), signal.SIGTERM)
     )
     return ShutdownResponse(status="shutting_down")
+
+# =============================================================================
+# Session Indexing Routes (Issue #38)
+# =============================================================================
+
+@router.post("/sessions/ingest", response_model=SessionIngestResponse)
+async def ingest_session(
+    request: SessionIngestRequest,
+    store: SessionStore = Depends(get_session_store),
+    instance_id: str = Depends(get_instance_id),
+) -> SessionIngestResponse:
+    """Ingest a session transcript for indexing."""
+    try:
+        messages = [
+            SessionMessage(role=msg.role, content=msg.content, timestamp=msg.timestamp)
+            for msg in request.messages
+        ]
+        
+        result = await store.ingest(
+            session_id=request.session_id,
+            messages=messages,
+            instance_id=request.instance_id or instance_id,
+        )
+        
+        return SessionIngestResponse(
+            success=result.get("success", False),
+            chunks_created=result.get("chunks_created", 0),
+            messages_processed=result.get("messages_processed", 0),
+            error=result.get("error"),
+        )
+    except Exception as e:
+        return SessionIngestResponse(success=False, error=str(e))
+
+
+@router.get("/sessions/search", response_model=SessionSearchResponse)
+async def search_sessions(
+    query: str,
+    session_id: Optional[str] = None,
+    limit: int = 5,
+    min_relevance: float = 0.0,
+    store: SessionStore = Depends(get_session_store),
+) -> SessionSearchResponse:
+    """Search session transcripts by semantic similarity."""
+    try:
+        results = await store.search(query, session_id, limit, min_relevance)
+        return SessionSearchResponse(
+            results=[SessionChunkResponse(**r) for r in results],
+            query=query,
+        )
+    except Exception as e:
+        return SessionSearchResponse(results=[], query=query, error=str(e))

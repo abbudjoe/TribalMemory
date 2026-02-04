@@ -78,6 +78,8 @@ class HeuristicReranker:
         tag_boost_weight: float = 0.1,
         min_length: int = 10,
         max_length: int = 2000,
+        short_penalty: float = 0.05,
+        long_penalty: float = 0.03,
     ):
         """Initialize heuristic reranker.
 
@@ -86,11 +88,15 @@ class HeuristicReranker:
             tag_boost_weight: Weight for tag match boost
             min_length: Content shorter than this gets penalty
             max_length: Content longer than this gets penalty
+            short_penalty: Penalty for content shorter than min_length
+            long_penalty: Penalty for content longer than max_length
         """
         self.recency_decay_days = recency_decay_days
         self.tag_boost_weight = tag_boost_weight
         self.min_length = min_length
         self.max_length = max_length
+        self.short_penalty = short_penalty
+        self.long_penalty = long_penalty
 
     def rerank(
         self, query: str, candidates: list[RecallResult], top_k: int
@@ -125,9 +131,9 @@ class HeuristicReranker:
             # Length penalty
             content_length = len(candidate.memory.content)
             if content_length < self.min_length:
-                boost -= 0.05  # Small penalty for very short
+                boost -= self.short_penalty
             elif content_length > self.max_length:
-                boost -= 0.03  # Small penalty for very long
+                boost -= self.long_penalty
 
             # Combine with original score
             final_score = candidate.similarity_score * (1.0 + boost)

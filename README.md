@@ -127,6 +127,7 @@ The server is the single source of truth. Each agent connects as an instance. Me
 
 - **Semantic search** — Find memories by meaning, not keywords
 - **Cross-agent sharing** — Memories from one agent are available to all
+- **Graph search** — Entity extraction + relationship traversal (NEW in v0.3.0)
 - **Automatic deduplication** — Won't store the same thing twice
 - **Memory corrections** — Update outdated information with audit trail
 - **Import/export** — Portable JSON bundles with embedding metadata
@@ -134,19 +135,74 @@ The server is the single source of truth. Each agent connects as an instance. Me
 - **Local-only mode** — Ollama + LanceDB = zero data leaves your machine
 - **MCP server** — Native integration with Claude Code and compatible tools
 
+## Graph Search (NEW in v0.3.0)
+
+Tribal Memory doesn't just store text — it understands **entities** and **relationships**.
+
+### How It Works
+
+When you store a memory like:
+```
+"The auth-service uses PostgreSQL for user credentials"
+```
+
+Tribal Memory extracts:
+- **Entities:** `auth-service` (service), `PostgreSQL` (technology)
+- **Relationship:** `auth-service` → uses → `PostgreSQL`
+
+### Entity-Centric Queries
+
+Ask about an entity and get everything related:
+
+```python
+# Find all memories about PostgreSQL
+results = await service.recall_entity("PostgreSQL", hops=2)
+
+# Explore the relationship graph
+graph = service.get_entity_graph("auth-service")
+# → {"entities": [...], "relationships": [...]}
+```
+
+### Graph-Aware Recall
+
+Standard `recall()` now expands via the entity graph (enabled by default):
+
+```python
+results = await service.recall("What database does auth-service use?")
+```
+
+This finds:
+1. Memories directly mentioning "auth-service" (vector search)
+2. Memories about connected entities like PostgreSQL (graph expansion)
+
+Each result includes `retrieval_method`:
+- `"vector"` — Pure semantic similarity
+- `"graph"` — Found via entity connections
+- `"hybrid"` — Combined vector + keyword search
+
+### MCP Tools for Graph Search
+
+| Tool | Description |
+|------|-------------|
+| `tribal_recall_entity` | Query memories by entity name |
+| `tribal_entity_graph` | Explore entity relationships |
+
 ## MCP Tools
 
 When connected via MCP, your AI gets these tools:
 
 | Tool | Description |
 |------|-------------|
-| `tribal_remember` | Store a new memory with deduplication |
-| `tribal_recall` | Search memories by semantic similarity |
+| `tribal_store` | Store a new memory with deduplication |
+| `tribal_recall` | Search memories (vector + graph expansion) |
+| `tribal_recall_entity` | Query by entity name with hop traversal |
+| `tribal_entity_graph` | Explore entity relationships |
 | `tribal_correct` | Update/correct an existing memory |
 | `tribal_forget` | Delete a memory (soft delete) |
 | `tribal_stats` | Get memory statistics |
 | `tribal_export` | Export memories to portable JSON |
 | `tribal_import` | Import memories from a bundle |
+| `tribal_sessions_ingest` | Index conversation transcripts |
 
 ## Configuration
 

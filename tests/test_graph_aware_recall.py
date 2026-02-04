@@ -168,7 +168,7 @@ class TestGraphAwareRecall:
 
     @pytest.mark.asyncio
     async def test_recall_without_graph_expansion(self, memory_service):
-        """Graph expansion can be disabled."""
+        """Graph expansion can be disabled, excluding graph-connected memories."""
         await memory_service.remember(
             "The cache-service uses Redis for session storage."
         )
@@ -184,7 +184,14 @@ class TestGraphAwareRecall:
         
         # All results should be vector-based
         for r in results:
-            assert r.retrieval_method == "vector"
+            assert r.retrieval_method in ("vector", "hybrid")
+        
+        # Should NOT find the Redis memory via graph connection (#8)
+        contents = [r.memory.content for r in results]
+        # The Redis memory is only connected via graph, not direct vector match
+        # If it appears, graph expansion is still happening
+        assert not any("2GB RAM" in c for c in contents), \
+            "Graph-connected memory should be excluded when graph_expansion=False"
 
     @pytest.mark.asyncio
     async def test_graph_expansion_graceful_when_disabled(self, embedding_service):
@@ -207,8 +214,8 @@ class TestGraphAwareRecall:
             assert r.retrieval_method == "vector"
 
 
-class TestGraphProximityBoost:
-    """Tests for graph proximity as a reranking signal."""
+class TestGraphExpansion:
+    """Tests for graph-based candidate expansion."""
 
     @pytest.fixture
     def memory_service(self, tmp_path):
@@ -276,3 +283,70 @@ class TestGraphProximityBoost:
         contents = [r.memory.content for r in results]
         # Should find the chain
         assert any("auth-service" in c or "PostgreSQL" in c for c in contents)
+
+
+class TestGraphExpansionEdgeCases:
+    """Edge case tests for graph expansion."""
+
+    @pytest.fixture
+    def memory_service(self, tmp_path):
+        embedding_service = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding_service=embedding_service)
+        graph_store = GraphStore(str(tmp_path / "graph.db"))
+        
+        return TribalMemoryService(
+            instance_id="test",
+            embedding_service=embedding_service,
+            vector_store=vector_store,
+            graph_store=graph_store,
+            graph_enabled=True,
+            auto_reject_duplicates=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_no_entities_in_query(self, memory_service):
+        """Graph expansion should gracefully handle queries with no entities (#11)."""
+        await memory_service.remember("Some memory about configuration")
+        
+        # Query with no extractable entities
+        results = await memory_service.recall(
+            "what is the meaning of life?",
+            graph_expansion=True,
+        )
+        
+        # Should fall back to vector search only
+        for r in results:
+            assert r.retrieval_method in ("vector", "hybrid")
+
+    @pytest.mark.asyncio
+    async def test_recall_entity_marks_method(self, memory_service):
+        """recall_entity() should mark results with retrieval_method='entity' (#15)."""
+        await memory_service.remember("PostgreSQL is our primary database")
+        
+        results = await memory_service.recall_entity("PostgreSQL")
+        
+        assert len(results) > 0
+        for r in results:
+            assert r.retrieval_method == "entity"
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_respects_min_relevance(self, memory_service):
+        """Graph results should be filtered by min_relevance (#4)."""
+        await memory_service.remember(
+            "The auth-service uses PostgreSQL for credentials."
+        )
+        await memory_service.remember(
+            "PostgreSQL runs on port 5432."
+        )
+        
+        # With high min_relevance, 2-hop results (0.70) should be excluded
+        results = await memory_service.recall(
+            "auth-service",
+            min_relevance=0.8,  # Higher than GRAPH_2HOP_SCORE (0.70)
+            graph_expansion=True,
+        )
+        
+        # If any graph results, they must meet min_relevance
+        for r in results:
+            if r.retrieval_method == "graph":
+                assert r.similarity_score >= 0.8

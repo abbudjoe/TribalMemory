@@ -65,6 +65,7 @@ class SearchConfig:
     reranking: str = "heuristic"  # "auto" | "cross-encoder" | "heuristic" | "none"
     recency_decay_days: float = 30.0  # Half-life for recency boost
     tag_boost_weight: float = 0.1  # Weight for tag match boost
+    rerank_pool_multiplier: int = 2  # How many candidates to give reranker (N * limit)
 
     def __post_init__(self):
         if self.vector_weight < 0:
@@ -86,6 +87,8 @@ class SearchConfig:
             raise ValueError("recency_decay_days must be positive")
         if self.tag_boost_weight < 0:
             raise ValueError("tag_boost_weight must be non-negative")
+        if self.rerank_pool_multiplier < 1:
+            raise ValueError("rerank_pool_multiplier must be >= 1")
 
 
 @dataclass

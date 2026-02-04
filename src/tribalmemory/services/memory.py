@@ -51,6 +51,7 @@ class TribalMemoryService(IMemoryService):
         hybrid_text_weight: float = 0.3,
         hybrid_candidate_multiplier: int = 4,
         reranker: Optional[IReranker] = None,
+        rerank_pool_multiplier: int = 2,
     ):
         self.instance_id = instance_id
         self.embedding_service = embedding_service
@@ -62,6 +63,7 @@ class TribalMemoryService(IMemoryService):
         self.hybrid_text_weight = hybrid_text_weight
         self.hybrid_candidate_multiplier = hybrid_candidate_multiplier
         self.reranker = reranker or NoopReranker()
+        self.rerank_pool_multiplier = rerank_pool_multiplier
         
         self.dedup_service = SemanticDeduplicationService(
             vector_store=vector_store,
@@ -199,29 +201,44 @@ class TribalMemoryService(IMemoryService):
         # Create lookup from vector results
         entry_map = {r.memory.id: r for r in vector_results}
 
-        # Get 2*limit candidates before reranking (to give reranker more choices)
-        rerank_pool_size = min(limit * 2, len(merged))
+        # Get rerank_pool_multiplier * limit candidates before reranking
+        rerank_pool_size = min(limit * self.rerank_pool_multiplier, len(merged))
         
-        # For BM25-only hits, fetch from vector store
-        candidates: list[RecallResult] = []
+        # Separate cached (vector) hits from BM25-only hits that need fetching
+        cached_hits: list[tuple[dict, RecallResult]] = []
+        bm25_only_ids: list[dict] = []
+        
         for m in merged[:rerank_pool_size]:
             if m["id"] in entry_map:
-                recall_result = entry_map[m["id"]]
-                # Update score to hybrid score
-                candidates.append(RecallResult(
-                    memory=recall_result.memory,
-                    similarity_score=m["final_score"],
-                    retrieval_time_ms=recall_result.retrieval_time_ms,
-                ))
+                cached_hits.append((m, entry_map[m["id"]]))
             else:
-                # BM25-only hit — fetch from store
-                entry = await self.vector_store.get(m["id"])
-                if entry and m["final_score"] >= min_relevance * 0.5:
-                    candidates.append(RecallResult(
-                        memory=entry,
-                        similarity_score=m["final_score"],
-                        retrieval_time_ms=0,
-                    ))
+                bm25_only_ids.append(m)
+        
+        # Batch-fetch BM25-only hits concurrently
+        import asyncio
+        fetched_entries = await asyncio.gather(
+            *(self.vector_store.get(m["id"]) for m in bm25_only_ids)
+        ) if bm25_only_ids else []
+        
+        # Build candidate list
+        candidates: list[RecallResult] = []
+        
+        # Add cached vector hits
+        for m, recall_result in cached_hits:
+            candidates.append(RecallResult(
+                memory=recall_result.memory,
+                similarity_score=m["final_score"],
+                retrieval_time_ms=recall_result.retrieval_time_ms,
+            ))
+        
+        # Add fetched BM25-only hits
+        for m, entry in zip(bm25_only_ids, fetched_entries):
+            if entry and m["final_score"] >= min_relevance * 0.5:
+                candidates.append(RecallResult(
+                    memory=entry,
+                    similarity_score=m["final_score"],
+                    retrieval_time_ms=0,
+                ))
 
         # 6. Rerank candidates
         reranked = self.reranker.rerank(query, candidates, top_k=limit)
@@ -309,6 +326,7 @@ def create_memory_service(
     reranking: str = "heuristic",
     recency_decay_days: float = 30.0,
     tag_boost_weight: float = 0.1,
+    rerank_pool_multiplier: int = 2,
 ) -> TribalMemoryService:
     """Factory function to create a memory service with sensible defaults.
     
@@ -331,6 +349,8 @@ def create_memory_service(
             (default: "heuristic").
         recency_decay_days: Half-life for recency boost (default: 30.0).
         tag_boost_weight: Weight for tag match boost (default: 0.1).
+        rerank_pool_multiplier: How many candidates to give the reranker
+            (N × limit). Default: 2.
     
     Returns:
         Configured TribalMemoryService ready for use.
@@ -411,4 +431,5 @@ def create_memory_service(
         hybrid_text_weight=hybrid_text_weight,
         hybrid_candidate_multiplier=hybrid_candidate_multiplier,
         reranker=reranker,
+        rerank_pool_multiplier=rerank_pool_multiplier,
     )

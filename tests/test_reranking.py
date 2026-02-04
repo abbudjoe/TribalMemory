@@ -182,6 +182,35 @@ class TestHeuristicReranker:
         assert reranked[0].memory.id == "winner"
         assert reranked[0].similarity_score > reranked[1].similarity_score
 
+    def test_recency_boost_extreme_age(self):
+        """Very old memories (1+ year) should still get valid scores without issues."""
+        reranker = HeuristicReranker(
+            recency_decay_days=30.0,
+            tag_boost_weight=0.0,
+        )
+        
+        now = datetime.utcnow()
+        very_old = now - timedelta(days=365)
+        ancient = now - timedelta(days=3650)  # 10 years
+        
+        results = [
+            self._create_result("very-old", "old memory", 0.8, created_at=very_old),
+            self._create_result("ancient", "ancient memory", 0.8, created_at=ancient),
+            self._create_result("recent", "recent memory", 0.8, created_at=now - timedelta(days=1)),
+        ]
+        
+        reranked = reranker.rerank("query", results, top_k=3)
+        
+        # Recent should rank first
+        assert reranked[0].memory.id == "recent"
+        # All scores should be positive (no negative scores from extreme decay)
+        for r in reranked:
+            assert r.similarity_score > 0, f"Score for {r.memory.id} should be positive"
+        # Ancient shouldn't score higher than very old
+        ancient_score = next(r.similarity_score for r in reranked if r.memory.id == "ancient")
+        very_old_score = next(r.similarity_score for r in reranked if r.memory.id == "very-old")
+        assert very_old_score >= ancient_score
+
     def test_preserves_original_order_when_tied(self):
         """When scores are equal, preserve original order."""
         reranker = HeuristicReranker()

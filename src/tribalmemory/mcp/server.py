@@ -51,6 +51,9 @@ async def get_memory_service() -> TribalMemoryService:
             instance_id=instance_id,
             db_path=config.db.path,
             openai_api_key=config.embedding.api_key,
+            api_base=config.embedding.api_base,
+            embedding_model=config.embedding.model,
+            embedding_dimensions=config.embedding.dimensions,
         )
         logger.info(f"Memory service initialized (instance: {instance_id}, db: {config.db.path})")
 

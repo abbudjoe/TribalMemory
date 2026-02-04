@@ -210,13 +210,21 @@ def create_memory_service(
     instance_id: Optional[str] = None,
     db_path: Optional[str] = None,
     openai_api_key: Optional[str] = None,
+    api_base: Optional[str] = None,
+    embedding_model: Optional[str] = None,
+    embedding_dimensions: Optional[int] = None,
 ) -> TribalMemoryService:
     """Factory function to create a memory service with sensible defaults.
     
     Args:
         instance_id: Unique identifier for this agent instance.
         db_path: Path for LanceDB persistent storage. If None, uses in-memory.
-        openai_api_key: OpenAI API key. Falls back to OPENAI_API_KEY env var.
+        openai_api_key: API key. Falls back to OPENAI_API_KEY env var.
+            Not required for local models (when api_base is set).
+        api_base: Base URL for the embedding API.
+            For Ollama: "http://localhost:11434/v1"
+        embedding_model: Embedding model name. Default: "text-embedding-3-small".
+        embedding_dimensions: Embedding output dimensions. Default: 1536.
     
     Returns:
         Configured TribalMemoryService ready for use.
@@ -235,7 +243,15 @@ def create_memory_service(
     if not instance_id:
         instance_id = os.environ.get("TRIBAL_MEMORY_INSTANCE_ID", "default")
     
-    embedding_service = OpenAIEmbeddingService(api_key=openai_api_key)
+    kwargs: dict = {"api_key": openai_api_key}
+    if api_base is not None:
+        kwargs["api_base"] = api_base
+    if embedding_model is not None:
+        kwargs["model"] = embedding_model
+    if embedding_dimensions is not None:
+        kwargs["dimensions"] = embedding_dimensions
+    
+    embedding_service = OpenAIEmbeddingService(**kwargs)
     
     if db_path:
         try:

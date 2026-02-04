@@ -10,15 +10,28 @@ import yaml
 
 @dataclass
 class EmbeddingConfig:
-    """Embedding service configuration."""
+    """Embedding service configuration.
+    
+    Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
+    
+    For local Ollama embeddings (zero cloud, zero cost):
+        api_base: http://localhost:11434/v1
+        model: nomic-embed-text
+        dimensions: 768
+        # api_key not needed for local models
+    """
     provider: str = "openai"
     model: str = "text-embedding-3-small"
     api_key: Optional[str] = None
+    api_base: Optional[str] = None
+    dimensions: int = 1536
 
     def __post_init__(self):
         # Resolve from environment if not set
         if self.api_key is None:
             self.api_key = os.environ.get("OPENAI_API_KEY")
+        if self.api_base is None:
+            self.api_base = os.environ.get("TRIBAL_MEMORY_EMBEDDING_API_BASE")
 
 
 @dataclass
@@ -87,7 +100,13 @@ class TribalMemoryConfig:
         """Validate configuration, return list of errors."""
         errors = []
 
-        if not self.embedding.api_key:
+        # api_key is only required when using OpenAI (no custom api_base)
+        api_base = (self.embedding.api_base or "").strip()
+        is_local = (
+            api_base != ""
+            and "api.openai.com" not in api_base.lower()
+        )
+        if not self.embedding.api_key and not is_local:
             errors.append("embedding.api_key is required (or set OPENAI_API_KEY)")
 
         if not self.instance_id:

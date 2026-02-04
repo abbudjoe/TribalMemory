@@ -4,6 +4,16 @@
 
 One memory store, many agents. Teach Claude Code something — Codex already knows it. That's not just persistence — it's **cross-agent intelligence**.
 
+<p align="center">
+  <img src="docs/assets/one-brain-two-agents.gif" alt="One Brain, Two Agents — Claude Code stores memories, Codex recalls them" width="700">
+  <br>
+  <em>Claude Code stores architecture decisions → Codex recalls them instantly</em>
+</p>
+
+[![asciinema demo](https://img.shields.io/badge/demo-asciinema-d40000)](https://asciinema.org/a/ZM74iIXzM07SV21P)
+[![PyPI](https://img.shields.io/pypi/v/tribalmemory)](https://pypi.org/project/tribalmemory/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 ## Why
 
 Every AI coding assistant starts fresh. Claude Code doesn't know what you told Codex. Codex doesn't know what you told Claude. You repeat yourself constantly.
@@ -180,19 +190,40 @@ await service.correct(
 )
 ```
 
+## Demo
+
+See cross-agent memory sharing in action:
+
+```bash
+# Start the server
+tribalmemory serve
+
+# Run the interactive demo
+./demo.sh
+```
+
+See [docs/demo-output.md](docs/demo-output.md) for example output.
+
 ## HTTP API
+
+All endpoints are under the `/v1` prefix.
 
 ```bash
 # Store a memory
-curl -X POST http://localhost:18790/memories \
+curl -X POST http://localhost:18790/v1/remember \
   -H "Content-Type: application/json" \
   -d '{"content": "The database uses Postgres 16", "tags": ["infra"]}'
 
 # Search memories
-curl "http://localhost:18790/memories/search?query=what+database&limit=5"
+curl -X POST http://localhost:18790/v1/recall \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what database", "limit": 5}'
 
 # Get stats
-curl http://localhost:18790/stats
+curl http://localhost:18790/v1/stats
+
+# Health check
+curl http://localhost:18790/v1/health
 ```
 
 ## OpenClaw Integration

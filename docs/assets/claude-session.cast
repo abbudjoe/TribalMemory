@@ -1,0 +1,4 @@
+{"version": 2, "width": 100, "height": 35, "timestamp": 1770170075, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}}
+[18.543071, "o", "All three architecture decisions have been stored successfully:\r\n\r\n1. **Auth service uses JWT with RS256 signing** — tags: `architecture`, `auth`, `jwt`, `security`\r\n2. **Database is Postgres 16 with pgvector for embeddings** — tags: `architecture`, `database`, `postgres`, `embeddings`\r\n3. **Frontend uses Next.js 15 with App Router** — tags: `architecture`, `frontend`, `nextjs`\r\n\r\nEach was stored with `source_type: user_explicit` and no duplicates were detected.\r\n"]
+[19.409136, "o", "\u001b[<u\u001b[?1004l\u001b[?2004l\u001b[?25h\u001b]9;4;0;\u0007"]
+[19.410603, "o", "\u001b[?25h"]

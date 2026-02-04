@@ -26,7 +26,7 @@ TRIBAL_DIR = Path.home() / ".tribal-memory"
 CONFIG_FILE = TRIBAL_DIR / "config.yaml"
 DEFAULT_INSTANCE_ID = "default"
 
-# MCP config for Claude Code (claude_desktop_config.json)
+# MCP config for Claude Code CLI and Claude Desktop
 CLAUDE_CODE_MCP_CONFIG = {
     "mcpServers": {
         "tribal-memory": {

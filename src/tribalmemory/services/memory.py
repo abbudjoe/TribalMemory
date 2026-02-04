@@ -18,6 +18,7 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
+from .graph_store import GraphStore, EntityExtractor
 from .reranker import IReranker, NoopReranker, create_reranker
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,8 @@ class TribalMemoryService(IMemoryService):
         hybrid_candidate_multiplier: int = 4,
         reranker: Optional[IReranker] = None,
         rerank_pool_multiplier: int = 2,
+        graph_store: Optional[GraphStore] = None,
+        graph_enabled: bool = True,
     ):
         self.instance_id = instance_id
         self.embedding_service = embedding_service
@@ -64,6 +67,9 @@ class TribalMemoryService(IMemoryService):
         self.hybrid_candidate_multiplier = hybrid_candidate_multiplier
         self.reranker = reranker or NoopReranker()
         self.rerank_pool_multiplier = rerank_pool_multiplier
+        self.graph_store = graph_store
+        self.graph_enabled = graph_enabled and graph_store is not None
+        self.entity_extractor = EntityExtractor() if self.graph_enabled else None
         
         self.dedup_service = SemanticDeduplicationService(
             vector_store=vector_store,
@@ -117,6 +123,24 @@ class TribalMemoryService(IMemoryService):
                 self.fts_store.index(entry.id, content, tags or [])
             except Exception as e:
                 logger.warning("FTS indexing failed for %s: %s", entry.id, e)
+        
+        # Extract and store entities for graph-enriched search
+        if result.success and self.graph_enabled and self.entity_extractor:
+            try:
+                entities, relationships = self.entity_extractor.extract_with_relationships(
+                    content
+                )
+                for entity in entities:
+                    self.graph_store.add_entity(entity, memory_id=entry.id)
+                for rel in relationships:
+                    self.graph_store.add_relationship(rel, memory_id=entry.id)
+                if entities:
+                    logger.debug(
+                        "Extracted %d entities, %d relationships from %s",
+                        len(entities), len(relationships), entry.id
+                    )
+            except Exception as e:
+                logger.warning("Graph indexing failed for %s: %s", entry.id, e)
         
         return result
     
@@ -286,6 +310,11 @@ class TribalMemoryService(IMemoryService):
                 self.fts_store.delete(memory_id)
             except Exception as e:
                 logger.warning("FTS cleanup failed for %s: %s", memory_id, e)
+        if result and self.graph_store:
+            try:
+                self.graph_store.delete_memory(memory_id)
+            except Exception as e:
+                logger.warning("Graph cleanup failed for %s: %s", memory_id, e)
         return result
     
     async def get(self, memory_id: str) -> Optional[MemoryEntry]:
@@ -310,6 +339,98 @@ class TribalMemoryService(IMemoryService):
         if not superseded_ids:
             return results
         return [r for r in results if r.memory.id not in superseded_ids]
+
+    async def recall_entity(
+        self,
+        entity_name: str,
+        hops: int = 1,
+        limit: int = 10,
+    ) -> list[RecallResult]:
+        """Recall all memories associated with an entity and its connections.
+        
+        This enables entity-centric queries like:
+        - "Tell me everything about auth-service"
+        - "What do we know about PostgreSQL?"
+        
+        Args:
+            entity_name: Name of the entity to query
+            hops: Number of relationship hops to traverse (1 = direct only)
+            limit: Maximum results to return
+        
+        Returns:
+            List of recall results for memories mentioning the entity or connected entities
+        """
+        if not self.graph_enabled:
+            logger.warning("Graph search not enabled, returning empty results")
+            return []
+        
+        # Get memories directly mentioning the entity
+        direct_memories = set(self.graph_store.get_memories_for_entity(entity_name))
+        
+        # Get memories for connected entities (if hops > 0)
+        if hops > 0:
+            connected = self.graph_store.find_connected(entity_name, hops=hops)
+            for entity in connected:
+                direct_memories.update(
+                    self.graph_store.get_memories_for_entity(entity.name)
+                )
+        
+        if not direct_memories:
+            return []
+        
+        # Fetch full memory entries
+        results: list[RecallResult] = []
+        for memory_id in list(direct_memories)[:limit]:
+            entry = await self.vector_store.get(memory_id)
+            if entry:
+                results.append(RecallResult(
+                    memory=entry,
+                    similarity_score=1.0,  # Entity match is exact
+                    retrieval_time_ms=0,
+                ))
+        
+        return results
+
+    def get_entity_graph(
+        self,
+        entity_name: str,
+        hops: int = 2,
+    ) -> dict:
+        """Get the relationship graph around an entity.
+        
+        Returns a dict with:
+        - entities: list of connected entities with types
+        - relationships: list of relationships
+        
+        Useful for visualization and debugging.
+        """
+        if not self.graph_enabled:
+            return {"entities": [], "relationships": []}
+        
+        connected = self.graph_store.find_connected(
+            entity_name, hops=hops, include_source=True
+        )
+        
+        entities = [
+            {"name": e.name, "type": e.entity_type}
+            for e in connected
+        ]
+        
+        # Get relationships for all entities
+        relationships = []
+        seen_rels = set()
+        for entity in connected:
+            for rel in self.graph_store.get_relationships_for_entity(entity.name):
+                rel_key = (rel.source, rel.target, rel.relation_type)
+                if rel_key not in seen_rels:
+                    seen_rels.add(rel_key)
+                    relationships.append({
+                        "source": rel.source,
+                        "target": rel.target,
+                        "type": rel.relation_type,
+                    })
+        
+        return {"entities": entities, "relationships": relationships}
 
 
 def create_memory_service(

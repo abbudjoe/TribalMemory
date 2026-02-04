@@ -213,36 +213,6 @@ describe("TribalClient", () => {
     });
   });
 
-  describe("deprecated methods", () => {
-    it("capture() calls remember() with deprecation warning", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ success: true, memory_id: "new123" }),
-      });
-
-      const result = await client.capture("Old API content", { tags: ["test"] });
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("deprecated")
-      );
-      expect(result).toBe("new123");
-      warnSpy.mockRestore();
-    });
-
-    it("searchSingle() calls recall() with deprecation warning", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ results: [] }),
-      });
-
-      await client.searchSingle("query", { maxResults: 5 });
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("deprecated")
-      );
-      warnSpy.mockRestore();
-    });
-  });
+  // Note: capture() and searchSingle() deprecated methods were removed
+  // in the SDK migration. Tests for them have been removed.
 });

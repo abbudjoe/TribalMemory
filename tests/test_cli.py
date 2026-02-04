@@ -11,6 +11,7 @@ from unittest.mock import patch
 from tribalmemory.cli import (
     cmd_init, main, _resolve_mcp_command,
     AUTO_CAPTURE_INSTRUCTIONS, CLAUDE_INSTRUCTIONS_FILE,
+    CODEX_INSTRUCTIONS_FILE,
 )
 
 
@@ -317,6 +318,68 @@ class TestAutoCapture:
         assert result == 0
         claude_md = cli_env / ".claude" / "CLAUDE.md"
         assert not claude_md.exists()
+
+    def test_auto_capture_with_codex_writes_agents_md(self, cli_env):
+        """--auto-capture --codex should write to ~/.codex/AGENTS.md."""
+        result = cmd_init(FakeArgs(auto_capture=True, codex=True))
+
+        assert result == 0
+        agents_md = cli_env / CODEX_INSTRUCTIONS_FILE
+        assert agents_md.exists()
+        content = agents_md.read_text()
+        assert "tribal_remember" in content
+        assert "tribal_recall" in content
+
+    def test_auto_capture_with_both_writes_both_files(self, cli_env):
+        """--auto-capture --claude-code --codex should write both instruction files."""
+        result = cmd_init(FakeArgs(auto_capture=True, claude_code=True, codex=True))
+
+        assert result == 0
+        claude_md = cli_env / CLAUDE_INSTRUCTIONS_FILE
+        codex_md = cli_env / CODEX_INSTRUCTIONS_FILE
+        assert claude_md.exists()
+        assert codex_md.exists()
+        assert "tribal_remember" in claude_md.read_text()
+        assert "tribal_remember" in codex_md.read_text()
+
+    def test_auto_capture_bare_writes_both_files(self, cli_env):
+        """--auto-capture alone (no --claude-code/--codex) should write both."""
+        result = cmd_init(FakeArgs(auto_capture=True))
+
+        assert result == 0
+        claude_md = cli_env / CLAUDE_INSTRUCTIONS_FILE
+        codex_md = cli_env / CODEX_INSTRUCTIONS_FILE
+        assert claude_md.exists()
+        assert codex_md.exists()
+
+    def test_auto_capture_codex_appends_to_existing(self, cli_env):
+        """--auto-capture should append to existing Codex AGENTS.md."""
+        codex_dir = cli_env / ".codex"
+        codex_dir.mkdir(parents=True, exist_ok=True)
+        agents_md = codex_dir / "AGENTS.md"
+        agents_md.write_text("# My Agent Rules\n\nBe helpful.\n")
+
+        result = cmd_init(FakeArgs(auto_capture=True, codex=True))
+
+        assert result == 0
+        content = agents_md.read_text()
+        assert "# My Agent Rules" in content  # preserved
+        assert "Be helpful." in content  # preserved
+        assert "tribal_remember" in content  # appended
+
+    def test_auto_capture_codex_idempotent(self, cli_env):
+        """--auto-capture should not duplicate in Codex AGENTS.md."""
+        result1 = cmd_init(FakeArgs(auto_capture=True, codex=True))
+        assert result1 == 0
+        # Force re-run (config already exists)
+        result2 = cmd_init(FakeArgs(auto_capture=True, codex=True, force=True))
+        assert result2 == 0
+
+        agents_md = cli_env / CODEX_INSTRUCTIONS_FILE
+        content = agents_md.read_text()
+        assert content.count("tribal_remember") == AUTO_CAPTURE_INSTRUCTIONS.count(
+            "tribal_remember"
+        )
 
     def test_auto_capture_sets_config_flag(self, cli_env):
         """--auto-capture should add auto_capture: true to config.yaml."""

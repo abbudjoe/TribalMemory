@@ -27,8 +27,9 @@ TRIBAL_DIR = Path.home() / ".tribal-memory"
 CONFIG_FILE = TRIBAL_DIR / "config.yaml"
 DEFAULT_INSTANCE_ID = "default"
 
-# Path to the global Claude Code instructions file (relative to home)
+# Paths to global instructions files (relative to home)
 CLAUDE_INSTRUCTIONS_FILE = Path(".claude") / "CLAUDE.md"
+CODEX_INSTRUCTIONS_FILE = Path(".codex") / "AGENTS.md"
 
 # Section marker used to detect if auto-capture instructions already exist
 _AUTO_CAPTURE_MARKER = "## Tribal Memory — Auto-Capture"
@@ -163,7 +164,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # Set up auto-capture instructions
     if args.auto_capture:
-        _setup_auto_capture()
+        _setup_auto_capture(
+            claude_code=args.claude_code,
+            codex=args.codex,
+        )
 
     print()
     print("🚀 Start the server:")
@@ -174,35 +178,52 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     if not args.auto_capture:
         print()
-        print("💡 Want Claude to remember things automatically?")
+        print("💡 Want your agents to remember things automatically?")
         print("   tribalmemory init --auto-capture --force")
     
     return 0
 
 
-def _setup_auto_capture() -> None:
-    """Write auto-capture instructions to ~/.claude/CLAUDE.md.
+def _setup_auto_capture(claude_code: bool = False, codex: bool = False) -> None:
+    """Write auto-capture instructions to agent instruction files.
     
-    Appends memory usage instructions so Claude Code proactively uses
+    Appends memory usage instructions so agents proactively use
     tribal_remember and tribal_recall without being explicitly asked.
+    
+    Writes to:
+    - ~/.claude/CLAUDE.md (Claude Code) — when --claude-code is set
+    - ~/.codex/AGENTS.md (Codex CLI) — when --codex is set
+    - Both files if neither flag is set (covers the common case)
+    
     Skips if instructions are already present (idempotent).
     """
-    claude_md = Path.home() / CLAUDE_INSTRUCTIONS_FILE
-    claude_md.parent.mkdir(parents=True, exist_ok=True)
+    targets = []
+    if claude_code or (not claude_code and not codex):
+        targets.append(("Claude Code", Path.home() / CLAUDE_INSTRUCTIONS_FILE))
+    if codex or (not claude_code and not codex):
+        targets.append(("Codex CLI", Path.home() / CODEX_INSTRUCTIONS_FILE))
 
-    if claude_md.exists():
-        existing = claude_md.read_text()
+    for label, instructions_path in targets:
+        _write_instructions_file(instructions_path, label)
+
+
+def _write_instructions_file(instructions_path: Path, label: str) -> None:
+    """Write auto-capture instructions to a single instructions file."""
+    instructions_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if instructions_path.exists():
+        existing = instructions_path.read_text()
         if _AUTO_CAPTURE_MARKER in existing:
-            print(f"✅ Auto-capture instructions already present: {claude_md}")
+            print(f"✅ Auto-capture already present in {label}: {instructions_path}")
             return
         # Append to existing file
         if not existing.endswith("\n"):
             existing += "\n"
-        claude_md.write_text(existing + AUTO_CAPTURE_INSTRUCTIONS)
+        instructions_path.write_text(existing + AUTO_CAPTURE_INSTRUCTIONS)
     else:
-        claude_md.write_text(AUTO_CAPTURE_INSTRUCTIONS.lstrip("\n"))
+        instructions_path.write_text(AUTO_CAPTURE_INSTRUCTIONS.lstrip("\n"))
 
-    print(f"✅ Auto-capture instructions written: {claude_md}")
+    print(f"✅ Auto-capture instructions written for {label}: {instructions_path}")
 
 
 def _setup_claude_code_mcp(is_local: bool) -> None:

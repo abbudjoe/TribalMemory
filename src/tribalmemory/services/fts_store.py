@@ -21,6 +21,10 @@ class FTSStore:
 
     Creates a FTS5 virtual table alongside the main vector store.
     Supports index, search, delete, and update operations.
+
+    Note: All methods are synchronous. SQLite operations are typically
+    sub-millisecond for the document counts we handle (<100k). If latency
+    becomes an issue on slow storage, wrap calls in asyncio.to_thread().
     """
 
     def __init__(self, db_path: str):
@@ -199,12 +203,13 @@ def hybrid_merge(
         text_weight /= total
 
     # Min-max normalize BM25 ranks to 0..1
-    # BM25 ranks are negative; more negative = better match
+    # BM25 ranks are negative; more negative = better match.
+    # When empty, skip normalization entirely — no BM25 contribution.
     bm25_normalized: dict[str, float] = {}
     if bm25_results:
         abs_ranks = [abs(br["rank"]) for br in bm25_results]
-        max_rank = max(abs_ranks) if abs_ranks else 1.0
-        min_rank = min(abs_ranks) if abs_ranks else 0.0
+        max_rank = max(abs_ranks)
+        min_rank = min(abs_ranks)
         rank_range = max_rank - min_rank
 
         for br in bm25_results:

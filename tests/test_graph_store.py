@@ -163,6 +163,41 @@ class TestGraphStore:
         assert graph_store.get_entities_for_memory("mem-123") == []
         assert graph_store.get_relationships_for_entity("auth-service") == []
 
+    def test_orphan_cleanup_preserves_shared_entities(self, graph_store):
+        """Entities shared across memories survive partial deletion."""
+        # Create entity in mem-1
+        graph_store.add_entity(
+            Entity(name="shared-service", entity_type="service"), "mem-1"
+        )
+        
+        # Use same entity in relationship for mem-2
+        graph_store.add_relationship(
+            Relationship(source="shared-service", target="database", relation_type="uses"),
+            memory_id="mem-2"
+        )
+        
+        # Also associate entity with mem-2
+        graph_store.add_entity(
+            Entity(name="shared-service", entity_type="service"), "mem-2"
+        )
+        
+        # Delete mem-1 - entity should remain (still referenced by mem-2 and relationship)
+        graph_store.delete_memory("mem-1")
+        
+        # Entity should still exist and be associated with mem-2
+        mem2_entities = graph_store.get_entities_for_memory("mem-2")
+        assert any(e.name == "shared-service" for e in mem2_entities)
+        
+        # Relationships should still work
+        rels = graph_store.get_relationships_for_entity("shared-service")
+        assert len(rels) == 1
+        
+        # Now delete mem-2 - entity should be cleaned up
+        graph_store.delete_memory("mem-2")
+        
+        # Entity should be gone (orphaned)
+        assert graph_store.get_memories_for_entity("shared-service") == []
+
 
 class TestGraphStoreIntegration:
     """Integration tests for graph + memory pipeline."""
@@ -172,8 +207,8 @@ class TestGraphStoreIntegration:
         db_path = tmp_path / "test_graph.db"
         return GraphStore(str(db_path))
 
-    def test_entity_centric_query(self, graph_store):
-        """Query memories through entity name."""
+    def test_get_memories_for_entity_returns_all_associations(self, graph_store):
+        """Query memories through entity name returns all associated memory IDs."""
         # Store several memories about PostgreSQL
         graph_store.add_entity(
             Entity(name="PostgreSQL", entity_type="technology"),

@@ -12,7 +12,10 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+
+# Constants
+MIN_ENTITY_NAME_LENGTH = 3
+MAX_HOP_ITERATIONS = 100  # Safety limit for graph traversal
 
 
 @dataclass
@@ -39,11 +42,26 @@ class EntityExtractor:
     
     Uses pattern-based extraction for common software architecture terms.
     Can be upgraded to spaCy NER or LLM extraction later.
+    
+    Attributes:
+        SERVICE_PATTERN: Regex for service-like names (kebab-case with suffix or 8+ chars).
+        TECHNOLOGIES: Set of known technology names for exact matching.
+        RELATIONSHIP_PATTERNS: List of (pattern, relation_type) tuples for extraction.
     """
     
     # Patterns for common entity types
+    # Matches: kebab-case identifiers that look like service/component names
+    # - Must have at least one hyphen (kebab-case)
+    # - Either ends with known suffix OR has 3+ segments OR is 8+ chars
+    # - Excludes common false positives via MIN_ENTITY_NAME_LENGTH
     SERVICE_PATTERN = re.compile(
-        r'\b([a-z][a-z0-9]*(?:-[a-z0-9]+)+(?:-service|-api|-worker|-db|-cache)?)\b',
+        r'\b('
+        r'[a-z][a-z0-9]*-(?:[a-z0-9]+-)*(?:service|api|worker|db|cache|server|client|gateway|proxy|database)'  # Known suffix
+        r'|'
+        r'[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}'  # 3+ segments
+        r'|'
+        r'[a-z][a-z0-9]*-[a-z0-9]{4,}'  # 2 segments, second is 4+ chars
+        r')\b',
         re.IGNORECASE
     )
     
@@ -73,17 +91,24 @@ class EntityExtractor:
     ]
     
     def extract(self, text: str) -> list[Entity]:
-        """Extract entities from text."""
+        """Extract entities from text.
+        
+        Args:
+            text: Input text to extract entities from.
+            
+        Returns:
+            List of extracted Entity objects.
+        """
         if not text or not text.strip():
             return []
         
         entities = []
-        seen_names = set()
+        seen_names: set[str] = set()
         
         # Extract service-like names (kebab-case identifiers)
         for match in self.SERVICE_PATTERN.finditer(text):
             name = match.group(1)
-            if name.lower() not in seen_names and len(name) > 2:
+            if name and name.lower() not in seen_names and len(name) >= MIN_ENTITY_NAME_LENGTH:
                 seen_names.add(name.lower())
                 entities.append(Entity(
                     name=name,
@@ -151,7 +176,14 @@ class EntityExtractor:
         return entities, relationships
     
     def _infer_service_type(self, name: str) -> str:
-        """Infer entity type from service-like name."""
+        """Infer entity type from service-like name.
+        
+        Args:
+            name: Service name to analyze.
+            
+        Returns:
+            Entity type string (e.g., 'service', 'database', 'worker').
+        """
         name_lower = name.lower()
         if '-db' in name_lower or '-database' in name_lower:
             return 'database'
@@ -161,10 +193,23 @@ class EntityExtractor:
             return 'worker'
         if '-cache' in name_lower:
             return 'cache'
+        if '-gateway' in name_lower or '-proxy' in name_lower:
+            return 'gateway'
+        if '-server' in name_lower:
+            return 'server'
+        if '-client' in name_lower:
+            return 'client'
         return 'service'
     
     def _infer_type(self, name: str) -> str:
-        """Infer entity type from name."""
+        """Infer entity type from name.
+        
+        Args:
+            name: Entity name to analyze.
+            
+        Returns:
+            Entity type string.
+        """
         if name.lower() in self.TECHNOLOGIES:
             return 'technology'
         if self.SERVICE_PATTERN.match(name):
@@ -172,8 +217,15 @@ class EntityExtractor:
         return 'concept'
     
     def _looks_like_entity(self, name: str) -> bool:
-        """Check if a string looks like a valid entity name."""
-        if not name or len(name) < 2:
+        """Check if a string looks like a valid entity name.
+        
+        Args:
+            name: String to check.
+            
+        Returns:
+            True if the string looks like an entity name.
+        """
+        if not name or len(name) < MIN_ENTITY_NAME_LENGTH:
             return False
         if name.lower() in self.TECHNOLOGIES:
             return True
@@ -193,19 +245,61 @@ class GraphStore:
     - entity_memories: (entity_id, memory_id) - many-to-many
     - relationships: (id, source_entity_id, target_entity_id, relation_type, metadata_json)
     - relationship_memories: (relationship_id, memory_id) - many-to-many
+    
+    Note on connection management:
+        Each operation creates a fresh connection. For high-throughput scenarios,
+        consider using connection pooling. SQLite's file locking handles concurrency.
     """
     
+    # Known technology names for type inference
+    KNOWN_TECHNOLOGIES = EntityExtractor.TECHNOLOGIES
+    
     def __init__(self, db_path: str | Path):
-        """Initialize graph store with SQLite database."""
+        """Initialize graph store with SQLite database.
+        
+        Args:
+            db_path: Path to the SQLite database file.
+        """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
     
     def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection."""
+        """Get a database connection.
+        
+        Returns:
+            SQLite connection with Row factory.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+    
+    def _infer_entity_type(self, name: str) -> str:
+        """Infer entity type from name when creating from relationships.
+        
+        Args:
+            name: Entity name to analyze.
+            
+        Returns:
+            Inferred entity type string.
+        """
+        if name.lower() in self.KNOWN_TECHNOLOGIES:
+            return 'technology'
+        # Check for service-like patterns
+        name_lower = name.lower()
+        if '-db' in name_lower or '-database' in name_lower:
+            return 'database'
+        if '-api' in name_lower or '-service' in name_lower:
+            return 'service'
+        if '-worker' in name_lower or '-job' in name_lower:
+            return 'worker'
+        if '-cache' in name_lower:
+            return 'cache'
+        if '-gateway' in name_lower or '-proxy' in name_lower:
+            return 'gateway'
+        if '-' in name:  # Generic kebab-case, probably a service
+            return 'service'
+        return 'concept'
     
     def _init_schema(self) -> None:
         """Initialize database schema."""
@@ -283,32 +377,39 @@ class GraphStore:
     def add_relationship(self, relationship: Relationship, memory_id: str) -> int:
         """Add a relationship and associate it with a memory.
         
-        Returns the relationship ID.
+        Args:
+            relationship: The relationship to store.
+            memory_id: ID of the memory this relationship was extracted from.
+        
+        Returns:
+            The relationship ID.
         """
         with self._get_connection() as conn:
-            # Get or create source entity
+            # Get or create source entity (infer type from name)
             source_row = conn.execute(
                 "SELECT id FROM entities WHERE name = ?",
                 (relationship.source,)
             ).fetchone()
             if not source_row:
+                source_type = self._infer_entity_type(relationship.source)
                 cursor = conn.execute(
-                    "INSERT INTO entities (name, entity_type) VALUES (?, 'unknown') RETURNING id",
-                    (relationship.source,)
+                    "INSERT INTO entities (name, entity_type) VALUES (?, ?) RETURNING id",
+                    (relationship.source, source_type)
                 )
                 source_id = cursor.fetchone()[0]
             else:
                 source_id = source_row[0]
             
-            # Get or create target entity
+            # Get or create target entity (infer type from name)
             target_row = conn.execute(
                 "SELECT id FROM entities WHERE name = ?",
                 (relationship.target,)
             ).fetchone()
             if not target_row:
+                target_type = self._infer_entity_type(relationship.target)
                 cursor = conn.execute(
-                    "INSERT INTO entities (name, entity_type) VALUES (?, 'unknown') RETURNING id",
-                    (relationship.target,)
+                    "INSERT INTO entities (name, entity_type) VALUES (?, ?) RETURNING id",
+                    (relationship.target, target_type)
                 )
                 target_id = cursor.fetchone()[0]
             else:
@@ -413,13 +514,17 @@ class GraphStore:
         """Find entities connected to the given entity within N hops.
         
         Args:
-            entity_name: Starting entity name
-            hops: Maximum number of relationship hops (1 = direct connections)
-            include_source: Whether to include the source entity in results
+            entity_name: Starting entity name.
+            hops: Maximum number of relationship hops (1 = direct connections).
+                  Capped at MAX_HOP_ITERATIONS for safety.
+            include_source: Whether to include the source entity in results.
         
         Returns:
-            List of connected entities
+            List of connected entities.
         """
+        # Safety: cap hops to prevent runaway traversal
+        safe_hops = min(hops, MAX_HOP_ITERATIONS)
+        
         with self._get_connection() as conn:
             # Start with source entity
             source = conn.execute(
@@ -430,15 +535,18 @@ class GraphStore:
             if not source:
                 return []
             
-            visited = {source['id']}
-            current_frontier = {source['id']}
-            result_ids = set()
+            visited: set[int] = {source['id']}
+            current_frontier: set[int] = {source['id']}
+            result_ids: set[int] = set()
             
-            for _ in range(hops):
+            for _ in range(safe_hops):
                 if not current_frontier:
                     break
                 
                 # Find all entities connected to current frontier
+                # SECURITY NOTE: placeholders is safe because it's computed from
+                # len(current_frontier) (an integer), not user input. The actual
+                # values are passed as parameters, not interpolated.
                 placeholders = ','.join('?' * len(current_frontier))
                 rows = conn.execute(
                     f"""
@@ -453,7 +561,7 @@ class GraphStore:
                     list(current_frontier) + list(current_frontier)
                 ).fetchall()
                 
-                next_frontier = set()
+                next_frontier: set[int] = set()
                 for row in rows:
                     if row['id'] not in visited:
                         visited.add(row['id'])

@@ -136,8 +136,10 @@ class TribalMemoryService(IMemoryService):
                     self.graph_store.add_relationship(rel, memory_id=entry.id)
                 if entities:
                     logger.debug(
-                        "Extracted %d entities, %d relationships from %s",
-                        len(entities), len(relationships), entry.id
+                        "Extracted entities: %s, relationships: %s from %s",
+                        [e.name for e in entities],
+                        [(r.source, r.relation_type, r.target) for r in relationships],
+                        entry.id
                     )
             except Exception as e:
                 logger.warning("Graph indexing failed for %s: %s", entry.id, e)
@@ -379,13 +381,16 @@ class TribalMemoryService(IMemoryService):
             return []
         
         # Fetch full memory entries
+        # Note: For entity-based recall, similarity_score represents match confidence
+        # (1.0 = exact entity match). This differs from vector similarity scores.
+        # Consider adding RecallResult.retrieval_method in a future release.
         results: list[RecallResult] = []
         for memory_id in list(direct_memories)[:limit]:
             entry = await self.vector_store.get(memory_id)
             if entry:
                 results.append(RecallResult(
                     memory=entry,
-                    similarity_score=1.0,  # Entity match is exact
+                    similarity_score=1.0,  # Entity match confidence (exact)
                     retrieval_time_ms=0,
                 ))
         
@@ -542,6 +547,17 @@ def create_memory_service(
     )
     reranker = create_reranker(search_config)
     
+    # Create graph store for entity-enriched search (co-located with LanceDB)
+    graph_store = None
+    if db_path:
+        try:
+            graph_db_path = str(Path(db_path) / "graph.db")
+            graph_store = GraphStore(graph_db_path)
+            logger.info("Graph store enabled (SQLite)")
+        except Exception as e:
+            logger.warning(f"Graph store init failed: {e}. Graph search disabled.")
+            graph_store = None
+    
     return TribalMemoryService(
         instance_id=instance_id,
         embedding_service=embedding_service,
@@ -553,4 +569,6 @@ def create_memory_service(
         hybrid_candidate_multiplier=hybrid_candidate_multiplier,
         reranker=reranker,
         rerank_pool_multiplier=rerank_pool_multiplier,
+        graph_store=graph_store,
+        graph_enabled=graph_store is not None,
     )

@@ -413,6 +413,118 @@ def create_server() -> FastMCP:
         return json.dumps(stats)
 
     @mcp.tool()
+    async def tribal_recall_entity(
+        entity_name: str,
+        hops: int = 1,
+        limit: int = 10,
+    ) -> str:
+        """Recall memories associated with an entity and its connections.
+
+        Enables entity-centric queries like:
+        - "Tell me everything about auth-service"
+        - "What do we know about PostgreSQL?"
+        - "What services connect to the user database?"
+
+        Args:
+            entity_name: Name of the entity to query (required).
+                Examples: "auth-service", "PostgreSQL", "user-db"
+            hops: Number of relationship hops to traverse (default 1).
+                1 = direct connections only
+                2 = connections of connections
+            limit: Maximum number of results (1-50, default 10)
+
+        Returns:
+            JSON with: results (list of memories), entity, hops, count
+        """
+        if not entity_name or not entity_name.strip():
+            return json.dumps({
+                "results": [],
+                "entity": entity_name,
+                "hops": hops,
+                "count": 0,
+                "error": "Entity name cannot be empty",
+            })
+
+        hops = max(1, min(10, hops))  # Clamp to reasonable range
+        limit = max(1, min(50, limit))
+
+        service = await get_memory_service()
+        
+        if not service.graph_enabled:
+            return json.dumps({
+                "results": [],
+                "entity": entity_name,
+                "hops": hops,
+                "count": 0,
+                "error": "Graph search not enabled. Requires db_path for persistent storage.",
+            })
+
+        results = await service.recall_entity(
+            entity_name=entity_name,
+            hops=hops,
+            limit=limit,
+        )
+
+        return json.dumps({
+            "results": [
+                {
+                    "memory_id": r.memory.id,
+                    "content": r.memory.content,
+                    "source_type": r.memory.source_type.value,
+                    "source_instance": r.memory.source_instance,
+                    "tags": r.memory.tags,
+                    "created_at": r.memory.created_at.isoformat(),
+                }
+                for r in results
+            ],
+            "entity": entity_name,
+            "hops": hops,
+            "count": len(results),
+        })
+
+    @mcp.tool()
+    async def tribal_entity_graph(
+        entity_name: str,
+        hops: int = 2,
+    ) -> str:
+        """Get the relationship graph around an entity.
+
+        Useful for understanding how concepts/services/technologies
+        are connected in your project knowledge base.
+
+        Args:
+            entity_name: Name of the entity to explore (required)
+            hops: How many relationship hops to include (default 2)
+
+        Returns:
+            JSON with: entities (list with name/type), relationships (list with source/target/type)
+        """
+        if not entity_name or not entity_name.strip():
+            return json.dumps({
+                "entities": [],
+                "relationships": [],
+                "error": "Entity name cannot be empty",
+            })
+
+        hops = max(1, min(5, hops))  # Clamp to reasonable range
+
+        service = await get_memory_service()
+        
+        if not service.graph_enabled:
+            return json.dumps({
+                "entities": [],
+                "relationships": [],
+                "error": "Graph search not enabled. Requires db_path for persistent storage.",
+            })
+
+        graph = service.get_entity_graph(
+            entity_name=entity_name,
+            hops=hops,
+        )
+
+        return json.dumps(graph)
+
+    @mcp.tool()
     async def tribal_export(
         tags: Optional[list[str]] = None,
         date_from: Optional[str] = None,

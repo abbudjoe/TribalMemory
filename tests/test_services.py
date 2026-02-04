@@ -4,12 +4,12 @@ import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult
-from src.tribalmemory.services.embeddings import OpenAIEmbeddingService
-from src.tribalmemory.utils import normalize_embedding
-from src.tribalmemory.services.vector_store import InMemoryVectorStore
-from src.tribalmemory.services.deduplication import SemanticDeduplicationService
-from src.tribalmemory.services.memory import TribalMemoryService, create_memory_service
+from tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult
+from tribalmemory.services.embeddings import OpenAIEmbeddingService
+from tribalmemory.utils import normalize_embedding
+from tribalmemory.services.vector_store import InMemoryVectorStore
+from tribalmemory.services.deduplication import SemanticDeduplicationService
+from tribalmemory.services.memory import TribalMemoryService, create_memory_service
 
 
 class TestOpenAIEmbeddingService:
@@ -365,7 +365,7 @@ class TestErrorPaths:
     
     async def test_vector_store_invalid_id(self):
         """Test vector store rejects invalid memory IDs."""
-        from src.tribalmemory.services.vector_store import LanceDBVectorStore
+        from tribalmemory.services.vector_store import LanceDBVectorStore
         
         embedding_service = MagicMock()
         embedding_service.dimensions = 1536

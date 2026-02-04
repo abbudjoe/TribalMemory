@@ -6,7 +6,7 @@ Exploratory - no kill decision based solely on Tier 3.
 
 import pytest
 
-from src.tribalmemory.interfaces import MemorySource
+from tribalmemory.interfaces import MemorySource
 
 
 class TestCrossInstanceSynthesis:

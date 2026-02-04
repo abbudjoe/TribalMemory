@@ -3,14 +3,14 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.tribalmemory.a21.container import Container
-from src.tribalmemory.a21.config import SystemConfig
-from src.tribalmemory.a21.config.providers import (
+from tribalmemory.a21.container import Container
+from tribalmemory.a21.config import SystemConfig
+from tribalmemory.a21.config.providers import (
     EmbeddingProviderType,
     StorageProviderType,
     TimestampProviderType,
 )
-from src.tribalmemory.a21.providers.base import (
+from tribalmemory.a21.providers.base import (
     EmbeddingProvider,
     StorageProvider,
     DeduplicationProvider,
@@ -83,7 +83,7 @@ class TestContainerProviderCreation:
         
         provider = container._create_embedding_provider()
         
-        from src.tribalmemory.a21.providers.mock import MockEmbeddingProvider
+        from tribalmemory.a21.providers.mock import MockEmbeddingProvider
         assert isinstance(provider, MockEmbeddingProvider)
     
     async def test_creates_openai_embedding_provider(self):
@@ -95,7 +95,7 @@ class TestContainerProviderCreation:
         container = Container(config)
         provider = container._create_embedding_provider()
         
-        from src.tribalmemory.a21.providers.openai import OpenAIEmbeddingProvider
+        from tribalmemory.a21.providers.openai import OpenAIEmbeddingProvider
         assert isinstance(provider, OpenAIEmbeddingProvider)
     
     async def test_creates_memory_storage_provider(self):
@@ -109,7 +109,7 @@ class TestContainerProviderCreation:
         
         provider = container._create_storage_provider()
         
-        from src.tribalmemory.a21.providers.memory import InMemoryStorageProvider
+        from tribalmemory.a21.providers.memory import InMemoryStorageProvider
         assert isinstance(provider, InMemoryStorageProvider)
         
         await container._embedding.shutdown()
@@ -133,7 +133,7 @@ class TestContainerProviderCreation:
         )
         
         assert provider is not None
-        from src.tribalmemory.a21.providers.deduplication import EmbeddingDeduplicationProvider
+        from tribalmemory.a21.providers.deduplication import EmbeddingDeduplicationProvider
         assert isinstance(provider, EmbeddingDeduplicationProvider)
         
         await container._storage.shutdown()

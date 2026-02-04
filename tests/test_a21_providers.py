@@ -5,24 +5,25 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-from src.tribalmemory.a21.providers.base import (
+from tribalmemory.a21.providers.base import (
     EmbeddingProvider,
     StorageProvider,
     ProviderHealth,
     ProviderStatus,
 )
-from src.tribalmemory.a21.providers.openai import OpenAIEmbeddingProvider
-from src.tribalmemory.a21.providers.memory import InMemoryStorageProvider
-from src.tribalmemory.a21.providers.mock import MockEmbeddingProvider
-from src.tribalmemory.a21.providers.deduplication import EmbeddingDeduplicationProvider
-from src.tribalmemory.a21.config.providers import (
+from tribalmemory.a21.providers.openai import OpenAIEmbeddingProvider
+from tribalmemory.a21.providers.memory import InMemoryStorageProvider
+from tribalmemory.a21.providers.mock import MockEmbeddingProvider
+from tribalmemory.a21.providers.deduplication import EmbeddingDeduplicationProvider
+from tribalmemory.a21.config.providers import (
     EmbeddingConfig,
     StorageConfig,
     DeduplicationConfig,
     EmbeddingProviderType,
     StorageProviderType,
 )
-from src.tribalmemory.interfaces import MemoryEntry, MemorySource, RecallResult
+from tribalmemory.interfaces import MemoryEntry, MemorySource, RecallResult
+from tribalmemory.utils import normalize_embedding
 
 
 class TestMockEmbeddingProvider:
@@ -150,17 +151,15 @@ class TestOpenAIEmbeddingProvider:
 
     def test_normalize_embedding_unit_length(self, config):
         """Test embedding normalization to unit length."""
-        provider = OpenAIEmbeddingProvider(config)
         vec = [3.0, 4.0]
-        normalized = provider._normalize_embedding(vec)
+        normalized = normalize_embedding(vec)
         norm = sum(x * x for x in normalized) ** 0.5
         assert abs(norm - 1.0) < 0.0001
 
     def test_normalize_embedding_zero_vector(self, config):
         """Test normalization preserves zero vector."""
-        provider = OpenAIEmbeddingProvider(config)
         vec = [0.0, 0.0]
-        assert provider._normalize_embedding(vec) == vec
+        assert normalize_embedding(vec) == vec
     
     @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
     @pytest.mark.integration

@@ -6,7 +6,7 @@ These tests verify security properties and failure handling.
 import asyncio
 import pytest
 
-from src.tribalmemory.interfaces import MemoryEntry, MemorySource
+from tribalmemory.interfaces import MemoryEntry, MemorySource
 
 
 class TestSecurityTests:
@@ -56,7 +56,7 @@ class TestFailureModes:
     @pytest.mark.failure_mode
     async def test_n2_1_embedding_api_failure(self, failing_embedding_service):
         """N2.1: Graceful handling when embedding API fails."""
-        from src.tribalmemory.testing import MockMemoryService
+        from tribalmemory.testing import MockMemoryService
         
         memory_service = MockMemoryService(
             instance_id="test",
@@ -84,7 +84,7 @@ class TestFailureModes:
     @pytest.mark.failure_mode
     async def test_n2_2_vector_store_full(self, capacity_limited_store, embedding_service):
         """N2.2: Clear error when storage limit reached."""
-        from src.tribalmemory.testing import MockMemoryService
+        from tribalmemory.testing import MockMemoryService
         
         memory_service = MockMemoryService(
             instance_id="test",

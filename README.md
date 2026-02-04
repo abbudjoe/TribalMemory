@@ -22,21 +22,29 @@ Tribal Memory is a shared memory server that any AI agent can connect to. Store 
 
 ## Install
 
-**macOS / Linux (recommended):**
+**macOS:**
 ```bash
-# Install uv if you don't have it
+# Install uv (https://docs.astral.sh/uv/)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Restart your terminal, or run:
+source ~/.zshrc
 
 # Install tribalmemory
 uv tool install tribalmemory
 ```
 
-**Or with pip** (Linux, or inside a virtualenv):
+> **Why uv?** macOS blocks `pip install` into the system Python with "externally-managed-environment" errors. `uv tool install` handles isolated environments automatically.
+
+**Linux:**
 ```bash
 pip install tribalmemory
-```
 
-> **macOS note:** If you get "externally-managed-environment" errors with pip, use `uv tool install` above — it handles isolated environments automatically.
+# Or with uv:
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+# source ~/.bashrc
+# uv tool install tribalmemory
+```
 
 ## Quick Start
 

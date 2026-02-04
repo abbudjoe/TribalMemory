@@ -187,7 +187,10 @@ def _update_mcp_config(
         try:
             existing = json.loads(config_path.read_text())
         except json.JSONDecodeError as e:
+            backup_path = config_path.with_suffix(".json.bak")
+            config_path.rename(backup_path)
             print(f"⚠️  Existing config has invalid JSON: {e}")
+            print(f"   Backed up to {backup_path}")
             print(f"   Creating fresh config at {config_path}")
             existing = {}
     elif create_if_missing:

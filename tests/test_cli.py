@@ -131,6 +131,22 @@ class TestInitCommand:
         desktop_mcp = json.loads(desktop_config.read_text())
         assert "tribal-memory" in desktop_mcp["mcpServers"]
 
+    def test_init_claude_code_backs_up_invalid_json(self, cli_env):
+        """init --claude-code should backup invalid JSON config before replacing."""
+        cli_config = cli_env / ".claude.json"
+        cli_config.write_text("not valid json {{{")
+
+        result = cmd_init(FakeArgs(claude_code=True))
+
+        assert result == 0
+        # Original should be replaced with valid config
+        mcp = json.loads(cli_config.read_text())
+        assert "tribal-memory" in mcp["mcpServers"]
+        # Backup should exist with the old content
+        backup = cli_env / ".claude.json.bak"
+        assert backup.exists()
+        assert backup.read_text() == "not valid json {{{"
+
     def test_init_claude_code_preserves_existing_desktop_entries(self, cli_env):
         """init --claude-code should not clobber existing Desktop MCP entries."""
         desktop_dir = cli_env / ".claude"

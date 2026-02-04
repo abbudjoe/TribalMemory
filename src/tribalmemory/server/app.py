@@ -43,9 +43,13 @@ async def lifespan(app: FastAPI):
         api_base=config.embedding.api_base,
         embedding_model=config.embedding.model,
         embedding_dimensions=config.embedding.dimensions,
+        hybrid_search=config.search.hybrid_enabled,
+        hybrid_vector_weight=config.search.vector_weight,
+        hybrid_text_weight=config.search.text_weight,
     )
 
-    logger.info(f"Memory service initialized (db: {config.db.path})")
+    search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"
+    logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")
 
     yield
 

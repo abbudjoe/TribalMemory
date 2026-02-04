@@ -1,7 +1,7 @@
 {
   "name": "memory-tribal",
-  "version": "0.1.0",
-  "description": "Learned retrieval layer for tribal memory",
+  "version": "0.2.0",
+  "description": "Cross-agent long-term memory plugin for OpenClaw",
   "main": "index.ts",
   "type": "module",
   "openclaw": {
@@ -14,6 +14,9 @@
   "dependencies": {
     "@sinclair/typebox": "^0.32.0",
     "better-sqlite3": "^11.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

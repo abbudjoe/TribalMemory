@@ -1,13 +1,16 @@
 /**
- * memory-tribal: Learned Retrieval Layer for Tribal Memory
- * 
- * Drop-in replacement for memory-core with:
- * - Query caching for known-good mappings
- * - Query expansion (question → keywords)
- * - Retrieval feedback loop
- * - Fact anchoring
+ * memory-tribal: OpenClaw plugin for Tribal Memory
+ *
+ * Cross-agent long-term memory with:
+ * - Auto-recall (before_agent_start lifecycle hook)
+ * - Auto-capture (agent_end lifecycle hook)
+ * - Query caching, expansion, and feedback
+ * - Safeguards: token budgets, circuit breaker, smart triggers, session dedup
+ *
+ * Updated to OpenClaw plugin SDK (v0.2.0).
  */
 
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import { QueryCache } from "./src/learned/query-cache";
 import { QueryExpander } from "./src/learned/query-expander";
@@ -22,78 +25,102 @@ import { SessionDedup } from "./src/safeguards/session-dedup";
 import { SafeguardMetrics } from "./src/safeguards/metrics";
 import type { MemoryResult } from "./src/types";
 
+// ============================================================================
+// Config type (mirrors openclaw.plugin.json configSchema)
+// ============================================================================
+
 interface PluginConfig {
-  tribalServerUrl: string;
-
-  // --- Query cache ---
+  serverUrl: string;
+  autoRecall: boolean;
+  autoCapture: boolean;
   queryCacheEnabled: boolean;
-  /** Min successful retrievals before caching a query (default: 3) */
   queryCacheMinSuccesses: number;
-
-  // --- Query expansion ---
   queryExpansionEnabled: boolean;
-
-  // --- Feedback ---
   feedbackEnabled: boolean;
-
-  // --- Token budgets ---
-  /** Max tokens per single memory_search call (default: 500) */
   maxTokensPerRecall: number;
-  /** Max tokens of memory content per agent turn (default: 750) */
   maxTokensPerTurn: number;
-  /** Max tokens across entire session (default: 5000) */
   maxTokensPerSession: number;
-  /** Max tokens per individual snippet (default: 100) */
   maxTokensPerSnippet: number;
-  /** Max age in ms before stale turn data is cleaned (default: 1800000) */
   turnMaxAgeMs: number;
-
-  // --- Circuit breaker ---
-  /** Consecutive empty recalls before tripping (default: 5) */
   circuitBreakerMaxEmpty: number;
-  /** Cooldown in ms after tripping (default: 300000 = 5 min) */
   circuitBreakerCooldownMs: number;
-
-  // --- Smart triggers ---
-  /** Enable smart trigger skip for low-value queries (default: true) */
   smartTriggerEnabled: boolean;
-  /** Minimum query length to trigger recall (default: 2) */
   smartTriggerMinQueryLength: number;
-  /** Skip emoji-only queries (default: true) */
   smartTriggerSkipEmojiOnly: boolean;
-
-  // --- Session dedup ---
-  /** Enable session deduplication (default: true) */
   sessionDedupEnabled: boolean;
-  /** Cooldown in ms before deduped memory reappears (default: 300000) */
   sessionDedupCooldownMs: number;
 }
 
-export default function memoryTribal(api: any) {
-  const config: PluginConfig = api.config?.plugins?.entries?.["memory-tribal"]?.config ?? {
-    tribalServerUrl: "http://localhost:18790",
-    queryCacheEnabled: true,
-    queryCacheMinSuccesses: 3,
-    queryExpansionEnabled: true,
-    feedbackEnabled: true,
-    maxTokensPerRecall: 500,
-    maxTokensPerTurn: 750,
-    maxTokensPerSession: 5000,
-    maxTokensPerSnippet: 100,
-    turnMaxAgeMs: 30 * 60 * 1000,
-    circuitBreakerMaxEmpty: 5,
-    circuitBreakerCooldownMs: 5 * 60 * 1000,
-    smartTriggerEnabled: true,
-    smartTriggerMinQueryLength: 2,
-    smartTriggerSkipEmojiOnly: true,
-    sessionDedupEnabled: true,
-    sessionDedupCooldownMs: 5 * 60 * 1000,
-  };
+// Defaults (used when pluginConfig values are missing)
+const DEFAULTS: PluginConfig = {
+  serverUrl: "http://localhost:18790",
+  autoRecall: true,
+  autoCapture: true,
+  queryCacheEnabled: true,
+  queryCacheMinSuccesses: 3,
+  queryExpansionEnabled: true,
+  feedbackEnabled: true,
+  maxTokensPerRecall: 500,
+  maxTokensPerTurn: 750,
+  maxTokensPerSession: 5000,
+  maxTokensPerSnippet: 100,
+  turnMaxAgeMs: 30 * 60 * 1000,
+  circuitBreakerMaxEmpty: 5,
+  circuitBreakerCooldownMs: 5 * 60 * 1000,
+  smartTriggerEnabled: true,
+  smartTriggerMinQueryLength: 2,
+  smartTriggerSkipEmojiOnly: true,
+  sessionDedupEnabled: true,
+  sessionDedupCooldownMs: 5 * 60 * 1000,
+};
 
-  // Backward compatibility: accept old config names with warning
-  const raw = api.config?.plugins?.entries?.["memory-tribal"]?.config;
-  if (raw) {
-    const renames: Record<string, string> = {
+// ============================================================================
+// Auto-capture triggers (rule-based filter)
+// ============================================================================
+
+const MEMORY_TRIGGERS = [
+  /remember|zapamatuj si|pamatuj/i,
+  /prefer|radši|nechci|preferuji/i,
+  /rozhodli jsme|budeme používat/i,
+  /\+\d{10,}/,
+  /[\w.-]+@[\w.-]+\.\w+/,
+  /my\s+\w+\s+is|is\s+my/i,
+  /i (like|prefer|hate|love|want|need)/i,
+  /always|never|important/i,
+];
+
+function shouldCapture(text: string): boolean {
+  if (text.length < 10 || text.length > 500) return false;
+  if (text.includes("<relevant-memories>")) return false;
+  if (text.startsWith("<") && text.includes("</")) return false;
+  if (text.includes("**") && text.includes("\n-")) return false;
+  const emojiCount = (text.match(/[\u{1F300}-\u{1F9FF}]/gu) || []).length;
+  if (emojiCount > 3) return false;
+  return MEMORY_TRIGGERS.some((r) => r.test(text));
+}
+
+// ============================================================================
+// Plugin definition (new SDK format)
+// ============================================================================
+
+const memoryTribalPlugin = {
+  id: "memory-tribal",
+  name: "Tribal Memory",
+  description: "Cross-agent long-term memory with auto-recall/capture",
+  kind: "memory" as const,
+
+  register(api: OpenClawPluginApi) {
+    // ========================================================================
+    // Config resolution
+    // ========================================================================
+
+    const raw = (api.pluginConfig ?? {}) as Partial<PluginConfig>;
+    const config: PluginConfig = { ...DEFAULTS, ...raw };
+
+    // Backward compatibility: accept old config names
+    const rawAny = raw as Record<string, unknown>;
+    const renames: Record<string, keyof PluginConfig> = {
+      tribalServerUrl: "serverUrl",
       minCacheSuccesses: "queryCacheMinSuccesses",
       maxConsecutiveEmpty: "circuitBreakerMaxEmpty",
       smartTriggersEnabled: "smartTriggerEnabled",
@@ -103,385 +130,658 @@ export default function memoryTribal(api: any) {
     };
     const migrated: string[] = [];
     for (const [oldKey, newKey] of Object.entries(renames)) {
-      if (oldKey in raw && !(newKey in raw)) {
-        (config as any)[newKey] = raw[oldKey];
+      if (oldKey in rawAny && !(newKey in rawAny)) {
+        (config as Record<string, unknown>)[newKey] = rawAny[oldKey];
         migrated.push(oldKey);
       }
     }
     if (migrated.length > 0) {
-      api.log?.warn?.(
+      api.logger.warn(
         `[memory-tribal] Deprecated config names: ${migrated.join(", ")}. ` +
         `See README for migration table.`,
       );
     }
-  }
 
-  // Initialize persistence layer
-  let persistence: PersistenceLayer | null = null;
-  try {
-    persistence = new PersistenceLayer();
-    api.log?.info?.("[memory-tribal] Persistence layer initialized");
-  } catch (err: any) {
-    api.log?.warn?.(`[memory-tribal] Persistence unavailable: ${err.message}`);
-  }
+    // ========================================================================
+    // Initialize components
+    // ========================================================================
 
-  // Initialize components
-  const queryCache = new QueryCache(config.queryCacheMinSuccesses, persistence);
-  const queryExpander = new QueryExpander(persistence);
-  const feedbackTracker = new FeedbackTracker(persistence);
-  const tribalClient = new TribalClient(config.tribalServerUrl);
-
-  // Initialize safeguards
-  const tokenBudget = new TokenBudget({
-    perRecallCap: config.maxTokensPerRecall,
-    perTurnCap: config.maxTokensPerTurn,
-    perSessionCap: config.maxTokensPerSession,
-  });
-  const snippetTruncator = new SnippetTruncator({
-    maxTokensPerSnippet: config.maxTokensPerSnippet,
-  });
-  const circuitBreaker = new CircuitBreaker({
-    maxConsecutiveEmpty: config.circuitBreakerMaxEmpty,
-    cooldownMs: config.circuitBreakerCooldownMs,
-  });
-  const smartTrigger = new SmartTrigger({
-    minQueryLength: config.smartTriggerMinQueryLength,
-    skipEmojiOnly: config.smartTriggerSkipEmojiOnly,
-  });
-  const sessionDedup = new SessionDedup({
-    cooldownMs: config.sessionDedupCooldownMs,
-  });
-  const safeguardMetrics = new SafeguardMetrics({
-    tokenBudget,
-    circuitBreaker,
-    smartTrigger,
-    sessionDedup,
-  });
-
-  // Counter for throttling time-based cleanup (runs every 10th call)
-  let cleanupCallCount = 0;
-
-  // Wire up alerting to plugin logger
-  safeguardMetrics.onAlert((alert) => {
-    api.log?.warn?.(`[memory-tribal] ALERT [${alert.source}] ${alert.message} (session=${alert.sessionId})`);
-  });
-
-  // Fallback to built-in memory search if tribal server unavailable
-  let useBuiltinFallback = false;
-
-  /** Extract file path from a memory result ID (ID may be path or path:line) */
-  function pathForId(id: string): string | null {
-    if (!id) return null;
-    // IDs may be "path:startLine" or just "path"
-    const colonIdx = id.lastIndexOf(":");
-    if (colonIdx > 0 && /^\d+$/.test(id.slice(colonIdx + 1))) {
-      return id.slice(0, colonIdx);
+    let persistence: PersistenceLayer | null = null;
+    try {
+      persistence = new PersistenceLayer();
+      api.logger.info("[memory-tribal] Persistence layer initialized");
+    } catch (err: any) {
+      api.logger.warn(
+        `[memory-tribal] Persistence unavailable: ${err.message}`,
+      );
     }
-    return id;
-  }
 
-  /** Invalidate query cache entries that reference any of the given paths */
-  function invalidatePaths(paths: string[]): void {
-    for (const p of paths) {
-      queryCache.invalidatePath?.(p);
-      persistence?.invalidateCacheByPath?.(p);
+    const queryCache = new QueryCache(
+      config.queryCacheMinSuccesses, persistence,
+    );
+    const queryExpander = new QueryExpander(persistence);
+    const feedbackTracker = new FeedbackTracker(persistence);
+    const tribalClient = new TribalClient(config.serverUrl);
+
+    // Safeguards
+    const tokenBudget = new TokenBudget({
+      perRecallCap: config.maxTokensPerRecall,
+      perTurnCap: config.maxTokensPerTurn,
+      perSessionCap: config.maxTokensPerSession,
+    });
+    const snippetTruncator = new SnippetTruncator({
+      maxTokensPerSnippet: config.maxTokensPerSnippet,
+    });
+    const circuitBreaker = new CircuitBreaker({
+      maxConsecutiveEmpty: config.circuitBreakerMaxEmpty,
+      cooldownMs: config.circuitBreakerCooldownMs,
+    });
+    const smartTrigger = new SmartTrigger({
+      minQueryLength: config.smartTriggerMinQueryLength,
+      skipEmojiOnly: config.smartTriggerSkipEmojiOnly,
+    });
+    const sessionDedup = new SessionDedup({
+      cooldownMs: config.sessionDedupCooldownMs,
+    });
+    const safeguardMetrics = new SafeguardMetrics({
+      tokenBudget,
+      circuitBreaker,
+      smartTrigger,
+      sessionDedup,
+    });
+
+    let cleanupCallCount = 0;
+    let useBuiltinFallback = false;
+
+    // Wire up alerting
+    safeguardMetrics.onAlert((alert) => {
+      api.logger.warn(
+        `[memory-tribal] ALERT [${alert.source}] ${alert.message} ` +
+        `(session=${alert.sessionId})`,
+      );
+    });
+
+    // ========================================================================
+    // Helper functions
+    // ========================================================================
+
+    function pathForId(id: string): string | null {
+      if (!id) return null;
+      const colonIdx = id.lastIndexOf(":");
+      if (colonIdx > 0 && /^\d+$/.test(id.slice(colonIdx + 1))) {
+        return id.slice(0, colonIdx);
+      }
+      return id;
     }
-  }
 
-  /**
-   * memory_search - Enhanced with learned retrieval layer
-   */
-  api.registerTool({
-    name: "memory_search",
-    description: "Semantically search memory files (MEMORY.md + memory/*.md) with learned retrieval enhancements. Returns snippets with path and line ranges.",
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      maxResults: Type.Optional(Type.Number({ description: "Maximum results to return" })),
-      minScore: Type.Optional(Type.Number({ description: "Minimum similarity score" })),
-    }),
-    async execute(toolCallId: string, params: { query: string; maxResults?: number; minScore?: number }, context: any) {
-      const { query, maxResults = 5, minScore = 0.1 } = params;
-      const sessionId = context?.sessionId ?? "unknown";
+    function invalidatePaths(paths: string[]): void {
+      for (const p of paths) {
+        queryCache.invalidatePath?.(p);
+        persistence?.invalidateCacheByPath?.(p);
+      }
+    }
 
-      try {
-        // Step 0a: Smart trigger — skip low-value queries
-        if (config.smartTriggerEnabled) {
-          const classification = smartTrigger.classify(query);
-          if (classification.skip) {
-            api.log?.debug?.(`[memory-tribal] Smart trigger skip: ${classification.reason}`);
+    function formatResults(
+      results: MemoryResult[], source: string,
+    ) {
+      if (!results || results.length === 0) {
+        return {
+          content: [{ type: "text", text: "No matches found." }],
+        };
+      }
+      const formatted = results.map((r, i) => {
+        const path = r.path ?? "unknown";
+        const lines = r.startLine && r.endLine
+          ? ` (lines ${r.startLine}-${r.endLine})` : "";
+        const score = r.score
+          ? ` [score: ${r.score.toFixed(3)}]` : "";
+        const snippet = r.snippet ?? r.text ?? "";
+        return `### Result ${i + 1}: ${path}${lines}${score}\n${snippet}`;
+      }).join("\n\n");
+
+      return {
+        content: [{
+          type: "text",
+          text: `Found ${results.length} results (source: ${source}):\n\n${formatted}`,
+        }],
+      };
+    }
+
+    /** Apply safeguards pipeline to raw results */
+    function applySafeguards(
+      results: MemoryResult[],
+      sessionId: string,
+      turnId: string,
+    ): MemoryResult[] {
+      // Snippet truncation
+      let filtered = snippetTruncator.truncateResults(results);
+
+      // Token budgets
+      let totalRecallTokens = 0;
+      const budgeted: MemoryResult[] = [];
+      for (const result of filtered) {
+        const text = result.snippet ?? result.text ?? "";
+        const tokens = tokenBudget.countTokens(text);
+        if (totalRecallTokens + tokens > config.maxTokensPerRecall) break;
+        if (!tokenBudget.canUseForTurn(turnId, tokens)) break;
+        if (!tokenBudget.canUseForSession(sessionId, tokens)) break;
+        totalRecallTokens += tokens;
+        budgeted.push(result);
+      }
+
+      if (totalRecallTokens > 0) {
+        tokenBudget.recordUsage(sessionId, turnId, totalRecallTokens);
+        if (tokenBudget.getTurnCount() > 200) {
+          tokenBudget.cleanupOldTurns(100);
+        }
+        cleanupCallCount++;
+        if (cleanupCallCount % 10 === 0) {
+          tokenBudget.cleanupStaleTurns(config.turnMaxAgeMs);
+        }
+      }
+      filtered = budgeted;
+
+      // Session dedup
+      if (config.sessionDedupEnabled) {
+        filtered = sessionDedup.filter(sessionId, filtered);
+      }
+
+      return filtered;
+    }
+
+    // ========================================================================
+    // Tools
+    // ========================================================================
+
+    api.registerTool({
+      name: "memory_search",
+      description:
+        "Semantically search memory files (MEMORY.md + memory/*.md) " +
+        "with learned retrieval enhancements.",
+      parameters: Type.Object({
+        query: Type.String({ description: "Search query" }),
+        maxResults: Type.Optional(
+          Type.Number({ description: "Maximum results to return" }),
+        ),
+        minScore: Type.Optional(
+          Type.Number({ description: "Minimum similarity score" }),
+        ),
+      }),
+      async execute(
+        toolCallId: string,
+        params: { query: string; maxResults?: number; minScore?: number },
+        context: any,
+      ) {
+        const { query, maxResults = 5, minScore = 0.1 } = params;
+        const sessionId = context?.sessionId ?? "unknown";
+
+        try {
+          // Smart trigger check
+          if (config.smartTriggerEnabled) {
+            const classification = smartTrigger.classify(query);
+            if (classification.skip) {
+              api.logger.debug(
+                `[memory-tribal] Smart trigger skip: ${classification.reason}`,
+              );
+              return {
+                content: [{
+                  type: "text",
+                  text: "No recall needed for this query.",
+                }],
+              };
+            }
+          }
+
+          // Circuit breaker check
+          if (circuitBreaker.isTripped(sessionId)) {
+            api.logger.debug(
+              `[memory-tribal] Circuit breaker tripped for ${sessionId}`,
+            );
             return {
-              content: [{ type: "text", text: "No recall needed for this query." }],
+              content: [{
+                type: "text",
+                text: "Memory recall temporarily paused (circuit breaker). " +
+                      "Will auto-reset shortly.",
+              }],
             };
           }
-        }
 
-        // Step 0b: Check circuit breaker
-        if (circuitBreaker.isTripped(sessionId)) {
-          api.log?.debug?.(`[memory-tribal] Circuit breaker tripped for session ${sessionId}`);
+          // Query cache check
+          if (config.queryCacheEnabled) {
+            const cached = await queryCache.lookup(query);
+            if (cached) {
+              api.logger.debug(
+                `[memory-tribal] Cache hit for: ${query}`,
+              );
+              return formatResults(cached, "cache");
+            }
+          }
+
+          // Expand query
+          let queries = [query];
+          if (config.queryExpansionEnabled) {
+            queries = queryExpander.expand(query);
+          }
+
+          // Search
+          let results: MemoryResult[] = [];
+          if (!useBuiltinFallback) {
+            try {
+              results = await tribalClient.search(
+                queries, { maxResults, minScore },
+              );
+            } catch {
+              api.logger.warn(
+                "[memory-tribal] Tribal server unavailable, " +
+                "using builtin fallback",
+              );
+              useBuiltinFallback = true;
+            }
+          }
+          if (useBuiltinFallback && api.runtime?.memorySearch) {
+            results = await api.runtime.memorySearch(
+              query, { maxResults, minScore },
+            );
+          }
+
+          // Invalidate superseded cache entries
+          const supersededPaths = results
+            .map(r => r.supersedes ? pathForId(r.supersedes) : null)
+            .filter((p): p is string => !!p);
+          if (supersededPaths.length > 0 && config.queryCacheEnabled) {
+            invalidatePaths([...new Set(supersededPaths)]);
+          }
+
+          // Rerank with feedback
+          const canRerank = config.feedbackEnabled &&
+            results.length > 0 &&
+            results.every(
+              r => typeof r.path === "string" &&
+                   typeof r.score === "number",
+            );
+          if (canRerank) {
+            results = feedbackTracker.rerank(query, results);
+          }
+
+          // Learn expansion
+          if (config.queryExpansionEnabled && results.length > 0) {
+            const bestVariant = results.find(
+              r => r.sourceQuery && r.sourceQuery !== query,
+            )?.sourceQuery;
+            if (bestVariant) {
+              queryExpander.learnExpansion(query, bestVariant);
+            }
+          }
+
+          // Circuit breaker record
+          circuitBreaker.recordResult(sessionId, results.length);
+
+          // Apply safeguards pipeline
+          const turnId = context?.turnId ?? `turn-${Date.now()}`;
+          results = applySafeguards(results, sessionId, turnId);
+
+          // Record retrieval for feedback
+          if (config.feedbackEnabled && results.length > 0) {
+            feedbackTracker.recordRetrieval(
+              sessionId, query,
+              results.map(r => r.id ?? r.path).filter(Boolean) as string[],
+            );
+          }
+
+          // Alert check
+          safeguardMetrics.checkAlerts(sessionId, turnId);
+
+          return formatResults(results, "search");
+        } catch (err: any) {
           return {
-            content: [{ type: "text", text: "Memory recall temporarily paused (circuit breaker active). Will auto-reset shortly." }],
+            content: [{
+              type: "text",
+              text: `Memory search error: ${err.message}`,
+            }],
+            isError: true,
           };
         }
+      },
+    });
 
-        // Step 1: Check query cache for known-good mappings
-        if (config.queryCacheEnabled) {
-          const cached = await queryCache.lookup(query);
-          if (cached) {
-            api.log?.debug?.(`[memory-tribal] Cache hit for query: ${query}`);
-            return formatResults(cached, "cache");
-          }
-        }
-
-        // Step 2: Expand query for better matching
-        let queries = [query];
-        if (config.queryExpansionEnabled) {
-          queries = queryExpander.expand(query);
-          api.log?.debug?.(`[memory-tribal] Expanded queries: ${queries.join(", ")}`);
-        }
-
-        // Step 3: Search with expanded queries
-        let results: MemoryResult[] = [];
-        
-        if (!useBuiltinFallback) {
-          try {
-            results = await tribalClient.search(queries, { maxResults, minScore });
-          } catch (err) {
-            api.log?.warn?.(`[memory-tribal] Tribal server unavailable, using builtin fallback`);
-            useBuiltinFallback = true;
-          }
-        }
-
-        // Fallback to builtin memory search
-        if (useBuiltinFallback && api.runtime?.memorySearch) {
-          results = await api.runtime.memorySearch(query, { maxResults, minScore });
-        }
-
-        // Step 4: Invalidate cached paths superseded by corrections in results
-        const supersededPaths = results
-          .map(r => r.supersedes ? pathForId(r.supersedes) : null)
-          .filter((p): p is string => !!p);
-        if (supersededPaths.length > 0 && config.queryCacheEnabled) {
-          invalidatePaths([...new Set(supersededPaths)]);
-        }
-
-        // Step 5: Rerank using learned feedback weights
-        const canRerank = config.feedbackEnabled &&
-          results.length > 0 &&
-          results.every(r => typeof r.path === "string" && typeof r.score === "number");
-        if (canRerank) {
-          results = feedbackTracker.rerank(query, results);
-        }
-
-        // Step 6: Learn which expansion variant worked best
-        if (config.queryExpansionEnabled && results.length > 0) {
-          const bestVariant = results.find(r => r.sourceQuery && r.sourceQuery !== query)?.sourceQuery;
-          if (bestVariant) {
-            queryExpander.learnExpansion(query, bestVariant);
-          }
-        }
-
-        // Step 7: Record circuit breaker result
-        circuitBreaker.recordResult(sessionId, results.length);
-
-        // Step 8: Apply snippet truncation (before budget accounting)
-        results = snippetTruncator.truncateResults(results);
-
-        // Step 9: Apply token budgets
-        const turnId = context?.turnId ?? `turn-${Date.now()}`;
-        let totalRecallTokens = 0;
-        const budgetedResults: MemoryResult[] = [];
-
-        for (const result of results) {
-          const text = result.snippet ?? result.text ?? "";
-          const tokens = tokenBudget.countTokens(text);
-
-          // Check per-recall cap — break (not continue) to preserve budget for
-          // future searches. Since results are ranked by relevance, skipping the
-          // current high-quality result to fit a lower-quality one wastes budget.
-          if (totalRecallTokens + tokens > config.maxTokensPerRecall) break;
-          // Check per-turn cap
-          if (!tokenBudget.canUseForTurn(turnId, tokens)) break;
-          // Check per-session cap
-          if (!tokenBudget.canUseForSession(sessionId, tokens)) break;
-
-          totalRecallTokens += tokens;
-          budgetedResults.push(result);
-        }
-
-        // Record token usage
-        if (totalRecallTokens > 0) {
-          tokenBudget.recordUsage(sessionId, turnId, totalRecallTokens);
-          // Periodic cleanup to prevent turn usage map growth
-          if (tokenBudget.getTurnCount() > 200) {
-            tokenBudget.cleanupOldTurns(100);
-          }
-          // Time-based cleanup every 10th call (not every call)
-          cleanupCallCount++;
-          if (cleanupCallCount % 10 === 0) {
-            tokenBudget.cleanupStaleTurns(config.turnMaxAgeMs);
-          }
-        }
-
-        results = budgetedResults;
-
-        // Step 10: Session deduplication — remove results already seen
-        if (config.sessionDedupEnabled) {
-          results = sessionDedup.filter(sessionId, results);
-        }
-
-        // Step 11: Record retrieval for feedback tracking
-        if (config.feedbackEnabled && results.length > 0) {
-          feedbackTracker.recordRetrieval(sessionId, query, results.map(r => r.id ?? r.path));
-        }
-
-        // Step 12: Check alert conditions
-        safeguardMetrics.checkAlerts(sessionId, turnId);
-
-        return formatResults(results, "search");
-      } catch (err: any) {
-        return {
-          content: [{ type: "text", text: `Memory search error: ${err.message}` }],
-          isError: true,
-        };
-      }
-    },
-  });
-
-  /**
-   * memory_get - Compatible with memory-core
-   */
-  api.registerTool({
-    name: "memory_get",
-    description: "Read memory file content by path (MEMORY.md, memory/*.md, or configured extraPaths)",
-    parameters: Type.Object({
-      path: Type.String({ description: "Path to memory file" }),
-      from: Type.Optional(Type.Number({ description: "Starting line number (1-indexed)" })),
-      lines: Type.Optional(Type.Number({ description: "Number of lines to read" })),
-    }),
-    async execute(toolCallId: string, params: { path: string; from?: number; lines?: number }) {
-      // Delegate to builtin or read file directly
-      if (api.runtime?.memoryGet) {
-        return await api.runtime.memoryGet(params.path, params.from, params.lines);
-      }
-      
-      // Fallback: read file directly
-      const fs = await import("fs/promises");
-      const path = await import("path");
-      
-      try {
-        const content = await fs.readFile(params.path, "utf-8");
-        const allLines = content.split("\n");
-        
-        const startLine = (params.from ?? 1) - 1;
-        const numLines = params.lines ?? allLines.length;
-        const selectedLines = allLines.slice(startLine, startLine + numLines);
-        
-        return {
-          content: [{ type: "text", text: selectedLines.join("\n") }],
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text", text: `Error reading ${params.path}: ${err.message}` }],
-          isError: true,
-        };
-      }
-    },
-  });
-
-  /**
-   * memory_feedback - Record which memories were useful (optional)
-   */
-  api.registerTool(
-    {
-      name: "memory_feedback",
-      description: "Record which retrieved memories were actually used in the response",
+    api.registerTool({
+      name: "memory_get",
+      description:
+        "Read memory file content by path " +
+        "(MEMORY.md, memory/*.md, or configured extraPaths)",
       parameters: Type.Object({
-        usedPaths: Type.Array(Type.String(), { description: "Paths of memories that were used" }),
+        path: Type.String({ description: "Path to memory file" }),
+        from: Type.Optional(
+          Type.Number({ description: "Starting line (1-indexed)" }),
+        ),
+        lines: Type.Optional(
+          Type.Number({ description: "Number of lines to read" }),
+        ),
       }),
-      async execute(toolCallId: string, params: { usedPaths: string[] }, context: any) {
-        const sessionId = context?.sessionId ?? "unknown";
-        
-        if (config.feedbackEnabled) {
-          await feedbackTracker.recordUsage(sessionId, params.usedPaths);
-          
-          // Update query cache with successful mappings
-          const retrieval = feedbackTracker.getLastRetrieval(sessionId);
-          if (retrieval && config.queryCacheEnabled) {
-            await queryCache.recordSuccess(retrieval.query, params.usedPaths);
-          }
+      async execute(
+        toolCallId: string,
+        params: { path: string; from?: number; lines?: number },
+      ) {
+        if (api.runtime?.memoryGet) {
+          return await api.runtime.memoryGet(
+            params.path, params.from, params.lines,
+          );
         }
-        
-        return {
-          content: [{ type: "text", text: `Recorded feedback for ${params.usedPaths.length} memories` }],
-        };
+
+        // Fallback: read file directly
+        const fs = await import("fs/promises");
+        try {
+          const content = await fs.readFile(params.path, "utf-8");
+          const allLines = content.split("\n");
+          const startLine = (params.from ?? 1) - 1;
+          const numLines = params.lines ?? allLines.length;
+          const selectedLines = allLines.slice(
+            startLine, startLine + numLines,
+          );
+          return {
+            content: [{ type: "text", text: selectedLines.join("\n") }],
+          };
+        } catch (err: any) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error reading ${params.path}: ${err.message}`,
+            }],
+            isError: true,
+          };
+        }
       },
-    },
-    { optional: true }
-  );
+    });
 
-  /**
-   * memory_stats - Get retrieval statistics (optional)
-   */
-  api.registerTool(
-    {
-      name: "memory_stats",
-      description: "Get learned retrieval statistics and cache hit rates",
-      parameters: Type.Object({}),
-      async execute() {
-        const stats = {
-          cacheEntries: queryCache.size(),
-          cacheHitRate: queryCache.hitRate(),
-          feedbackRecorded: feedbackTracker.totalFeedback(),
-          expansionRules: queryExpander.ruleCount(),
-        };
-        
-        return {
-          content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
-        };
+    api.registerTool(
+      {
+        name: "memory_feedback",
+        description: "Record which retrieved memories were actually used",
+        parameters: Type.Object({
+          usedPaths: Type.Array(Type.String(), {
+            description: "Paths of memories that were used",
+          }),
+        }),
+        async execute(
+          toolCallId: string,
+          params: { usedPaths: string[] },
+          context: any,
+        ) {
+          const sessionId = context?.sessionId ?? "unknown";
+          if (config.feedbackEnabled) {
+            await feedbackTracker.recordUsage(
+              sessionId, params.usedPaths,
+            );
+            const retrieval = feedbackTracker.getLastRetrieval(sessionId);
+            if (retrieval && config.queryCacheEnabled) {
+              await queryCache.recordSuccess(
+                retrieval.query, params.usedPaths,
+              );
+            }
+          }
+          return {
+            content: [{
+              type: "text",
+              text: `Recorded feedback for ${params.usedPaths.length} memories`,
+            }],
+          };
+        },
       },
-    },
-    { optional: true }
-  );
+      { optional: true },
+    );
 
-  /**
-   * memory_metrics - Get safeguard metrics snapshot (optional)
-   */
-  api.registerTool(
-    {
-      name: "memory_metrics",
-      description: "Get a snapshot of all safeguard metrics: token budgets, circuit breaker state, smart trigger stats, and session dedup rates. Useful for diagnosing recall quality and tuning thresholds.",
-      parameters: Type.Object({}),
-      async execute(toolCallId: string, params: any, context: any) {
-        const sessionId = context?.sessionId ?? "unknown";
-        const turnId = context?.turnId ?? `turn-${Date.now()}`;
-        const text = safeguardMetrics.formatSnapshotMarkdown(sessionId, turnId);
-        return {
-          content: [{ type: "text", text }],
-        };
+    api.registerTool(
+      {
+        name: "memory_metrics",
+        description:
+          "Get safeguard metrics snapshot: token budgets, " +
+          "circuit breaker, smart triggers, session dedup.",
+        parameters: Type.Object({}),
+        async execute(
+          toolCallId: string, params: any, context: any,
+        ) {
+          const sessionId = context?.sessionId ?? "unknown";
+          const turnId = context?.turnId ?? `turn-${Date.now()}`;
+          const text = safeguardMetrics.formatSnapshotMarkdown(
+            sessionId, turnId,
+          );
+          return { content: [{ type: "text", text }] };
+        },
       },
-    },
-    { optional: true }
-  );
+      { optional: true },
+    );
 
-  api.log?.info?.("[memory-tribal] Plugin loaded (with Phase 4 metrics & alerting)");
-}
+    // ========================================================================
+    // CLI Commands
+    // ========================================================================
 
-function formatResults(results: MemoryResult[], source: string) {
-  if (!results || results.length === 0) {
-    return {
-      content: [{ type: "text", text: "No matches found." }],
-    };
-  }
+    api.registerCli(
+      ({ program }) => {
+        const tm = program
+          .command("tribal-memory")
+          .description("Tribal Memory plugin commands");
 
-  const formatted = results.map((r, i) => {
-    const path = r.path ?? "unknown";
-    const lines = r.startLine && r.endLine ? ` (lines ${r.startLine}-${r.endLine})` : "";
-    const score = r.score ? ` [score: ${r.score.toFixed(3)}]` : "";
-    const snippet = r.snippet ?? r.text ?? "";
-    return `### Result ${i + 1}: ${path}${lines}${score}\n${snippet}`;
-  }).join("\n\n");
+        tm.command("status")
+          .description("Check connection to tribal-memory server")
+          .action(async () => {
+            const health = await tribalClient.health();
+            if (health.ok) {
+              console.log(
+                `✅ Connected (instance: ${health.instanceId}, ` +
+                `memories: ${health.memoryCount})`,
+              );
+            } else {
+              console.log(
+                `❌ Cannot reach server at ${config.serverUrl}`,
+              );
+            }
+          });
 
-  return {
-    content: [{ type: "text", text: `Found ${results.length} results (source: ${source}):\n\n${formatted}` }],
-  };
-}
+        tm.command("stats")
+          .description("Show memory statistics")
+          .action(async () => {
+            try {
+              const stats = await tribalClient.stats();
+              console.log(JSON.stringify(stats, null, 2));
+            } catch (err: any) {
+              console.error(`Error: ${err.message}`);
+            }
+          });
+
+        tm.command("search")
+          .description("Search memories")
+          .argument("<query>", "Search query")
+          .option("--limit <n>", "Max results", "5")
+          .action(async (query: string, opts: { limit: string }) => {
+            try {
+              const results = await tribalClient.search(
+                [query], { maxResults: parseInt(opts.limit) },
+              );
+              for (const r of results) {
+                console.log(
+                  `[${r.score.toFixed(3)}] ${r.snippet.slice(0, 80)}`,
+                );
+              }
+              if (results.length === 0) console.log("No results.");
+            } catch (err: any) {
+              console.error(`Error: ${err.message}`);
+            }
+          });
+      },
+      { commands: ["tribal-memory"] },
+    );
+
+    // ========================================================================
+    // Lifecycle Hooks
+    // ========================================================================
+
+    // Auto-recall: inject relevant memories before agent responds
+    if (config.autoRecall) {
+      api.on("before_agent_start", async (event) => {
+        if (!event.prompt || event.prompt.length < 5) return;
+
+        const sessionId = "auto-recall";
+
+        try {
+          // Smart trigger gate
+          if (config.smartTriggerEnabled) {
+            const classification = smartTrigger.classify(event.prompt);
+            if (classification.skip) return;
+          }
+
+          // Circuit breaker gate
+          if (circuitBreaker.isTripped(sessionId)) return;
+
+          // Search tribal memory
+          let results: MemoryResult[] = [];
+          if (!useBuiltinFallback) {
+            try {
+              results = await tribalClient.search(
+                [event.prompt],
+                { maxResults: 3, minScore: 0.3 },
+              );
+            } catch {
+              api.logger.warn(
+                "[memory-tribal] Auto-recall: server unavailable",
+              );
+              useBuiltinFallback = true;
+            }
+          }
+
+          if (results.length === 0) {
+            circuitBreaker.recordResult(sessionId, 0);
+            return;
+          }
+          circuitBreaker.recordResult(sessionId, results.length);
+
+          // Apply safeguards
+          const turnId = `auto-recall-${Date.now()}`;
+          results = applySafeguards(results, sessionId, turnId);
+
+          if (results.length === 0) return;
+
+          const memoryContext = results
+            .map(r => `- ${r.snippet ?? r.text ?? ""}`)
+            .join("\n");
+
+          api.logger.info(
+            `[memory-tribal] Injecting ${results.length} memories ` +
+            `into context`,
+          );
+
+          return {
+            prependContext:
+              `<relevant-memories>\n` +
+              `The following memories may be relevant:\n` +
+              `${memoryContext}\n` +
+              `</relevant-memories>`,
+          };
+        } catch (err) {
+          api.logger.warn(
+            `[memory-tribal] Auto-recall failed: ${String(err)}`,
+          );
+        }
+      });
+    }
+
+    // Auto-capture: store learnings after agent turns
+    if (config.autoCapture) {
+      api.on("agent_end", async (event) => {
+        if (!event.success || !event.messages?.length) return;
+
+        try {
+          const texts: string[] = [];
+          for (const msg of event.messages) {
+            if (!msg || typeof msg !== "object") continue;
+            const msgObj = msg as Record<string, unknown>;
+            const role = msgObj.role;
+            if (role !== "user" && role !== "assistant") continue;
+
+            const content = msgObj.content;
+            if (typeof content === "string") {
+              texts.push(content);
+              continue;
+            }
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (
+                  block &&
+                  typeof block === "object" &&
+                  "type" in block &&
+                  (block as Record<string, unknown>).type === "text" &&
+                  "text" in block &&
+                  typeof (block as Record<string, unknown>).text === "string"
+                ) {
+                  texts.push(
+                    (block as Record<string, unknown>).text as string,
+                  );
+                }
+              }
+            }
+          }
+
+          const toCapture = texts.filter(shouldCapture);
+          if (toCapture.length === 0) return;
+
+          let stored = 0;
+          for (const text of toCapture.slice(0, 3)) {
+            try {
+              const result = await tribalClient.remember(text, {
+                sourceType: "auto_capture",
+                context: "OpenClaw auto-capture",
+              });
+              if (result.success) stored++;
+            } catch {
+              // Best-effort capture — skip on failure
+            }
+          }
+
+          if (stored > 0) {
+            api.logger.info(
+              `[memory-tribal] Auto-captured ${stored} memories`,
+            );
+          }
+        } catch (err) {
+          api.logger.warn(
+            `[memory-tribal] Auto-capture failed: ${String(err)}`,
+          );
+        }
+      });
+    }
+
+    // ========================================================================
+    // Service (health monitoring)
+    // ========================================================================
+
+    api.registerService({
+      id: "memory-tribal",
+      start: async () => {
+        const health = await tribalClient.health();
+        if (health.ok) {
+          api.logger.info(
+            `[memory-tribal] Connected to server ` +
+            `(instance: ${health.instanceId}, ` +
+            `memories: ${health.memoryCount})`,
+          );
+        } else {
+          api.logger.warn(
+            `[memory-tribal] Server not reachable at ${config.serverUrl}. ` +
+            `Will retry on first search.`,
+          );
+        }
+      },
+      stop: () => {
+        api.logger.info("[memory-tribal] Service stopped");
+      },
+    });
+
+    api.logger.info(
+      `[memory-tribal] Plugin registered ` +
+      `(server: ${config.serverUrl}, ` +
+      `autoRecall: ${config.autoRecall}, ` +
+      `autoCapture: ${config.autoCapture})`,
+    );
+  },
+};
+
+export default memoryTribalPlugin;

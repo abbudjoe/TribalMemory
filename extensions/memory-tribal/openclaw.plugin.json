@@ -1,55 +1,103 @@
 {
   "id": "memory-tribal",
   "name": "Tribal Memory",
-  "version": "0.1.0",
-  "description": "Learned retrieval layer for tribal memory with query caching, expansion, and feedback",
+  "version": "0.2.0",
+  "description": "Cross-agent long-term memory with auto-recall/capture, hybrid search, and safeguards",
   "author": "Clawdio",
-  "slot": "memory",
+  "kind": "memory",
   "main": "index.ts",
-  "tools": [
-    {
-      "name": "memory_search",
-      "description": "Semantically search memory with learned retrieval enhancements"
-    },
-    {
-      "name": "memory_get",
-      "description": "Read memory file content by path"
-    },
-    {
-      "name": "memory_feedback",
-      "description": "Record which retrieved memories were useful",
-      "optional": true
-    },
-    {
-      "name": "memory_stats",
-      "description": "Get retrieval accuracy statistics",
-      "optional": true
-    }
-  ],
   "configSchema": {
     "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "tribalServerUrl": {
+      "serverUrl": {
         "type": "string",
         "default": "http://localhost:18790",
         "description": "URL of the tribal-memory HTTP server"
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "default": true,
+        "description": "Auto-inject relevant memories before agent responds"
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "default": true,
+        "description": "Auto-store learnings after agent turns"
       },
       "queryCacheEnabled": {
         "type": "boolean",
         "default": true
       },
+      "queryCacheMinSuccesses": {
+        "type": "number",
+        "default": 3,
+        "description": "Min successful retrievals before caching a query"
+      },
       "queryExpansionEnabled": {
-        "type": "boolean", 
+        "type": "boolean",
         "default": true
       },
       "feedbackEnabled": {
         "type": "boolean",
         "default": true
       },
-      "minCacheSuccesses": {
+      "maxTokensPerRecall": {
         "type": "number",
-        "default": 3,
-        "description": "Minimum successful retrievals before caching query→fact mapping"
+        "default": 500,
+        "description": "Max tokens per single memory recall"
+      },
+      "maxTokensPerTurn": {
+        "type": "number",
+        "default": 750,
+        "description": "Max tokens of memory content per agent turn"
+      },
+      "maxTokensPerSession": {
+        "type": "number",
+        "default": 5000,
+        "description": "Max tokens across entire session"
+      },
+      "maxTokensPerSnippet": {
+        "type": "number",
+        "default": 100,
+        "description": "Max tokens per individual snippet"
+      },
+      "turnMaxAgeMs": {
+        "type": "number",
+        "default": 1800000,
+        "description": "Max age in ms before stale turn data is cleaned"
+      },
+      "circuitBreakerMaxEmpty": {
+        "type": "number",
+        "default": 5,
+        "description": "Consecutive empty recalls before tripping"
+      },
+      "circuitBreakerCooldownMs": {
+        "type": "number",
+        "default": 300000,
+        "description": "Cooldown in ms after circuit breaker trips"
+      },
+      "smartTriggerEnabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "smartTriggerMinQueryLength": {
+        "type": "number",
+        "default": 2,
+        "description": "Minimum query length to trigger recall"
+      },
+      "smartTriggerSkipEmojiOnly": {
+        "type": "boolean",
+        "default": true
+      },
+      "sessionDedupEnabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "sessionDedupCooldownMs": {
+        "type": "number",
+        "default": 300000,
+        "description": "Cooldown before deduped memory reappears"
       }
     }
   }

@@ -1,91 +1,59 @@
-# Memory-Tribal Plugin
+# memory-tribal — OpenClaw Plugin for Tribal Memory
 
-Learned retrieval layer for OpenClaw's memory system with query caching, expansion, and feedback loops.
+Cross-agent long-term memory plugin that connects OpenClaw to a
+[Tribal Memory](https://github.com/abbudjoe/TribalMemory) server.
 
-## Overview
+## Features
 
-Memory-tribal is a **slot plugin** that replaces OpenClaw's default `memory-core` with an enhanced retrieval system designed to improve memory recall accuracy over time.
+- **Auto-recall**: Injects relevant memories before agent responds
+  (`before_agent_start` lifecycle hook)
+- **Auto-capture**: Stores learnings after agent turns
+  (`agent_end` lifecycle hook)
+- **Hybrid search**: Vector similarity + BM25 keyword search
+- **Safeguards**: Token budgets, circuit breaker, smart triggers,
+  session deduplication
+- **Query learning**: Cache, expansion, and feedback for better recall
+- **Cross-agent**: Memories shared across all connected agents
 
-### Features
+## Prerequisites
 
-- **Query Caching** — Remembers which queries successfully retrieved which facts
-- **Query Expansion** — Converts natural questions to keyword searches
-- **Feedback Tracking** — Learns from which retrievals were actually useful
-- **Fact Anchoring** — Builds stable mappings between queries and memory locations
-- **Graceful Fallback** — Falls back to built-in search if tribal server unavailable
+1. A running Tribal Memory server:
+   ```bash
+   pip install tribalmemory
+   tribalmemory init --local  # or with OpenAI key
+   tribalmemory serve
+   ```
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    memory_search()                       │
-├─────────────────────────────────────────────────────────┤
-│  1. Query Cache     → Check for known-good mapping      │
-│  2. Query Expander  → Convert question → keywords       │
-│  3. Tribal Client   → Call HTTP server (or fallback)    │
-│  4. Feedback Track  → Record what was useful            │
-└─────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-              ┌─────────────────────────┐
-              │   SQLite Persistence    │
-              │  ~/.openclaw/memory-    │
-              │     tribal.sqlite       │
-              └─────────────────────────┘
-```
-
-## Tools Provided
-
-| Tool | Description |
-|------|-------------|
-| `memory_search` | Semantically search memory with learned enhancements |
-| `memory_get` | Read memory file content by path |
-| `memory_feedback` | Record which memories were useful (optional) |
-| `memory_stats` | View retrieval accuracy statistics (optional) |
+2. OpenClaw v2026.1.0 or later
 
 ## Installation
 
-See [SETUP.md](./SETUP.md) for detailed installation instructions.
-
-**Quick start:**
+Copy the `extensions/memory-tribal/` directory into your OpenClaw
+extensions folder:
 
 ```bash
-cd extensions/memory-tribal
+cp -r extensions/memory-tribal/ ~/.openclaw/extensions/memory-tribal/
+cd ~/.openclaw/extensions/memory-tribal/
 npm install
-openclaw plugins install -l .
-openclaw config set plugins.slots.memory=memory-tribal
-openclaw gateway restart
 ```
 
 ## Configuration
 
-```json
+Add to your `openclaw.json`:
+
+```json5
 {
-  "plugins": {
-    "slots": {
-      "memory": "memory-tribal"
+  plugins: {
+    slots: {
+      memory: "memory-tribal"   // Replace default memory plugin
     },
-    "entries": {
+    entries: {
       "memory-tribal": {
-        "enabled": true,
-        "config": {
-          "tribalServerUrl": "http://localhost:18790",
-          "queryCacheEnabled": true,
-          "queryCacheMinSuccesses": 3,
-          "queryExpansionEnabled": true,
-          "feedbackEnabled": true,
-          "maxTokensPerRecall": 500,
-          "maxTokensPerTurn": 750,
-          "maxTokensPerSession": 5000,
-          "maxTokensPerSnippet": 100,
-          "circuitBreakerMaxEmpty": 5,
-          "circuitBreakerCooldownMs": 300000,
-          "smartTriggerEnabled": true,
-          "smartTriggerMinQueryLength": 2,
-          "smartTriggerSkipEmojiOnly": true,
-          "sessionDedupEnabled": true,
-          "sessionDedupCooldownMs": 300000,
-          "turnMaxAgeMs": 1800000
+        enabled: true,
+        config: {
+          serverUrl: "http://localhost:18790",
+          autoRecall: true,       // Inject memories before agent
+          autoCapture: true       // Store learnings after agent
         }
       }
     }
@@ -93,12 +61,37 @@ openclaw gateway restart
 }
 ```
 
-### Config Migration
+### Full Config Options
 
-The following config names were renamed for consistency. Old names still work but emit a deprecation warning:
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `serverUrl` | string | `http://localhost:18790` | Tribal Memory server URL |
+| `autoRecall` | bool | `true` | Inject relevant memories before agent |
+| `autoCapture` | bool | `true` | Store learnings after agent turns |
+| `queryCacheEnabled` | bool | `true` | Cache successful query→result mappings |
+| `queryCacheMinSuccesses` | number | `3` | Min hits before caching a query |
+| `queryExpansionEnabled` | bool | `true` | Expand queries for better matching |
+| `feedbackEnabled` | bool | `true` | Learn from which memories get used |
+| `maxTokensPerRecall` | number | `500` | Token cap per recall |
+| `maxTokensPerTurn` | number | `750` | Token cap per agent turn |
+| `maxTokensPerSession` | number | `5000` | Token cap per session |
+| `maxTokensPerSnippet` | number | `100` | Token cap per snippet |
+| `turnMaxAgeMs` | number | `1800000` | Stale turn cleanup threshold |
+| `circuitBreakerMaxEmpty` | number | `5` | Empty recalls before tripping |
+| `circuitBreakerCooldownMs` | number | `300000` | Cooldown after trip (5 min) |
+| `smartTriggerEnabled` | bool | `true` | Skip low-value queries |
+| `smartTriggerMinQueryLength` | number | `2` | Min query length |
+| `smartTriggerSkipEmojiOnly` | bool | `true` | Skip emoji-only queries |
+| `sessionDedupEnabled` | bool | `true` | Deduplicate within session |
+| `sessionDedupCooldownMs` | number | `300000` | Dedup cooldown (5 min) |
+
+### Migrating from v0.1
+
+Config names were standardized. Old names still work but emit warnings:
 
 | Old Name | New Name |
 |----------|----------|
+| `tribalServerUrl` | `serverUrl` |
 | `minCacheSuccesses` | `queryCacheMinSuccesses` |
 | `maxConsecutiveEmpty` | `circuitBreakerMaxEmpty` |
 | `smartTriggersEnabled` | `smartTriggerEnabled` |
@@ -106,97 +99,34 @@ The following config names were renamed for consistency. Old names still work bu
 | `skipEmojiOnly` | `smartTriggerSkipEmojiOnly` |
 | `dedupCooldownMs` | `sessionDedupCooldownMs` |
 
-## How It Works
-
-### Query Cache
-
-When a query successfully retrieves useful information, the mapping is cached:
-
-```
-"What coffee does Joe like?" → memory/USER.md:15-20
-```
-
-Next time a similar query comes in, the cache is checked first.
-
-### Query Expansion
-
-Natural language questions are expanded to keywords:
-
-| Question | Expanded |
-|----------|----------|
-| "What's Joe's favorite coffee?" | `joe favorite coffee preference` |
-| "When did we deploy v2?" | `deploy v2 release date when` |
-| "What allergies does he have?" | `allergies allergy food medical` |
-
-### Feedback Loop
-
-After retrieval, the agent can report which results were useful:
-
-```typescript
-memory_feedback({
-  queryId: "abc123",
-  useful: ["chunk_1", "chunk_3"],
-  notUseful: ["chunk_2"]
-})
-```
-
-This reinforces good retrievals and penalizes bad ones.
-
-## Persistence
-
-All learned state is stored in SQLite at `~/.openclaw/memory-tribal.sqlite`:
-
-| Table | Purpose |
-|-------|---------|
-| `query_cache` | Cached query→fact mappings |
-| `feedback_weights` | Reinforcement weights per chunk |
-| `usage_history` | Query frequency and success rates |
-| `learned_expansions` | Custom expansion rules |
-| `fact_anchors` | Stable query→location mappings |
-
-## Tribal Memory Server (Optional)
-
-For cross-instance memory sharing, connect to a tribal-memory HTTP server:
+## CLI Commands
 
 ```bash
-# Start the server (separate process)
-tribal-memory serve --port 18790
-
-# Plugin connects automatically via tribalServerUrl config
+openclaw tribal-memory status    # Check server connection
+openclaw tribal-memory stats     # Show memory statistics
+openclaw tribal-memory search <query>  # Search memories
 ```
 
-Without the server, the plugin falls back to OpenClaw's built-in memory search.
+## Tools
 
-## Development
+| Tool | Description |
+|------|-------------|
+| `memory_search` | Search memories with learned retrieval |
+| `memory_get` | Read memory file content by path |
+| `memory_feedback` | Record which memories were useful |
+| `memory_metrics` | View safeguard metrics snapshot |
 
-```bash
-# Run in development mode (linked install)
-openclaw plugins install -l ./extensions/memory-tribal
+## Architecture
 
-# After changes, restart gateway
-openclaw gateway restart
-
-# Check for errors
-openclaw gateway logs | grep memory-tribal
 ```
-
-## Testing
-
-Run the evaluation harness to measure retrieval accuracy:
-
-```bash
-cd eval/memory-test
-python harness.py generate L3  # Memory search level
-# ... run agent with queries ...
-python harness.py score results/test-L3-*.json
+OpenClaw Agent
+  ├── before_agent_start → auto-recall (search memories)
+  ├── Agent processes with injected memory context
+  └── agent_end → auto-capture (store learnings)
+                        │
+                        ▼
+              Tribal Memory Server (HTTP)
+              ├── Vector search (LanceDB)
+              ├── BM25 search (SQLite FTS5)
+              └── Deduplication + provenance
 ```
-
-Baseline: 61.5% accuracy with tuned config. Goal: >80% with learned retrieval.
-
-## License
-
-MIT
-
-## Author
-
-Clawdio 🦝

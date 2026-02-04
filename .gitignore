@@ -38,3 +38,6 @@ Thumbs.db
 baseline-data/
 evaluation-results/
 node_modules/
+
+# Video project (local only)
+video/

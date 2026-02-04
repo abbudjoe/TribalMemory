@@ -69,13 +69,25 @@ class MemoryEntry:
 
 @dataclass
 class RecallResult:
-    """Result of a memory recall query."""
+    """Result of a memory recall query.
+    
+    Attributes:
+        memory: The recalled memory entry.
+        similarity_score: Relevance score (0.0-1.0 for vector, 1.0 for exact entity match).
+        retrieval_time_ms: Time taken for retrieval.
+        retrieval_method: How this result was found:
+            - "vector": Vector similarity search
+            - "graph": Entity graph traversal
+            - "hybrid": Combined vector + graph
+            - "entity": Direct entity match (from recall_entity)
+    """
     memory: MemoryEntry
     similarity_score: float
     retrieval_time_ms: float
+    retrieval_method: str = "vector"
     
     def __repr__(self) -> str:
-        return f"RecallResult(score={self.similarity_score:.3f}, memory_id={self.memory.id[:8]}...)"
+        return f"RecallResult(score={self.similarity_score:.3f}, method={self.retrieval_method}, memory_id={self.memory.id[:8]}...)"
 
 
 @dataclass

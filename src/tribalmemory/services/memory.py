@@ -274,7 +274,6 @@ class TribalMemoryService(IMemoryService):
                 bm25_only_ids.append(m)
         
         # Batch-fetch BM25-only hits concurrently
-        import asyncio
         fetched_entries = await asyncio.gather(
             *(self.vector_store.get(m["id"]) for m in bm25_only_ids)
         ) if bm25_only_ids else []
@@ -378,19 +377,23 @@ class TribalMemoryService(IMemoryService):
             
             graph_memory_ids = set(capped_ids)
         
-        # Fetch graph-connected memories
+        # Batch-fetch graph-connected memories concurrently for performance
+        graph_memory_list = list(graph_memory_ids)
+        fetched_entries = await asyncio.gather(
+            *(self.vector_store.get(mid) for mid in graph_memory_list)
+        ) if graph_memory_list else []
+        
         graph_results: list[RecallResult] = []
-        for memory_id in graph_memory_ids:
-            entry = await self.vector_store.get(memory_id)
+        for memory_id, entry in zip(graph_memory_list, fetched_entries):
             if entry:
                 # Score based on hop distance using class constants
-                hops = entity_to_hops[memory_id]  # Fail fast if logic is wrong (#3)
+                hops = entity_to_hops[memory_id]  # Fail fast if logic is wrong
                 graph_score = (
                     self.GRAPH_1HOP_SCORE if hops == 1 
                     else self.GRAPH_2HOP_SCORE
                 )
                 
-                # Filter by min_relevance (#4)
+                # Filter by min_relevance
                 if graph_score >= min_relevance:
                     graph_results.append(RecallResult(
                         memory=entry,

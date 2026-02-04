@@ -179,11 +179,25 @@ class TestResolveMcpCommand:
         local_bin.mkdir(parents=True)
         mcp_binary = local_bin / "tribalmemory-mcp"
         mcp_binary.touch()
+        mcp_binary.chmod(0o755)  # Must be executable
 
         with patch("tribalmemory.cli.shutil.which", return_value=None), \
              patch.object(Path, "home", staticmethod(lambda: tmp_path)):
             result = _resolve_mcp_command()
         assert result == str(mcp_binary)
+
+    def test_resolve_skips_non_executable_fallback(self, tmp_path):
+        """Should skip files in fallback dirs that aren't executable."""
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        mcp_binary = local_bin / "tribalmemory-mcp"
+        mcp_binary.touch()
+        mcp_binary.chmod(0o644)  # NOT executable
+
+        with patch("tribalmemory.cli.shutil.which", return_value=None), \
+             patch.object(Path, "home", staticmethod(lambda: tmp_path)):
+            result = _resolve_mcp_command()
+        assert result == "tribalmemory-mcp"  # Falls back to bare name
 
     def test_resolve_falls_back_to_bare_name(self, tmp_path):
         """Should fall back to bare command name when not found anywhere."""
@@ -223,7 +237,7 @@ class TestCodexIntegration:
         assert codex_config.exists()
         content = codex_config.read_text()
         assert "[mcp_servers.tribal-memory]" in content
-        assert 'command = "tribalmemory-mcp"' in content
+        assert "tribalmemory-mcp" in content  # resolved or bare
 
     def test_codex_local_adds_env(self, cli_env):
         """init --local --codex should add api_base env."""
@@ -234,6 +248,17 @@ class TestCodexIntegration:
         content = codex_config.read_text()
         assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in content
         assert "localhost:11434" in content
+
+    def test_codex_uses_full_path(self, cli_env):
+        """init --codex should write the resolved full path."""
+        fake_path = "/home/test/.local/bin/tribalmemory-mcp"
+        with patch("tribalmemory.cli.shutil.which", return_value=fake_path):
+            result = cmd_init(FakeArgs(codex=True))
+
+        assert result == 0
+        codex_config = cli_env / ".codex" / "config.toml"
+        content = codex_config.read_text()
+        assert fake_path in content
 
 
 class TestMainEntrypoint:

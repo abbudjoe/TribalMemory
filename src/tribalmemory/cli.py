@@ -191,13 +191,21 @@ def _resolve_mcp_command() -> str:
         return resolved
     
     # Check common tool install locations that might not be on PATH
-    candidates = [
-        Path.home() / ".local" / "bin" / "tribalmemory-mcp",  # uv/pipx
-        Path.home() / ".cargo" / "bin" / "tribalmemory-mcp",  # unlikely but possible
+    base_name = "tribalmemory-mcp"
+    search_dirs = [
+        Path.home() / ".local" / "bin",   # uv/pipx (Linux/macOS)
+        Path.home() / ".cargo" / "bin",    # unlikely but possible
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
+    # On Windows, executables may have .exe/.cmd extensions
+    suffixes = [""]
+    if sys.platform == "win32":
+        suffixes = [".exe", ".cmd", ""]
+    
+    for search_dir in search_dirs:
+        for suffix in suffixes:
+            candidate = search_dir / (base_name + suffix)
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                return str(candidate)
     
     # Fall back to bare command — will work if PATH is set correctly
     return "tribalmemory-mcp"
@@ -245,6 +253,10 @@ def _setup_codex_mcp(is_local: bool) -> None:
     codex_config_path = Path.home() / ".codex" / "config.toml"
     codex_config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Resolve full path (same reason as Claude Desktop — Codex may not
+    # inherit the user's full shell PATH)
+    mcp_command = _resolve_mcp_command()
+
     # Build the TOML section manually (avoid tomli_w dependency)
     # Codex uses [mcp_servers.name] sections in config.toml
     section_marker = "[mcp_servers.tribal-memory]"
@@ -253,7 +265,7 @@ def _setup_codex_mcp(is_local: bool) -> None:
         "",
         "# Tribal Memory — shared memory for AI agents",
         section_marker,
-        'command = "tribalmemory-mcp"',
+        f'command = "{mcp_command}"',
     ]
     
     if is_local:

@@ -8,7 +8,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from tribalmemory.cli import cmd_init, main
+from tribalmemory.cli import cmd_init, main, _resolve_mcp_command
 
 
 class FakeArgs:
@@ -102,7 +102,9 @@ class TestInitCommand:
         assert claude_config.exists()
         mcp = json.loads(claude_config.read_text())
         assert "tribal-memory" in mcp["mcpServers"]
-        assert mcp["mcpServers"]["tribal-memory"]["command"] == "tribalmemory-mcp"
+        # Command should be the resolved path (or bare name as fallback)
+        cmd = mcp["mcpServers"]["tribal-memory"]["command"]
+        assert cmd.endswith("tribalmemory-mcp")
 
     def test_init_claude_code_local_adds_env(self, cli_env):
         """init --local --claude-code should set api_base env."""
@@ -160,6 +162,53 @@ class TestInitCommand:
         desktop_mcp = json.loads(desktop_config.read_text())
         assert "tribal-memory" in desktop_mcp["mcpServers"]
         assert "other" in desktop_mcp["mcpServers"]  # preserved
+
+
+class TestResolveMcpCommand:
+    """Tests for _resolve_mcp_command — full path resolution."""
+
+    def test_resolve_uses_shutil_which(self):
+        """Should use shutil.which to find the binary."""
+        with patch("tribalmemory.cli.shutil.which", return_value="/usr/local/bin/tribalmemory-mcp"):
+            result = _resolve_mcp_command()
+        assert result == "/usr/local/bin/tribalmemory-mcp"
+
+    def test_resolve_checks_local_bin_fallback(self, tmp_path):
+        """Should check ~/.local/bin when shutil.which fails."""
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        mcp_binary = local_bin / "tribalmemory-mcp"
+        mcp_binary.touch()
+
+        with patch("tribalmemory.cli.shutil.which", return_value=None), \
+             patch.object(Path, "home", staticmethod(lambda: tmp_path)):
+            result = _resolve_mcp_command()
+        assert result == str(mcp_binary)
+
+    def test_resolve_falls_back_to_bare_name(self, tmp_path):
+        """Should fall back to bare command name when not found anywhere."""
+        with patch("tribalmemory.cli.shutil.which", return_value=None), \
+             patch.object(Path, "home", staticmethod(lambda: tmp_path)):
+            result = _resolve_mcp_command()
+        assert result == "tribalmemory-mcp"
+
+    def test_init_claude_code_uses_full_path(self, cli_env):
+        """init --claude-code should write the resolved full path to configs."""
+        fake_path = "/home/test/.local/bin/tribalmemory-mcp"
+        with patch("tribalmemory.cli.shutil.which", return_value=fake_path):
+            result = cmd_init(FakeArgs(claude_code=True))
+
+        assert result == 0
+
+        # CLI config should have full path
+        cli_config = cli_env / ".claude.json"
+        mcp = json.loads(cli_config.read_text())
+        assert mcp["mcpServers"]["tribal-memory"]["command"] == fake_path
+
+        # Desktop config should also have full path
+        desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
+        desktop_mcp = json.loads(desktop_config.read_text())
+        assert desktop_mcp["mcpServers"]["tribal-memory"]["command"] == fake_path
 
 
 class TestCodexIntegration:

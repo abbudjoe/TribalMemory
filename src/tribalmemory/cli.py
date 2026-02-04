@@ -9,6 +9,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -151,8 +152,13 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
         Path.home() / ".claude" / "claude_desktop_config.json",  # Legacy / Linux
     ]
 
+    # Resolve full path to tribalmemory-mcp binary.
+    # Claude Desktop doesn't inherit the user's shell PATH (e.g. ~/.local/bin),
+    # so we need the absolute path for it to find the command.
+    mcp_command = _resolve_mcp_command()
+
     mcp_entry = {
-        "command": "tribalmemory-mcp",
+        "command": mcp_command,
         "env": {},
     }
     
@@ -167,6 +173,34 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
     desktop_path = _get_claude_desktop_config_path()
     _update_mcp_config(desktop_path, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Desktop config updated: {desktop_path}")
+
+
+def _resolve_mcp_command() -> str:
+    """Resolve the full path to the tribalmemory-mcp binary.
+    
+    Claude Desktop doesn't inherit the user's shell PATH (e.g. ~/.local/bin
+    from uv/pipx installs), so bare command names like "tribalmemory-mcp"
+    fail with "No such file or directory". We resolve the absolute path at
+    init time so the config works regardless of the app's PATH.
+    
+    Falls back to the bare command name if not found on PATH (e.g. user
+    hasn't installed yet and will do so later).
+    """
+    resolved = shutil.which("tribalmemory-mcp")
+    if resolved:
+        return resolved
+    
+    # Check common tool install locations that might not be on PATH
+    candidates = [
+        Path.home() / ".local" / "bin" / "tribalmemory-mcp",  # uv/pipx
+        Path.home() / ".cargo" / "bin" / "tribalmemory-mcp",  # unlikely but possible
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    
+    # Fall back to bare command — will work if PATH is set correctly
+    return "tribalmemory-mcp"
 
 
 def _get_claude_desktop_config_path() -> Path:

@@ -51,6 +51,7 @@ class ServerConfig:
     """HTTP server configuration."""
     host: str = "127.0.0.1"
     port: int = 18790
+    session_retention_days: int = 30  # Days to retain session chunks
 
 
 @dataclass
@@ -60,6 +61,10 @@ class SearchConfig:
     vector_weight: float = 0.7
     text_weight: float = 0.3
     candidate_multiplier: int = 4
+    # Reranking configuration
+    reranking: str = "heuristic"  # "auto" | "cross-encoder" | "heuristic" | "none"
+    recency_decay_days: float = 30.0  # Half-life for recency boost
+    tag_boost_weight: float = 0.1  # Weight for tag match boost
 
     def __post_init__(self):
         if self.vector_weight < 0:
@@ -72,6 +77,15 @@ class SearchConfig:
             )
         if self.candidate_multiplier < 1:
             raise ValueError("candidate_multiplier must be >= 1")
+        if self.reranking not in ("auto", "cross-encoder", "heuristic", "none"):
+            raise ValueError(
+                f"Invalid reranking mode: {self.reranking}. "
+                f"Valid options: 'auto', 'cross-encoder', 'heuristic', 'none'"
+            )
+        if self.recency_decay_days <= 0:
+            raise ValueError("recency_decay_days must be positive")
+        if self.tag_boost_weight < 0:
+            raise ValueError("tag_boost_weight must be non-negative")
 
 
 @dataclass

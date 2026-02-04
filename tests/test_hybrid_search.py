@@ -287,3 +287,37 @@ class TestHybridIntegration:
         results = await service.recall("Test", min_relevance=0.0)
         # Should still work (vector-only)
         assert isinstance(results, list)
+
+    @pytest.mark.asyncio
+    async def test_recall_with_heuristic_reranking(self, tmp_path):
+        """recall() should apply heuristic reranking when configured."""
+        from tribalmemory.services.reranker import HeuristicReranker
+        
+        embedding = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding)
+        fts = FTSStore(str(tmp_path / "fts.db"))
+        reranker = HeuristicReranker(recency_decay_days=30.0, tag_boost_weight=0.2)
+        
+        service = TribalMemoryService(
+            instance_id="test",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            fts_store=fts,
+            hybrid_search=True,
+            reranker=reranker,
+        )
+
+        # Add memories
+        await service.remember("Python programming information", tags=["python"])
+        await service.remember("JavaScript web development", tags=["javascript"])
+        
+        # Query should work with reranking enabled
+        # The exact results depend on mock embeddings, but the pipeline should not crash
+        results = await service.recall("python", limit=5, min_relevance=0.0)
+        
+        # Should return results without errors (reranking applied internally)
+        assert isinstance(results, list)
+        # All results should have valid scores
+        for r in results:
+            assert r.similarity_score >= 0.0
+            assert r.memory.content is not None

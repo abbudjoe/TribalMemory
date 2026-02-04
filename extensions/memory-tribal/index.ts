@@ -51,6 +51,13 @@ interface PluginConfig {
   sessionDedupCooldownMs: number;
 }
 
+/** Context passed to tool execute() by OpenClaw runtime. */
+interface ToolContext {
+  sessionId?: string;
+  turnId?: string;
+  [key: string]: unknown;
+}
+
 // Defaults (used when pluginConfig values are missing)
 const DEFAULTS: PluginConfig = {
   serverUrl: "http://localhost:18790",
@@ -315,7 +322,7 @@ const memoryTribalPlugin = {
       async execute(
         toolCallId: string,
         params: { query: string; maxResults?: number; minScore?: number },
-        context: Record<string, unknown>,
+        context: ToolContext,
       ) {
         const { query, maxResults = 5, minScore = 0.1 } = params;
         const sessionId = context?.sessionId ?? "unknown";
@@ -510,7 +517,7 @@ const memoryTribalPlugin = {
         async execute(
           toolCallId: string,
           params: { usedPaths: string[] },
-          context: Record<string, unknown>,
+          context: ToolContext,
         ) {
           const sessionId = context?.sessionId ?? "unknown";
           if (config.feedbackEnabled) {
@@ -543,7 +550,7 @@ const memoryTribalPlugin = {
           "circuit breaker, smart triggers, session dedup.",
         parameters: Type.Object({}),
         async execute(
-          toolCallId: string, params: Record<string, unknown>, context: Record<string, unknown>,
+          toolCallId: string, params: Record<string, unknown>, context: ToolContext,
         ) {
           const sessionId = context?.sessionId ?? "unknown";
           const turnId = context?.turnId ?? `turn-${Date.now()}`;
@@ -599,8 +606,10 @@ const memoryTribalPlugin = {
           .option("--limit <n>", "Max results", "5")
           .action(async (query: string, opts: { limit: string }) => {
             try {
+              const limit = parseInt(opts.limit, 10);
+              const maxResults = isNaN(limit) ? 5 : limit;
               const results = await tribalClient.search(
-                [query], { maxResults: parseInt(opts.limit) },
+                [query], { maxResults },
               );
               for (const r of results) {
                 const score = r.score?.toFixed(3) ?? "N/A";
@@ -636,7 +645,10 @@ const memoryTribalPlugin = {
       api.on("before_agent_start", async (event, ctx) => {
         if (!event.prompt || event.prompt.length < 5) return;
 
-        const sessionId = ctx?.sessionKey ?? "auto-recall";
+        // Use actual session key from context; fall back to a unique
+        // per-invocation ID so circuit breaker and token budgets never
+        // bleed across unrelated calls.
+        const sessionId = ctx?.sessionKey ?? `auto-recall-${Date.now()}`;
 
         try {
           // Smart trigger gate

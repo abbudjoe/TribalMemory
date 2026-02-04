@@ -180,19 +180,40 @@ await service.correct(
 )
 ```
 
+## Demo
+
+See cross-agent memory sharing in action:
+
+```bash
+# Start the server
+tribalmemory serve
+
+# Run the interactive demo
+./demo.sh
+```
+
+See [docs/demo-output.md](docs/demo-output.md) for example output.
+
 ## HTTP API
+
+All endpoints are under the `/v1` prefix.
 
 ```bash
 # Store a memory
-curl -X POST http://localhost:18790/memories \
+curl -X POST http://localhost:18790/v1/remember \
   -H "Content-Type: application/json" \
   -d '{"content": "The database uses Postgres 16", "tags": ["infra"]}'
 
 # Search memories
-curl "http://localhost:18790/memories/search?query=what+database&limit=5"
+curl -X POST http://localhost:18790/v1/recall \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what database", "limit": 5}'
 
 # Get stats
-curl http://localhost:18790/stats
+curl http://localhost:18790/v1/stats
+
+# Health check
+curl http://localhost:18790/v1/health
 ```
 
 ## OpenClaw Integration

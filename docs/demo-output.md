@@ -1,5 +1,23 @@
 # Demo Output: "One Brain, Two Agents"
 
+This is captured output from running `demo.sh`, which demonstrates cross-agent memory sharing.
+
+**Setup:**
+- Server running on `http://localhost:18790`
+- Agent A (Claude Code) stores architecture memories
+- Agent B (Codex CLI) retrieves them via semantic search
+
+**To run the demo yourself:**
+```bash
+tribalmemory serve
+./demo.sh
+```
+
+> **Note:** Similarity scores depend on your embedding model. Local embeddings (Ollama) will produce
+> different scores than OpenAI. The scores below are from a local Ollama setup with `nomic-embed-text`.
+
+## Output
+
 ```
 🧠 Tribal Memory — One Brain, Two Agents
 Your AI tools don't share a brain. Until now.

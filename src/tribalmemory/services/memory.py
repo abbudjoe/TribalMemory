@@ -15,6 +15,7 @@ from ..interfaces import (
     StoreResult,
 )
 from .deduplication import SemanticDeduplicationService
+from .fts_store import FTSStore, hybrid_merge
 
 
 class TribalMemoryService(IMemoryService):
@@ -39,11 +40,21 @@ class TribalMemoryService(IMemoryService):
         dedup_exact_threshold: float = 0.98,
         dedup_near_threshold: float = 0.90,
         auto_reject_duplicates: bool = True,
+        fts_store: Optional[FTSStore] = None,
+        hybrid_search: bool = True,
+        hybrid_vector_weight: float = 0.7,
+        hybrid_text_weight: float = 0.3,
+        hybrid_candidate_multiplier: int = 4,
     ):
         self.instance_id = instance_id
         self.embedding_service = embedding_service
         self.vector_store = vector_store
         self.auto_reject_duplicates = auto_reject_duplicates
+        self.fts_store = fts_store
+        self.hybrid_search = hybrid_search and fts_store is not None
+        self.hybrid_vector_weight = hybrid_vector_weight
+        self.hybrid_text_weight = hybrid_text_weight
+        self.hybrid_candidate_multiplier = hybrid_candidate_multiplier
         
         self.dedup_service = SemanticDeduplicationService(
             vector_store=vector_store,
@@ -89,7 +100,16 @@ class TribalMemoryService(IMemoryService):
             confidence=1.0,
         )
         
-        return await self.vector_store.store(entry)
+        result = await self.vector_store.store(entry)
+        
+        # Index in FTS for hybrid search
+        if result.success and self.fts_store:
+            try:
+                self.fts_store.index(entry.id, content, tags or [])
+            except Exception:
+                pass  # FTS is best-effort; vector store is primary
+        
+        return result
     
     async def recall(
         self,
@@ -98,7 +118,11 @@ class TribalMemoryService(IMemoryService):
         min_relevance: float = 0.7,
         tags: Optional[list[str]] = None,
     ) -> list[RecallResult]:
-        """Recall relevant memories.
+        """Recall relevant memories using hybrid search.
+        
+        When hybrid search is enabled (FTS store available), combines
+        vector similarity with BM25 keyword matching for better results.
+        Falls back to vector-only search when FTS is unavailable.
         
         Args:
             query: Natural language query
@@ -112,7 +136,13 @@ class TribalMemoryService(IMemoryService):
             return []
         
         filters = {"tags": tags} if tags else None
+
+        if self.hybrid_search and self.fts_store:
+            return await self._hybrid_recall(
+                query, query_embedding, limit, min_relevance, filters
+            )
         
+        # Vector-only fallback
         results = await self.vector_store.recall(
             query_embedding,
             limit=limit,
@@ -121,6 +151,69 @@ class TribalMemoryService(IMemoryService):
         )
         
         return self._filter_superseded(results)
+
+    async def _hybrid_recall(
+        self,
+        query: str,
+        query_embedding: list[float],
+        limit: int,
+        min_relevance: float,
+        filters: Optional[dict],
+    ) -> list[RecallResult]:
+        """Hybrid recall: vector + BM25 combined."""
+        candidate_limit = limit * self.hybrid_candidate_multiplier
+
+        # 1. Vector search — get wide candidate pool
+        vector_results = await self.vector_store.recall(
+            query_embedding,
+            limit=candidate_limit,
+            min_similarity=min_relevance * 0.5,  # Lower threshold for candidates
+            filters=filters,
+        )
+
+        # 2. BM25 search
+        bm25_results = self.fts_store.search(query, limit=candidate_limit)
+
+        # 3. Build lookup for vector results
+        vector_for_merge = [
+            {"id": r.memory.id, "score": r.similarity_score}
+            for r in vector_results
+        ]
+
+        # 4. Hybrid merge
+        merged = hybrid_merge(
+            vector_for_merge,
+            bm25_results,
+            self.hybrid_vector_weight,
+            self.hybrid_text_weight,
+        )
+
+        # 5. Build final results — need full MemoryEntry for each
+        # Create lookup from vector results
+        entry_map = {r.memory.id: r for r in vector_results}
+
+        # For BM25-only hits, fetch from vector store
+        final_results: list[RecallResult] = []
+        for m in merged[:limit]:
+            if m["id"] in entry_map:
+                recall_result = entry_map[m["id"]]
+                # Update score to hybrid score
+                final_results.append(RecallResult(
+                    memory=recall_result.memory,
+                    similarity_score=m["final_score"],
+                    retrieval_time_ms=recall_result.retrieval_time_ms,
+                ))
+            else:
+                # BM25-only hit — fetch from store
+                entry = await self.vector_store.get(m["id"])
+                if entry and m["final_score"] >= min_relevance * 0.5:
+                    final_results.append(RecallResult(
+                        memory=entry,
+                        similarity_score=m["final_score"],
+                        retrieval_time_ms=0,
+                    ))
+
+        return self._filter_superseded(final_results)
     
     async def correct(
         self,
@@ -157,7 +250,13 @@ class TribalMemoryService(IMemoryService):
     
     async def forget(self, memory_id: str) -> bool:
         """Forget (soft delete) a memory."""
-        return await self.vector_store.delete(memory_id)
+        result = await self.vector_store.delete(memory_id)
+        if result and self.fts_store:
+            try:
+                self.fts_store.delete(memory_id)
+            except Exception:
+                pass  # FTS cleanup is best-effort
+        return result
     
     async def get(self, memory_id: str) -> Optional[MemoryEntry]:
         """Get a memory by ID with full provenance."""
@@ -213,6 +312,9 @@ def create_memory_service(
     api_base: Optional[str] = None,
     embedding_model: Optional[str] = None,
     embedding_dimensions: Optional[int] = None,
+    hybrid_search: bool = True,
+    hybrid_vector_weight: float = 0.7,
+    hybrid_text_weight: float = 0.3,
 ) -> TribalMemoryService:
     """Factory function to create a memory service with sensible defaults.
     
@@ -225,6 +327,9 @@ def create_memory_service(
             For Ollama: "http://localhost:11434/v1"
         embedding_model: Embedding model name. Default: "text-embedding-3-small".
         embedding_dimensions: Embedding output dimensions. Default: 1536.
+        hybrid_search: Enable BM25 hybrid search (default: True).
+        hybrid_vector_weight: Weight for vector similarity (default: 0.7).
+        hybrid_text_weight: Weight for BM25 text score (default: 0.3).
     
     Returns:
         Configured TribalMemoryService ready for use.
@@ -267,9 +372,31 @@ def create_memory_service(
             vector_store = InMemoryVectorStore(embedding_service)
     else:
         vector_store = InMemoryVectorStore(embedding_service)
+
+    # Create FTS store for hybrid search (co-located with LanceDB)
+    fts_store = None
+    if hybrid_search and db_path:
+        try:
+            fts_db_path = str(Path(db_path) / "fts_index.db")
+            fts_store = FTSStore(fts_db_path)
+            if fts_store.is_available():
+                logger.info("Hybrid search enabled (SQLite FTS5)")
+            else:
+                logger.warning(
+                    "FTS5 not available in SQLite build. "
+                    "Hybrid search disabled, using vector-only."
+                )
+                fts_store = None
+        except Exception as e:
+            logger.warning(f"FTS store init failed: {e}. Using vector-only.")
+            fts_store = None
     
     return TribalMemoryService(
         instance_id=instance_id,
         embedding_service=embedding_service,
-        vector_store=vector_store
+        vector_store=vector_store,
+        fts_store=fts_store,
+        hybrid_search=hybrid_search,
+        hybrid_vector_weight=hybrid_vector_weight,
+        hybrid_text_weight=hybrid_text_weight,
     )

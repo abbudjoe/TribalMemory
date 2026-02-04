@@ -54,12 +54,22 @@ class ServerConfig:
 
 
 @dataclass
+class SearchConfig:
+    """Search configuration for hybrid BM25 + vector search."""
+    hybrid_enabled: bool = True
+    vector_weight: float = 0.7
+    text_weight: float = 0.3
+    candidate_multiplier: int = 4
+
+
+@dataclass
 class TribalMemoryConfig:
     """Full service configuration."""
     instance_id: str = "default"
     db: DatabaseConfig = field(default_factory=DatabaseConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "TribalMemoryConfig":
@@ -79,12 +89,14 @@ class TribalMemoryConfig:
         db_data = data.get("db", {})
         embedding_data = data.get("embedding", {})
         server_data = data.get("server", {})
+        search_data = data.get("search", {})
 
         return cls(
             instance_id=data.get("instance_id", "default"),
             db=DatabaseConfig(**db_data) if db_data else DatabaseConfig(),
             embedding=EmbeddingConfig(**embedding_data) if embedding_data else EmbeddingConfig(),
             server=ServerConfig(**server_data) if server_data else ServerConfig(),
+            search=SearchConfig(**search_data) if search_data else SearchConfig(),
         )
 
     @classmethod

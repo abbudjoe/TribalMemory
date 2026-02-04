@@ -9,6 +9,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -151,8 +152,13 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
         Path.home() / ".claude" / "claude_desktop_config.json",  # Legacy / Linux
     ]
 
+    # Resolve full path to tribalmemory-mcp binary.
+    # Claude Desktop doesn't inherit the user's shell PATH (e.g. ~/.local/bin),
+    # so we need the absolute path for it to find the command.
+    mcp_command = _resolve_mcp_command()
+
     mcp_entry = {
-        "command": "tribalmemory-mcp",
+        "command": mcp_command,
         "env": {},
     }
     
@@ -167,6 +173,42 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
     desktop_path = _get_claude_desktop_config_path()
     _update_mcp_config(desktop_path, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Desktop config updated: {desktop_path}")
+
+
+def _resolve_mcp_command() -> str:
+    """Resolve the full path to the tribalmemory-mcp binary.
+    
+    Claude Desktop doesn't inherit the user's shell PATH (e.g. ~/.local/bin
+    from uv/pipx installs), so bare command names like "tribalmemory-mcp"
+    fail with "No such file or directory". We resolve the absolute path at
+    init time so the config works regardless of the app's PATH.
+    
+    Falls back to the bare command name if not found on PATH (e.g. user
+    hasn't installed yet and will do so later).
+    """
+    resolved = shutil.which("tribalmemory-mcp")
+    if resolved:
+        return resolved
+    
+    # Check common tool install locations that might not be on PATH
+    base_name = "tribalmemory-mcp"
+    search_dirs = [
+        Path.home() / ".local" / "bin",   # uv/pipx (Linux/macOS)
+        Path.home() / ".cargo" / "bin",    # unlikely but possible
+    ]
+    # On Windows, executables may have .exe/.cmd extensions
+    suffixes = [""]
+    if sys.platform == "win32":
+        suffixes = [".exe", ".cmd", ""]
+    
+    for search_dir in search_dirs:
+        for suffix in suffixes:
+            candidate = search_dir / (base_name + suffix)
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    
+    # Fall back to bare command — will work if PATH is set correctly
+    return "tribalmemory-mcp"
 
 
 def _get_claude_desktop_config_path() -> Path:
@@ -211,6 +253,10 @@ def _setup_codex_mcp(is_local: bool) -> None:
     codex_config_path = Path.home() / ".codex" / "config.toml"
     codex_config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Resolve full path (same reason as Claude Desktop — Codex may not
+    # inherit the user's full shell PATH)
+    mcp_command = _resolve_mcp_command()
+
     # Build the TOML section manually (avoid tomli_w dependency)
     # Codex uses [mcp_servers.name] sections in config.toml
     section_marker = "[mcp_servers.tribal-memory]"
@@ -219,7 +265,7 @@ def _setup_codex_mcp(is_local: bool) -> None:
         "",
         "# Tribal Memory — shared memory for AI agents",
         section_marker,
-        'command = "tribalmemory-mcp"',
+        f'command = "{mcp_command}"',
     ]
     
     if is_local:

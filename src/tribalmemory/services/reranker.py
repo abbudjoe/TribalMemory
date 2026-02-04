@@ -11,9 +11,12 @@ Reranking happens after initial retrieval (vector + BM25) to refine ordering.
 import logging
 import math
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..interfaces import RecallResult
+
+if TYPE_CHECKING:
+    from ..server.config import SearchConfig
 
 logger = logging.getLogger(__name__)
 
@@ -106,15 +109,16 @@ class HeuristicReranker:
             boost = 0.0
 
             # Recency boost (exponential decay)
+            # Brand new memory (age=0) gets boost of 1.0, older memories decay exponentially
             age_days = (now - candidate.memory.created_at).total_seconds() / 86400
-            recency_boost = math.exp(-age_days / self.recency_decay_days) - math.exp(-1)
-            recency_boost = max(0.0, recency_boost)  # Clamp to non-negative
+            recency_boost = math.exp(-age_days / self.recency_decay_days)
             boost += recency_boost
 
-            # Tag match boost
+            # Tag match boost (exact term matching, not substring)
             if candidate.memory.tags:
-                tag_lower = [t.lower() for t in candidate.memory.tags]
-                matches = sum(1 for term in query_terms if any(term in tag for tag in tag_lower))
+                tag_lower = set(t.lower() for t in candidate.memory.tags)
+                # Count query terms that exactly match tags
+                matches = sum(1 for term in query_terms if term in tag_lower)
                 if matches > 0:
                     boost += self.tag_boost_weight * matches
 
@@ -179,6 +183,7 @@ class CrossEncoderReranker:
     ) -> list[RecallResult]:
         """Rerank using cross-encoder model."""
         if not candidates:
+            logger.debug("No candidates to rerank")
             return []
 
         # Build (query, content) pairs
@@ -205,7 +210,7 @@ class CrossEncoderReranker:
         return reranked
 
 
-def create_reranker(config) -> IReranker:
+def create_reranker(config: "SearchConfig") -> IReranker:
     """Factory function to create reranker from config.
 
     Args:

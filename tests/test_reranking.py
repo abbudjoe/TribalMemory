@@ -92,6 +92,8 @@ class TestHeuristicReranker:
         # Recent should be first due to recency boost
         assert reranked[0].memory.id == "recent"
         assert reranked[0].similarity_score > 0.8  # Boosted
+        assert reranked[1].similarity_score >= 0.8  # Old memory baseline preserved
+        assert reranked[0].similarity_score > reranked[1].similarity_score  # Boost direction
 
     def test_tag_boost(self):
         """Memories with matching tags should score higher."""

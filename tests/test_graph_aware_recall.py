@@ -350,3 +350,26 @@ class TestGraphExpansionEdgeCases:
         for r in results:
             if r.retrieval_method == "graph":
                 assert r.similarity_score >= 0.8
+
+    @pytest.mark.asyncio
+    async def test_recall_expands_via_multiple_query_entities(self, memory_service):
+        """Recall should expand via ALL entities extracted from query."""
+        # Two separate service chains
+        await memory_service.remember("The auth-service uses PostgreSQL")
+        await memory_service.remember("The cache-service uses Redis")
+        await memory_service.remember("PostgreSQL config: max_connections=100")
+        await memory_service.remember("Redis config: maxmemory=2gb")
+        
+        # Query mentions both services
+        results = await memory_service.recall(
+            "How are auth-service and cache-service configured?",
+            graph_expansion=True,
+            limit=10,
+        )
+        
+        contents = [r.memory.content for r in results]
+        # Should find configs for BOTH PostgreSQL and Redis via graph expansion
+        assert any("PostgreSQL config" in c for c in contents), \
+            "Should find PostgreSQL config via auth-service graph connection"
+        assert any("Redis config" in c for c in contents), \
+            "Should find Redis config via cache-service graph connection"

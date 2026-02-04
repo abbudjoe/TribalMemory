@@ -10,11 +10,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..services import create_memory_service, TribalMemoryService
+from ..services.session_store import SessionStore
 from .config import TribalMemoryConfig
 from .routes import router
 
 # Global service instance (set during lifespan)
 _memory_service: Optional[TribalMemoryService] = None
+_session_store: Optional[SessionStore] = None
 _instance_id: Optional[str] = None
 
 logger = logging.getLogger("tribalmemory.server")
@@ -23,7 +25,7 @@ logger = logging.getLogger("tribalmemory.server")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global _memory_service, _instance_id
+    global _memory_service, _session_store, _instance_id
 
     config: TribalMemoryConfig = app.state.config
 
@@ -49,14 +51,23 @@ async def lifespan(app: FastAPI):
         hybrid_candidate_multiplier=config.search.candidate_multiplier,
     )
 
+    # Create session store (shares embedding service and vector store)
+    _session_store = SessionStore(
+        instance_id=config.instance_id,
+        embedding_service=_memory_service.embedding_service,
+        vector_store=_memory_service.vector_store,
+    )
+
     search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"
     logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")
+    logger.info(f"Session store initialized (retention: {config.server.session_retention_days} days)")
 
     yield
 
     # Cleanup
     logger.info("Shutting down tribal-memory service")
     _memory_service = None
+    _session_store = None
     _instance_id = None
 
 

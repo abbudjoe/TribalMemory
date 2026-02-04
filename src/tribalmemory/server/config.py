@@ -52,6 +52,7 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 18790
     session_retention_days: int = 30  # Days to retain session chunks
+    session_retention_days: int = 30  # Days to retain session chunks
 
 
 @dataclass

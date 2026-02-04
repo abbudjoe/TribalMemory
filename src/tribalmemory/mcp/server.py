@@ -16,11 +16,13 @@ from mcp.server.fastmcp import FastMCP
 from ..interfaces import MemorySource
 from ..server.config import TribalMemoryConfig
 from ..services import create_memory_service, TribalMemoryService
+from ..services.session_store import SessionStore, SessionMessage
 
 logger = logging.getLogger(__name__)
 
 # Global service instance (initialized on first use)
 _memory_service: Optional[TribalMemoryService] = None
+_session_store: Optional[SessionStore] = None
 _service_lock = asyncio.Lock()
 
 
@@ -58,6 +60,32 @@ async def get_memory_service() -> TribalMemoryService:
         logger.info(f"Memory service initialized (instance: {instance_id}, db: {config.db.path})")
 
     return _memory_service
+
+
+async def get_session_store() -> SessionStore:
+    """Get or create the session store singleton (thread-safe)."""
+    global _session_store
+    
+    if _session_store is not None:
+        return _session_store
+    
+    memory_service = await get_memory_service()
+    
+    async with _service_lock:
+        if _session_store is not None:
+            return _session_store
+        
+        config = TribalMemoryConfig.from_env()
+        instance_id = os.environ.get("TRIBAL_MEMORY_INSTANCE_ID", "mcp-claude-code")
+        
+        _session_store = SessionStore(
+            instance_id=instance_id,
+            embedding_service=memory_service.embedding_service,
+            vector_store=memory_service.vector_store,
+        )
+        logger.info("Session store initialized")
+    
+    return _session_store
 
 
 def create_server() -> FastMCP:

@@ -204,3 +204,68 @@ class ImportResponse(BaseModel):
     duration_ms: float = 0.0
     error_details: list[str] = Field(default_factory=list)
     error: Optional[str] = None
+
+# =============================================================================
+# Session Indexing Models (Issue #38)
+# =============================================================================
+
+class SessionMessageRequest(BaseModel):
+    """A single message in a session transcript."""
+    role: str = Field(..., description="Message role (user, assistant, system)")
+    content: str = Field(..., description="Message content")
+    timestamp: datetime = Field(..., description="When the message was sent")
+
+
+class SessionIngestRequest(BaseModel):
+    """Request to ingest session transcript."""
+    session_id: str = Field(..., description="Unique session identifier")
+    messages: list[SessionMessageRequest] = Field(
+        ..., description="Conversation messages to index"
+    )
+    instance_id: Optional[str] = Field(
+        default=None,
+        description="Override instance ID (defaults to server's instance_id)"
+    )
+
+
+class SessionIngestResponse(BaseModel):
+    """Response from session ingestion."""
+    success: bool
+    chunks_created: int = 0
+    messages_processed: int = 0
+    error: Optional[str] = None
+
+
+class SessionSearchRequest(BaseModel):
+    """Request to search session transcripts."""
+    query: str = Field(..., description="Natural language search query")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Filter to specific session (optional)"
+    )
+    max_results: int = Field(default=5, ge=1, le=50, description="Maximum results")
+    min_relevance: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score"
+    )
+
+
+class SessionChunkResponse(BaseModel):
+    """A session transcript chunk result."""
+    chunk_id: str
+    session_id: str
+    instance_id: str
+    content: str
+    similarity_score: float
+    start_time: datetime
+    end_time: datetime
+    chunk_index: int
+
+
+class SessionSearchResponse(BaseModel):
+    """Response from session search."""
+    results: list[SessionChunkResponse]
+    query: str
+    error: Optional[str] = None

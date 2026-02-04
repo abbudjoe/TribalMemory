@@ -7,7 +7,7 @@ Supports delta-based ingestion and retention-based cleanup.
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ..interfaces import IEmbeddingService, IVectorStore
@@ -26,7 +26,7 @@ class SessionMessage:
     """
     role: str
     content: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -65,8 +65,8 @@ class SessionStore:
         
         # Ingest a session transcript
         messages = [
-            SessionMessage("user", "What is Docker?", datetime.utcnow()),
-            SessionMessage("assistant", "Docker is a container platform", datetime.utcnow()),
+            SessionMessage("user", "What is Docker?", datetime.now(timezone.utc)),
+            SessionMessage("assistant", "Docker is a container platform", datetime.now(timezone.utc)),
         ]
         await store.ingest("session-123", messages)
         
@@ -153,7 +153,7 @@ class SessionStore:
             }
         
         except Exception as e:
-            logger.error(f"Failed to ingest session {session_id}: {e}")
+            logger.exception(f"Failed to ingest session {session_id}: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -163,7 +163,7 @@ class SessionStore:
         self,
         query: str,
         session_id: Optional[str] = None,
-        max_results: int = 5,
+        limit: int = 5,
         min_relevance: float = 0.0,
     ) -> list[dict]:
         """Search session transcripts by semantic similarity.
@@ -171,7 +171,7 @@ class SessionStore:
         Args:
             query: Natural language search query
             session_id: Optional filter to specific session
-            max_results: Maximum number of results to return
+            limit: Maximum number of results to return
             min_relevance: Minimum similarity score (0.0 to 1.0)
         
         Returns:
@@ -186,14 +186,14 @@ class SessionStore:
             results = await self._search_chunks(
                 query_embedding,
                 session_id,
-                max_results,
+                limit,
                 min_relevance,
             )
             
             return results
         
         except Exception as e:
-            logger.error(f"Failed to search sessions: {e}")
+            logger.exception(f"Failed to search sessions: {e}")
             return []
     
     async def cleanup(self, retention_days: int = 30) -> int:
@@ -206,7 +206,7 @@ class SessionStore:
             Number of chunks deleted
         """
         try:
-            cutoff_time = datetime.utcnow() - timedelta(days=retention_days)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=retention_days)
             
             # Find and delete expired chunks
             deleted = await self._delete_chunks_before(cutoff_time)
@@ -214,7 +214,7 @@ class SessionStore:
             return deleted
         
         except Exception as e:
-            logger.error(f"Failed to cleanup sessions: {e}")
+            logger.exception(f"Failed to cleanup sessions: {e}")
             return 0
     
     async def get_stats(self) -> dict:
@@ -250,7 +250,7 @@ class SessionStore:
             }
         
         except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
+            logger.exception(f"Failed to get stats: {e}")
             return {
                 "total_chunks": 0,
                 "total_sessions": 0,
@@ -331,7 +331,13 @@ class SessionStore:
         return chunks
     
     async def _store_chunk(self, chunk: SessionChunk) -> None:
-        """Store a session chunk (in-memory for now)."""
+        """Store a session chunk in memory.
+        
+        Note: Currently uses in-memory list storage. This is intentional for v0.2.0
+        to keep the initial implementation simple and testable. Data does not persist
+        across restarts. A future version will integrate with LanceDB for persistent
+        storage in a separate 'session_chunks' table. See issue #38 follow-up.
+        """
         if not hasattr(self, '_chunks'):
             self._chunks = []
         
@@ -350,7 +356,7 @@ class SessionStore:
         self,
         query_embedding: list[float],
         session_id: Optional[str],
-        max_results: int,
+        limit: int,
         min_relevance: float,
     ) -> list[dict]:
         """Search for chunks by similarity."""
@@ -384,7 +390,7 @@ class SessionStore:
         # Sort by similarity
         results.sort(key=lambda x: x["similarity_score"], reverse=True)
         
-        return results[:max_results]
+        return results[:limit]
     
     async def _delete_chunks_before(self, cutoff_time: datetime) -> int:
         """Delete chunks older than cutoff time."""

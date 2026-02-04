@@ -1,5 +1,6 @@
 """FastAPI application for tribal-memory service."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -62,13 +63,47 @@ async def lifespan(app: FastAPI):
     logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")
     logger.info(f"Session store initialized (retention: {config.server.session_retention_days} days)")
 
+    # Start background session cleanup task
+    cleanup_task = asyncio.create_task(
+        _session_cleanup_loop(
+            _session_store,
+            config.server.session_retention_days,
+        )
+    )
+
     yield
 
     # Cleanup
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Shutting down tribal-memory service")
     _memory_service = None
     _session_store = None
     _instance_id = None
+
+
+async def _session_cleanup_loop(
+    session_store: SessionStore,
+    retention_days: int,
+) -> None:
+    """Background task that periodically cleans up expired session chunks.
+    
+    Runs every 6 hours. Deletes session chunks older than retention_days.
+    """
+    cleanup_interval = 6 * 60 * 60  # 6 hours in seconds
+    while True:
+        try:
+            await asyncio.sleep(cleanup_interval)
+            deleted = await session_store.cleanup(retention_days=retention_days)
+            if deleted > 0:
+                logger.info(f"Session cleanup: deleted {deleted} expired chunks (retention: {retention_days} days)")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Session cleanup failed")
 
 
 def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:

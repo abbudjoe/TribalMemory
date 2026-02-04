@@ -4,7 +4,7 @@ TDD: RED → GREEN → REFACTOR
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from tribalmemory.services.session_store import (
@@ -63,7 +63,7 @@ class TestSessionStoreChunking:
     """Tests for the chunking algorithm."""
 
     @pytest.fixture
-    def store(self):
+    def store(self) -> SessionStore:
         """Create a SessionStore with mock embedding service."""
         embedding = MockEmbeddingService(embedding_dim=64)
         vector_store = InMemoryVectorStore(embedding)
@@ -141,7 +141,7 @@ class TestSessionStoreIngest:
     """Tests for session ingestion."""
 
     @pytest.fixture
-    def store(self):
+    def store(self) -> SessionStore:
         """Create a SessionStore with mock embedding service."""
         embedding = MockEmbeddingService(embedding_dim=64)
         vector_store = InMemoryVectorStore(embedding)
@@ -218,7 +218,7 @@ class TestSessionStoreSearch:
     """Tests for session search."""
 
     @pytest.fixture
-    def store(self):
+    def store(self) -> SessionStore:
         """Create a SessionStore with mock embedding service."""
         embedding = MockEmbeddingService(embedding_dim=64)
         vector_store = InMemoryVectorStore(embedding)
@@ -241,7 +241,7 @@ class TestSessionStoreSearch:
             SessionMessage("assistant", "Kubernetes orchestrates containers", datetime(2024, 1, 2, 12, 0, 30)),
         ])
 
-        results = await store.search("container", max_results=10)
+        results = await store.search("container", limit=10)
         
         # Should find results from both sessions
         assert len(results) >= 2
@@ -283,7 +283,7 @@ class TestSessionStoreSearch:
         assert len(results_loose) >= len(results_strict)
 
     @pytest.mark.asyncio
-    async def test_search_max_results(self, store):
+    async def test_search_limit(self, store):
         """Should limit number of results returned."""
         # Ingest multiple sessions
         for i in range(10):
@@ -291,7 +291,7 @@ class TestSessionStoreSearch:
                 SessionMessage("user", "What is Docker?", datetime(2024, 1, i + 1, 12, 0, 0)),
             ])
 
-        results = await store.search("Docker", max_results=3)
+        results = await store.search("Docker", limit=3)
         assert len(results) <= 3
 
     @pytest.mark.asyncio
@@ -320,7 +320,7 @@ class TestSessionStoreCleanup:
     """Tests for session retention and cleanup."""
 
     @pytest.fixture
-    def store(self):
+    def store(self) -> SessionStore:
         """Create a SessionStore with mock embedding service."""
         embedding = MockEmbeddingService(embedding_dim=64)
         vector_store = InMemoryVectorStore(embedding)
@@ -334,13 +334,13 @@ class TestSessionStoreCleanup:
     async def test_cleanup_expired_sessions(self, store):
         """Should delete chunks older than retention period."""
         # Ingest old session (35 days ago)
-        old_time = datetime.utcnow() - timedelta(days=35)
+        old_time = datetime.now(timezone.utc) - timedelta(days=35)
         await store.ingest("old-session", [
             SessionMessage("user", "Docker troubleshooting from long ago", old_time),
         ])
 
         # Ingest recent session (5 days ago)
-        recent_time = datetime.utcnow() - timedelta(days=5)
+        recent_time = datetime.now(timezone.utc) - timedelta(days=5)
         await store.ingest("recent-session", [
             SessionMessage("user", "Kubernetes setup help from yesterday", recent_time),
         ])
@@ -362,7 +362,7 @@ class TestSessionStoreCleanup:
     async def test_cleanup_preserves_recent(self, store):
         """Should not delete chunks within retention period."""
         # Ingest recent sessions
-        recent_time = datetime.utcnow() - timedelta(days=5)
+        recent_time = datetime.now(timezone.utc) - timedelta(days=5)
         await store.ingest("session-1", [
             SessionMessage("user", "Python programming tips", recent_time),
         ])
@@ -385,7 +385,7 @@ class TestSessionStoreStats:
     """Tests for session statistics."""
 
     @pytest.fixture
-    def store(self):
+    def store(self) -> SessionStore:
         """Create a SessionStore with mock embedding service."""
         embedding = MockEmbeddingService(embedding_dim=64)
         vector_store = InMemoryVectorStore(embedding)

@@ -394,23 +394,6 @@ async def shutdown() -> ShutdownResponse:
     )
     return ShutdownResponse(status="shutting_down")
 
-# Session imports at top
-from ..services.session_store import SessionStore, SessionMessage
-from .models import (
-    SessionIngestRequest,
-    SessionIngestResponse,
-    SessionSearchRequest,
-    SessionSearchResponse,
-    SessionChunkResponse,
-)
-
-def get_session_store() -> SessionStore:
-    """Dependency injection for session store."""
-    from .app import _session_store
-    if _session_store is None:
-        raise HTTPException(status_code=503, detail="Session store not initialized")
-    return _session_store
-
 # =============================================================================
 # Session Indexing Routes (Issue #38)
 # =============================================================================
@@ -448,13 +431,13 @@ async def ingest_session(
 async def search_sessions(
     query: str,
     session_id: Optional[str] = None,
-    max_results: int = 5,
+    limit: int = 5,
     min_relevance: float = 0.0,
     store: SessionStore = Depends(get_session_store),
 ) -> SessionSearchResponse:
     """Search session transcripts by semantic similarity."""
     try:
-        results = await store.search(query, session_id, max_results, min_relevance)
+        results = await store.search(query, session_id, limit, min_relevance)
         return SessionSearchResponse(
             results=[SessionChunkResponse(**r) for r in results],
             query=query,

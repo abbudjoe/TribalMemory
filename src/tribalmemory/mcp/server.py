@@ -155,17 +155,19 @@ def create_server() -> FastMCP:
         limit: int = 5,
         min_relevance: float = 0.3,
         tags: Optional[list[str]] = None,
+        sources: str = "memories",
     ) -> str:
-        """Search memories by semantic similarity.
+        """Search memories and/or session transcripts by semantic similarity.
 
         Args:
             query: Natural language search query (required)
             limit: Maximum number of results (1-50, default 5)
             min_relevance: Minimum similarity score (0.0-1.0, default 0.3)
             tags: Filter results to only memories with these tags
+            sources: What to search - "memories" (default), "sessions", or "all"
 
         Returns:
-            JSON with: results (list of memories with similarity scores), query, count
+            JSON with: results (list of memories/chunks with similarity scores), query, count
         """
         # Input validation
         if not query or not query.strip():
@@ -176,22 +178,33 @@ def create_server() -> FastMCP:
                 "error": "Query cannot be empty",
             })
         
-        service = await get_memory_service()
+        valid_sources = {"memories", "sessions", "all"}
+        if sources not in valid_sources:
+            return json.dumps({
+                "results": [],
+                "query": query,
+                "count": 0,
+                "error": f"Invalid sources: {sources}. Valid options: {', '.join(sorted(valid_sources))}",
+            })
 
         # Clamp limit to valid range
         limit = max(1, min(50, limit))
         min_relevance = max(0.0, min(1.0, min_relevance))
 
-        results = await service.recall(
-            query=query,
-            limit=limit,
-            min_relevance=min_relevance,
-            tags=tags,
-        )
+        all_results = []
 
-        return json.dumps({
-            "results": [
+        # Search memories
+        if sources in ("memories", "all"):
+            service = await get_memory_service()
+            memory_results = await service.recall(
+                query=query,
+                limit=limit,
+                min_relevance=min_relevance,
+                tags=tags,
+            )
+            all_results.extend([
                 {
+                    "type": "memory",
                     "memory_id": r.memory.id,
                     "content": r.memory.content,
                     "similarity_score": round(r.similarity_score, 4),
@@ -201,11 +214,116 @@ def create_server() -> FastMCP:
                     "created_at": r.memory.created_at.isoformat(),
                     "context": r.memory.context,
                 }
-                for r in results
-            ],
+                for r in memory_results
+            ])
+
+        # Search sessions
+        if sources in ("sessions", "all"):
+            session_store = await get_session_store()
+            session_results = await session_store.search(
+                query=query,
+                limit=limit,
+                min_relevance=min_relevance,
+            )
+            all_results.extend([
+                {
+                    "type": "session",
+                    "chunk_id": r["chunk_id"],
+                    "session_id": r["session_id"],
+                    "instance_id": r["instance_id"],
+                    "content": r["content"],
+                    "similarity_score": round(r["similarity_score"], 4),
+                    "start_time": r["start_time"].isoformat() if hasattr(r["start_time"], "isoformat") else str(r["start_time"]),
+                    "end_time": r["end_time"].isoformat() if hasattr(r["end_time"], "isoformat") else str(r["end_time"]),
+                    "chunk_index": r["chunk_index"],
+                }
+                for r in session_results
+            ])
+
+        # Sort combined results by score, take top limit
+        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        all_results = all_results[:limit]
+
+        return json.dumps({
+            "results": all_results,
             "query": query,
-            "count": len(results),
+            "count": len(all_results),
+            "sources": sources,
         })
+
+    @mcp.tool()
+    async def tribal_sessions_ingest(
+        session_id: str,
+        messages: str,
+        instance_id: Optional[str] = None,
+    ) -> str:
+        """Ingest a session transcript for indexing.
+
+        Chunks conversation messages into ~400 token windows and indexes them
+        for semantic search. Supports delta ingestion — only new messages
+        since last ingest are processed.
+
+        Args:
+            session_id: Unique identifier for the session (required)
+            messages: JSON array of messages, each with "role", "content",
+                and optional "timestamp" (ISO 8601). Example:
+                [{"role": "user", "content": "What is Docker?"},
+                 {"role": "assistant", "content": "Docker is a container platform"}]
+            instance_id: Override the agent instance ID (optional)
+
+        Returns:
+            JSON with: success, chunks_created, messages_processed
+        """
+        if not session_id or not session_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "session_id cannot be empty",
+            })
+
+        try:
+            raw_messages = json.loads(messages)
+        except (json.JSONDecodeError, TypeError) as e:
+            return json.dumps({
+                "success": False,
+                "error": f"Invalid messages JSON: {e}",
+            })
+
+        if not isinstance(raw_messages, list):
+            return json.dumps({
+                "success": False,
+                "error": "messages must be a JSON array",
+            })
+
+        from datetime import datetime, timezone
+        parsed_messages = []
+        for i, msg in enumerate(raw_messages):
+            if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Message {i} must have 'role' and 'content' fields",
+                })
+            
+            ts = datetime.now(timezone.utc)
+            if "timestamp" in msg:
+                try:
+                    ts = datetime.fromisoformat(msg["timestamp"])
+                except (ValueError, TypeError):
+                    pass  # Use current time if timestamp is invalid
+            
+            parsed_messages.append(SessionMessage(
+                role=msg["role"],
+                content=msg["content"],
+                timestamp=ts,
+            ))
+
+        session_store = await get_session_store()
+        result = await session_store.ingest(
+            session_id=session_id,
+            messages=parsed_messages,
+            instance_id=instance_id,
+        )
+
+        return json.dumps(result)
 
     @mcp.tool()
     async def tribal_correct(

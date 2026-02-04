@@ -32,6 +32,8 @@ interface SearchResult {
   snippet: string;
   source?: string;
   tags?: string[];
+  /** The query variant that produced this result (set by search()). */
+  sourceQuery?: string;
 }
 
 interface RecallResult {
@@ -83,6 +85,8 @@ export class TribalClient {
           }
           if (!seenIds.has(result.id)) {
             seenIds.add(result.id);
+            // Track which query variant produced this result
+            result.sourceQuery = query;
             allResults.push(result);
           }
         }

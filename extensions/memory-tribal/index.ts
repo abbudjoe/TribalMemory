@@ -79,18 +79,23 @@ const DEFAULTS: PluginConfig = {
 // ============================================================================
 
 const MEMORY_TRIGGERS = [
-  /remember|zapamatuj si|pamatuj/i,
-  /prefer|radši|nechci|preferuji/i,
-  /rozhodli jsme|budeme používat/i,
-  /\+\d{10,}/,
-  /[\w.-]+@[\w.-]+\.\w+/,
-  /my\s+\w+\s+is|is\s+my/i,
-  /i (like|prefer|hate|love|want|need)/i,
-  /always|never|important/i,
+  /remember|zapamatuj si|pamatuj/iu,
+  /prefer|radši|nechci|preferuji/iu,
+  /rozhodli jsme|budeme používat/iu,
+  /\+\d{10,}/u,
+  /[\w.-]+@[\w.-]+\.\w+/u,
+  /my\s+\w+\s+is|is\s+my/iu,
+  /i (like|prefer|hate|love|want|need)/iu,
+  /always|never|important/iu,
 ];
 
+const CAPTURE_MIN_LENGTH = 10;
+const CAPTURE_MAX_LENGTH = 500;
+
 function shouldCapture(text: string): boolean {
-  if (text.length < 10 || text.length > 500) return false;
+  if (text.length < CAPTURE_MIN_LENGTH || text.length > CAPTURE_MAX_LENGTH) {
+    return false;
+  }
   if (text.includes("<relevant-memories>")) return false;
   if (text.startsWith("<") && text.includes("</")) return false;
   if (text.includes("**") && text.includes("\n-")) return false;
@@ -310,7 +315,7 @@ const memoryTribalPlugin = {
       async execute(
         toolCallId: string,
         params: { query: string; maxResults?: number; minScore?: number },
-        context: any,
+        context: Record<string, unknown>,
       ) {
         const { query, maxResults = 5, minScore = 0.1 } = params;
         const sessionId = context?.sessionId ?? "unknown";
@@ -505,7 +510,7 @@ const memoryTribalPlugin = {
         async execute(
           toolCallId: string,
           params: { usedPaths: string[] },
-          context: any,
+          context: Record<string, unknown>,
         ) {
           const sessionId = context?.sessionId ?? "unknown";
           if (config.feedbackEnabled) {
@@ -538,7 +543,7 @@ const memoryTribalPlugin = {
           "circuit breaker, smart triggers, session dedup.",
         parameters: Type.Object({}),
         async execute(
-          toolCallId: string, params: any, context: any,
+          toolCallId: string, params: Record<string, unknown>, context: Record<string, unknown>,
         ) {
           const sessionId = context?.sessionId ?? "unknown";
           const turnId = context?.turnId ?? `turn-${Date.now()}`;
@@ -598,9 +603,9 @@ const memoryTribalPlugin = {
                 [query], { maxResults: parseInt(opts.limit) },
               );
               for (const r of results) {
-                console.log(
-                  `[${r.score.toFixed(3)}] ${r.snippet.slice(0, 80)}`,
-                );
+                const score = r.score?.toFixed(3) ?? "N/A";
+                const snippet = r.snippet?.slice(0, 80) ?? "";
+                console.log(`[${score}] ${snippet}`);
               }
               if (results.length === 0) console.log("No results.");
             } catch (err: any) {
@@ -615,12 +620,23 @@ const memoryTribalPlugin = {
     // Lifecycle Hooks
     // ========================================================================
 
-    // Auto-recall: inject relevant memories before agent responds
+    /**
+     * Auto-recall: inject relevant memories before agent responds.
+     *
+     * Triggered on every `before_agent_start` event. Searches tribal
+     * memory for context relevant to the user's prompt and injects
+     * matching memories via `prependContext`. Gated by smart triggers
+     * (skips low-value prompts) and circuit breaker (backs off after
+     * repeated empty recalls).
+     *
+     * Returns `{ prependContext }` with XML-wrapped memory snippets,
+     * or void if no relevant memories are found.
+     */
     if (config.autoRecall) {
-      api.on("before_agent_start", async (event) => {
+      api.on("before_agent_start", async (event, ctx) => {
         if (!event.prompt || event.prompt.length < 5) return;
 
-        const sessionId = "auto-recall";
+        const sessionId = ctx?.sessionKey ?? "auto-recall";
 
         try {
           // Smart trigger gate
@@ -684,39 +700,57 @@ const memoryTribalPlugin = {
       });
     }
 
-    // Auto-capture: store learnings after agent turns
+    /**
+     * Auto-capture: store learnings after agent turns.
+     *
+     * Triggered on every `agent_end` event (only when `event.success`
+     * is true). Scans user and assistant messages for memorable content
+     * using rule-based triggers (preferences, decisions, entities).
+     * Stores up to 3 memories per turn via the tribal-memory HTTP API.
+     * Deduplication is handled server-side.
+     */
     if (config.autoCapture) {
-      api.on("agent_end", async (event) => {
+      api.on("agent_end", async (event, ctx) => {
         if (!event.success || !event.messages?.length) return;
 
         try {
           const texts: string[] = [];
           for (const msg of event.messages) {
+            // Defensive: skip anything that isn't an object
             if (!msg || typeof msg !== "object") continue;
-            const msgObj = msg as Record<string, unknown>;
-            const role = msgObj.role;
-            if (role !== "user" && role !== "assistant") continue;
 
-            const content = msgObj.content;
-            if (typeof content === "string") {
-              texts.push(content);
-              continue;
-            }
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (
-                  block &&
-                  typeof block === "object" &&
-                  "type" in block &&
-                  (block as Record<string, unknown>).type === "text" &&
-                  "text" in block &&
-                  typeof (block as Record<string, unknown>).text === "string"
-                ) {
-                  texts.push(
-                    (block as Record<string, unknown>).text as string,
-                  );
+            try {
+              const msgObj = msg as Record<string, unknown>;
+              const role = msgObj.role;
+              if (role !== "user" && role !== "assistant") continue;
+
+              const content = msgObj.content;
+              if (typeof content === "string") {
+                texts.push(content);
+                continue;
+              }
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (
+                    block &&
+                    typeof block === "object" &&
+                    "type" in block &&
+                    (block as Record<string, unknown>).type === "text" &&
+                    "text" in block &&
+                    typeof (block as Record<string, unknown>).text ===
+                      "string"
+                  ) {
+                    texts.push(
+                      (block as Record<string, unknown>).text as string,
+                    );
+                  }
                 }
               }
+              // Other content types (images, etc.) are silently skipped
+            } catch {
+              // Skip malformed messages — don't let one bad message
+              // prevent capturing from the rest of the conversation
+              continue;
             }
           }
 
@@ -724,13 +758,17 @@ const memoryTribalPlugin = {
           if (toCapture.length === 0) return;
 
           let stored = 0;
+          const captured: string[] = [];
           for (const text of toCapture.slice(0, 3)) {
             try {
               const result = await tribalClient.remember(text, {
                 sourceType: "auto_capture",
-                context: "OpenClaw auto-capture",
+                context: `OpenClaw auto-capture (session: ${ctx?.sessionKey ?? "unknown"})`,
               });
-              if (result.success) stored++;
+              if (result.success) {
+                stored++;
+                captured.push(text.slice(0, 60));
+              }
             } catch {
               // Best-effort capture — skip on failure
             }
@@ -738,7 +776,8 @@ const memoryTribalPlugin = {
 
           if (stored > 0) {
             api.logger.info(
-              `[memory-tribal] Auto-captured ${stored} memories`,
+              `[memory-tribal] Auto-captured ${stored} memories: ` +
+              captured.map(t => `"${t}..."`).join(", "),
             );
           }
         } catch (err) {

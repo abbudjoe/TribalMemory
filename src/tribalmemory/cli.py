@@ -134,7 +134,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _setup_claude_code_mcp(is_local: bool):
+def _setup_claude_code_mcp(is_local: bool) -> None:
     """Add Tribal Memory to Claude Code's MCP configuration."""
     # Claude Code MCP config paths by platform
     claude_config_paths = [
@@ -185,7 +185,7 @@ def _setup_claude_code_mcp(is_local: bool):
     print(f"✅ Claude Code MCP config updated: {config_path}")
 
 
-def _setup_codex_mcp(is_local: bool):
+def _setup_codex_mcp(is_local: bool) -> None:
     """Add Tribal Memory to Codex CLI's MCP configuration (~/.codex/config.toml)."""
     codex_config_path = Path.home() / ".codex" / "config.toml"
     codex_config_path.parent.mkdir(parents=True, exist_ok=True)

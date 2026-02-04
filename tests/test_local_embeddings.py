@@ -179,6 +179,41 @@ db:
         assert not any("api_key" in e for e in errors)
 
 
+class TestOllamaIntegration:
+    """Live integration tests — skipped if Ollama is not running."""
+
+    @staticmethod
+    def _ollama_available() -> bool:
+        """Check if Ollama is reachable on localhost."""
+        try:
+            import httpx
+            r = httpx.get(
+                "http://localhost:11434/api/tags", timeout=2.0
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    @pytest.mark.skipif(
+        not _ollama_available.__func__(),  # type: ignore[attr-defined]
+        reason="Ollama not running on localhost:11434",
+    )
+    @pytest.mark.asyncio
+    async def test_embed_with_ollama(self):
+        """End-to-end: embed text via local Ollama."""
+        service = OpenAIEmbeddingService(
+            api_base="http://localhost:11434/v1",
+            model="nomic-embed-text",
+            dimensions=768,
+        )
+        try:
+            result = await service.embed("hello world")
+            assert len(result) == 768
+            assert all(isinstance(v, float) for v in result)
+        finally:
+            await service.close()
+
+
 class TestCreateMemoryServiceLocal:
     """create_memory_service should support local embedding config."""
 

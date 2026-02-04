@@ -197,7 +197,7 @@ class TestBenchmarkComparison:
     @pytest.mark.benchmark
     async def test_benchmark_result_logging(self, memory_service, result_logger):
         """Test that benchmark results can be logged for comparison."""
-        from src.tribalmemory.testing.metrics import TestResult
+        from tribalmemory.testing.metrics import TestResult
         
         # Run a mini RAGAS eval
         await memory_service.remember("Test fact for benchmarking")

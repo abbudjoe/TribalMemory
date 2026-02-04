@@ -4,10 +4,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-from src.tribalmemory.a21.system import MemorySystem
-from src.tribalmemory.a21.config import SystemConfig
-from src.tribalmemory.a21.config.providers import EmbeddingProviderType, StorageProviderType
-from src.tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult, StoreResult
+from tribalmemory.a21.system import MemorySystem
+from tribalmemory.a21.config import SystemConfig
+from tribalmemory.a21.config.providers import EmbeddingProviderType, StorageProviderType
+from tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult, StoreResult
 
 
 class TestMemorySystemLifecycle:

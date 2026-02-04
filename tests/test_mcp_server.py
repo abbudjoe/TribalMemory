@@ -6,7 +6,7 @@ import pytest
 
 mcp = pytest.importorskip("mcp")
 
-from src.tribalmemory.mcp import server as mcp_server
+from tribalmemory.mcp import server as mcp_server
 
 
 def _extract_tool_names(server):

@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from datetime import datetime
 
-from src.tribalmemory.interfaces import MemorySource, MemoryEntry
+from tribalmemory.interfaces import MemorySource, MemoryEntry
 
 
 class TestWriteReadIntegrity:
@@ -137,7 +137,7 @@ class TestCrossInstancePropagation:
     @pytest.mark.edge_case
     async def test_t1_2_5_store_failure_graceful(self, capacity_limited_store, embedding_service):
         """T1.2.5: Graceful handling when store is unavailable."""
-        from src.tribalmemory.testing import MockMemoryService
+        from tribalmemory.testing import MockMemoryService
         
         memory_service = MockMemoryService(
             instance_id="test",
@@ -268,7 +268,7 @@ class TestPerformance:
     @pytest.mark.failure_mode
     async def test_t1_5_3_embedding_timeout_graceful(self, timeout_embedding_service):
         """T1.5.3: Graceful handling of embedding API timeout."""
-        from src.tribalmemory.testing import MockMemoryService
+        from tribalmemory.testing import MockMemoryService
         
         memory_service = MockMemoryService(
             instance_id="test",

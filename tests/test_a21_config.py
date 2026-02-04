@@ -4,8 +4,8 @@ import os
 import pytest
 from unittest.mock import patch
 
-from src.tribalmemory.a21.config import SystemConfig
-from src.tribalmemory.a21.config.providers import (
+from tribalmemory.a21.config import SystemConfig
+from tribalmemory.a21.config.providers import (
     EmbeddingConfig,
     StorageConfig,
     TimestampConfig,

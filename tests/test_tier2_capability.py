@@ -7,7 +7,7 @@ Success threshold: >30% improvement in aggregate.
 import pytest
 from pathlib import Path
 
-from src.tribalmemory.interfaces import MemorySource
+from tribalmemory.interfaces import MemorySource
 
 
 class TestPreferencePrediction:

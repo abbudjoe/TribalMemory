@@ -319,6 +319,16 @@ class TestAutoCapture:
         claude_md = cli_env / ".claude" / "CLAUDE.md"
         assert not claude_md.exists()
 
+    def test_auto_capture_claude_only_skips_codex(self, cli_env):
+        """--auto-capture --claude-code (no --codex) should only write CLAUDE.md."""
+        result = cmd_init(FakeArgs(auto_capture=True, claude_code=True))
+
+        assert result == 0
+        claude_md = cli_env / CLAUDE_INSTRUCTIONS_FILE
+        codex_md = cli_env / CODEX_INSTRUCTIONS_FILE
+        assert claude_md.exists()
+        assert not codex_md.exists()
+
     def test_auto_capture_with_codex_writes_agents_md(self, cli_env):
         """--auto-capture --codex should write to ~/.codex/AGENTS.md."""
         result = cmd_init(FakeArgs(auto_capture=True, codex=True))

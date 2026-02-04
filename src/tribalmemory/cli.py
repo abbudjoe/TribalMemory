@@ -197,10 +197,14 @@ def _setup_auto_capture(claude_code: bool = False, codex: bool = False) -> None:
     
     Skips if instructions are already present (idempotent).
     """
+    # If no specific flag, write to both (default behavior)
+    if not claude_code and not codex:
+        claude_code = codex = True
+
     targets = []
-    if claude_code or (not claude_code and not codex):
+    if claude_code:
         targets.append(("Claude Code", Path.home() / CLAUDE_INSTRUCTIONS_FILE))
-    if codex or (not claude_code and not codex):
+    if codex:
         targets.append(("Codex CLI", Path.home() / CODEX_INSTRUCTIONS_FILE))
 
     for label, instructions_path in targets:
@@ -424,7 +428,7 @@ def main() -> None:
     init_parser.add_argument("--codex", action="store_true",
                              help="Configure Codex CLI MCP integration")
     init_parser.add_argument("--auto-capture", action="store_true",
-                             help="Enable auto-capture (writes CLAUDE.md instructions)")
+                             help="Enable auto-capture (writes instructions to agent config files)")
     init_parser.add_argument("--instance-id", type=str, default=None,
                              help="Instance identifier (default: 'default')")
     init_parser.add_argument("--force", action="store_true",

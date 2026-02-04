@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
         hybrid_search=config.search.hybrid_enabled,
         hybrid_vector_weight=config.search.vector_weight,
         hybrid_text_weight=config.search.text_weight,
+        hybrid_candidate_multiplier=config.search.candidate_multiplier,
     )
 
     search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"

@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from tribalmemory.server.config import SearchConfig
 from tribalmemory.services.fts_store import FTSStore
 from tribalmemory.services.memory import TribalMemoryService
 from tribalmemory.services.vector_store import InMemoryVectorStore
@@ -91,6 +92,13 @@ class TestFTSStore:
         fts.index("mem-2", "World", [])
         assert fts.count() == 2
 
+    def test_search_malformed_query(self, fts):
+        """Should return empty list for malformed FTS query."""
+        fts.index("mem-1", "Test content", [])
+        # Unbalanced quotes cause FTS syntax error
+        results = fts.search('unbalanced"quote', limit=5)
+        assert len(results) == 0
+
 
 class TestHybridScoring:
     """Tests for hybrid score merging (vector + BM25)."""
@@ -169,6 +177,37 @@ class TestHybridScoring:
         v_score_t = next(r for r in merged_t if r["id"] == "v")["final_score"]
         b_score_t = next(r for r in merged_t if r["id"] == "b")["final_score"]
         assert b_score_t > v_score_t  # BM25 result should win
+
+
+class TestSearchConfig:
+    """Tests for SearchConfig validation."""
+
+    def test_valid_config(self):
+        """Should accept valid config."""
+        config = SearchConfig(
+            vector_weight=0.7, text_weight=0.3, candidate_multiplier=4
+        )
+        assert config.vector_weight == 0.7
+
+    def test_negative_vector_weight_rejected(self):
+        """Should reject negative vector_weight."""
+        with pytest.raises(ValueError, match="vector_weight"):
+            SearchConfig(vector_weight=-0.1, text_weight=0.3)
+
+    def test_negative_text_weight_rejected(self):
+        """Should reject negative text_weight."""
+        with pytest.raises(ValueError, match="text_weight"):
+            SearchConfig(vector_weight=0.7, text_weight=-0.1)
+
+    def test_both_zero_weights_rejected(self):
+        """Should reject both weights being zero."""
+        with pytest.raises(ValueError, match="(?i)at least one"):
+            SearchConfig(vector_weight=0.0, text_weight=0.0)
+
+    def test_zero_candidate_multiplier_rejected(self):
+        """Should reject candidate_multiplier < 1."""
+        with pytest.raises(ValueError, match="candidate_multiplier"):
+            SearchConfig(candidate_multiplier=0)
 
 
 class TestHybridIntegration:

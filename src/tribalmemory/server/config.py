@@ -61,6 +61,18 @@ class SearchConfig:
     text_weight: float = 0.3
     candidate_multiplier: int = 4
 
+    def __post_init__(self):
+        if self.vector_weight < 0:
+            raise ValueError("vector_weight must be non-negative")
+        if self.text_weight < 0:
+            raise ValueError("text_weight must be non-negative")
+        if self.vector_weight == 0 and self.text_weight == 0:
+            raise ValueError(
+                "At least one of vector_weight or text_weight must be > 0"
+            )
+        if self.candidate_multiplier < 1:
+            raise ValueError("candidate_multiplier must be >= 1")
+
 
 @dataclass
 class TribalMemoryConfig:

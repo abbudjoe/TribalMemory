@@ -1,7 +1,9 @@
 """Tribal Memory Service - Main API for agents."""
 
+import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 import uuid
 
@@ -16,6 +18,8 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
+
+logger = logging.getLogger(__name__)
 
 
 class TribalMemoryService(IMemoryService):
@@ -102,12 +106,12 @@ class TribalMemoryService(IMemoryService):
         
         result = await self.vector_store.store(entry)
         
-        # Index in FTS for hybrid search
+        # Index in FTS for hybrid search (best-effort; vector store is primary)
         if result.success and self.fts_store:
             try:
                 self.fts_store.index(entry.id, content, tags or [])
-            except Exception:
-                pass  # FTS is best-effort; vector store is primary
+            except Exception as e:
+                logger.warning("FTS indexing failed for %s: %s", entry.id, e)
         
         return result
     
@@ -254,8 +258,8 @@ class TribalMemoryService(IMemoryService):
         if result and self.fts_store:
             try:
                 self.fts_store.delete(memory_id)
-            except Exception:
-                pass  # FTS cleanup is best-effort
+            except Exception as e:
+                logger.warning("FTS cleanup failed for %s: %s", memory_id, e)
         return result
     
     async def get(self, memory_id: str) -> Optional[MemoryEntry]:
@@ -264,40 +268,17 @@ class TribalMemoryService(IMemoryService):
     
     async def get_stats(self) -> dict:
         """Get memory statistics.
-        
-        Note: Stats are computed over up to 10,000 most recent memories.
-        For systems with >10k memories, consider using count() with filters.
+
+        Delegates to vector_store.get_stats() which computes aggregates
+        efficiently (paginated by default, native queries for SQL-backed
+        stores).
         """
-        all_memories = await self.vector_store.list(limit=10000)
-        
-        by_source: dict[str, int] = {}
-        by_instance: dict[str, int] = {}
-        by_tag: dict[str, int] = {}
-        
-        for m in all_memories:
-            source = m.source_type.value
-            by_source[source] = by_source.get(source, 0) + 1
-            
-            instance = m.source_instance
-            by_instance[instance] = by_instance.get(instance, 0) + 1
-            
-            for tag in m.tags:
-                by_tag[tag] = by_tag.get(tag, 0) + 1
-        
-        corrections = sum(1 for m in all_memories if m.supersedes)
-        
-        return {
-            "total_memories": len(all_memories),
-            "by_source_type": by_source,
-            "by_tag": by_tag,
-            "by_instance": by_instance,
-            "corrections": corrections,
-        }
+        return await self.vector_store.get_stats()
 
     @staticmethod
     def _filter_superseded(results: list[RecallResult]) -> list[RecallResult]:
         """Remove memories that are superseded by corrections in the result set."""
-        superseded_ids = {
+        superseded_ids: set[str] = {
             r.memory.supersedes for r in results if r.memory.supersedes
         }
         if not superseded_ids:
@@ -315,6 +296,7 @@ def create_memory_service(
     hybrid_search: bool = True,
     hybrid_vector_weight: float = 0.7,
     hybrid_text_weight: float = 0.3,
+    hybrid_candidate_multiplier: int = 4,
 ) -> TribalMemoryService:
     """Factory function to create a memory service with sensible defaults.
     
@@ -330,6 +312,9 @@ def create_memory_service(
         hybrid_search: Enable BM25 hybrid search (default: True).
         hybrid_vector_weight: Weight for vector similarity (default: 0.7).
         hybrid_text_weight: Weight for BM25 text score (default: 0.3).
+        hybrid_candidate_multiplier: Multiplier for candidate pool size
+            (default: 4). Retrieves 4× limit from each source before
+            merging.
     
     Returns:
         Configured TribalMemoryService ready for use.
@@ -399,4 +384,5 @@ def create_memory_service(
         hybrid_search=hybrid_search,
         hybrid_vector_weight=hybrid_vector_weight,
         hybrid_text_weight=hybrid_text_weight,
+        hybrid_candidate_multiplier=hybrid_candidate_multiplier,
     )

@@ -174,6 +174,50 @@ class IVectorStore(ABC):
         """Count memories matching filters."""
         pass
 
+    async def get_stats(self) -> dict:
+        """Compute aggregate statistics over all memories.
+
+        Returns dict with keys:
+            total_memories, by_source_type, by_tag, by_instance, corrections
+
+        Default implementation iterates in pages of 500. Subclasses
+        should override with native queries (SQL GROUP BY, etc.) for
+        stores with >10k entries.
+        """
+        page_size = 500
+        total = 0
+        corrections = 0
+        by_source: dict[str, int] = {}
+        by_instance: dict[str, int] = {}
+        by_tag: dict[str, int] = {}
+
+        offset = 0
+        while True:
+            page = await self.list(limit=page_size, offset=offset)
+            if not page:
+                break
+            total += len(page)
+            for m in page:
+                src = m.source_type.value
+                by_source[src] = by_source.get(src, 0) + 1
+                inst = m.source_instance
+                by_instance[inst] = by_instance.get(inst, 0) + 1
+                for tag in m.tags:
+                    by_tag[tag] = by_tag.get(tag, 0) + 1
+                if m.supersedes:
+                    corrections += 1
+            if len(page) < page_size:
+                break
+            offset += page_size
+
+        return {
+            "total_memories": total,
+            "by_source_type": by_source,
+            "by_tag": by_tag,
+            "by_instance": by_instance,
+            "corrections": corrections,
+        }
+
 
 class IDeduplicationService(ABC):
     """Interface for detecting duplicate memories."""

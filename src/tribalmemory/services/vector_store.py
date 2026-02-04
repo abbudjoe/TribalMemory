@@ -252,7 +252,63 @@ class LanceDBVectorStore(IVectorStore):
     async def count(self, filters: Optional[dict] = None) -> int:
         entries = await self.list(limit=100000, filters=filters)
         return len(entries)
-    
+
+    async def get_stats(self) -> dict:
+        """Compute stats natively over LanceDB rows.
+
+        Iterates rows in pages to avoid loading all embeddings into
+        RAM. Only the metadata columns are read.
+        """
+        await self._ensure_initialized()
+
+        by_source: dict[str, int] = {}
+        by_instance: dict[str, int] = {}
+        by_tag: dict[str, int] = {}
+        total = 0
+        corrections = 0
+
+        page_size = 1000
+        offset = 0
+        while True:
+            rows = (
+                self._table.search()
+                .where("deleted = false")
+                .select(["source_type", "source_instance", "tags",
+                         "supersedes"])
+                .limit(page_size + offset)
+                .to_list()
+            )
+            page = rows[offset:]
+            if not page:
+                break
+
+            for row in page:
+                total += 1
+                src = row.get("source_type", "unknown")
+                by_source[src] = by_source.get(src, 0) + 1
+
+                inst = row.get("source_instance", "unknown")
+                by_instance[inst] = by_instance.get(inst, 0) + 1
+
+                tags = json.loads(row.get("tags", "[]"))
+                for tag in tags:
+                    by_tag[tag] = by_tag.get(tag, 0) + 1
+
+                if row.get("supersedes"):
+                    corrections += 1
+
+            if len(page) < page_size:
+                break
+            offset += page_size
+
+        return {
+            "total_memories": total,
+            "by_source_type": by_source,
+            "by_tag": by_tag,
+            "by_instance": by_instance,
+            "corrections": corrections,
+        }
+
     def _row_to_entry(self, row: dict) -> MemoryEntry:
         return MemoryEntry(
             id=row["id"],
@@ -358,3 +414,32 @@ class InMemoryVectorStore(IVectorStore):
     async def count(self, filters: Optional[dict] = None) -> int:
         entries = await self.list(limit=100000, filters=filters)
         return len(entries)
+
+    async def get_stats(self) -> dict:
+        """Compute stats in a single pass over in-memory entries."""
+        by_source: dict[str, int] = {}
+        by_instance: dict[str, int] = {}
+        by_tag: dict[str, int] = {}
+        total = 0
+        corrections = 0
+
+        for entry in self._store.values():
+            if entry.id in self._deleted:
+                continue
+            total += 1
+            src = entry.source_type.value
+            by_source[src] = by_source.get(src, 0) + 1
+            inst = entry.source_instance
+            by_instance[inst] = by_instance.get(inst, 0) + 1
+            for tag in entry.tags:
+                by_tag[tag] = by_tag.get(tag, 0) + 1
+            if entry.supersedes:
+                corrections += 1
+
+        return {
+            "total_memories": total,
+            "by_source_type": by_source,
+            "by_tag": by_tag,
+            "by_instance": by_instance,
+            "corrections": corrections,
+        }

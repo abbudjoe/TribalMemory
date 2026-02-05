@@ -180,6 +180,51 @@ def load_env_file() -> None:
                 os.environ[k] = v
 
 
+def _auto_install_fastembed() -> bool:
+    """Prompt to install fastembed, then install via the running Python.
+
+    Uses ``sys.executable -m pip install fastembed`` so it works inside
+    uv tool environments, regular venvs, and system Python alike.
+
+    Returns True if fastembed is available after the attempt.
+    """
+    import subprocess
+
+    print("📦 FastEmbed is not installed (needed for local embeddings).")
+
+    if sys.stdin.isatty():
+        answer = input("   Install it now? [Y/n] ").strip().lower()
+        if answer and answer not in ("y", "yes"):
+            print()
+            print("   To install manually:")
+            print(f"   {sys.executable} -m pip install fastembed")
+            print("   Or use --openai or --ollama instead.")
+            return False
+    else:
+        print("   Auto-installing (non-interactive)...")
+
+    print(f"   Installing fastembed via {sys.executable}...")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "fastembed"],
+            stdout=subprocess.DEVNULL if not sys.stdin.isatty() else None,
+        )
+    except subprocess.CalledProcessError:
+        print("❌ Installation failed. Try manually:")
+        print(f"   {sys.executable} -m pip install fastembed")
+        return False
+
+    # Verify it actually worked
+    try:
+        import fastembed as _  # noqa: F401
+        print("✅ FastEmbed installed successfully.")
+        return True
+    except ImportError:
+        print("❌ Install completed but import still fails.")
+        print(f"   Try: {sys.executable} -m pip install fastembed")
+        return False
+
+
 def _detect_provider(args: argparse.Namespace) -> str:
     """Determine which embedding provider to use.
 
@@ -237,15 +282,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     provider = _detect_provider(args)
     no_api_key = provider in ("fastembed", "ollama")
 
-    # Validate FastEmbed is installed before writing config
+    # Validate FastEmbed is installed — auto-install if missing
     if provider == "fastembed":
         try:
             import fastembed as _  # noqa: F401
         except ImportError:
-            print("⚠️  FastEmbed not installed. Install with:")
-            print("   pip install 'tribalmemory[fastembed]'")
-            print("   Or use --openai or --ollama instead.")
-            return 1
+            if not _auto_install_fastembed():
+                return 1
 
     # Choose template + build config
     if provider == "openai":

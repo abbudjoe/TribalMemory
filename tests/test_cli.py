@@ -110,8 +110,10 @@ class TestInitCommand:
         with pytest.raises(SystemExit):
             cmd_init(FakeArgs(openai=True))
 
-    def test_init_fastembed_checks_import(self, cli_env, monkeypatch):
-        """init should fail with helpful message if fastembed not installed."""
+    def test_init_fastembed_offers_install_on_missing(
+        self, cli_env, monkeypatch
+    ):
+        """init should offer to install fastembed if missing, fail on decline."""
         import builtins
         real_import = builtins.__import__
 
@@ -121,6 +123,12 @@ class TestInitCommand:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
+        # User declines install
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        monkeypatch.setattr(
+            "sys.stdin",
+            type("FakeTTY", (), {"isatty": lambda s: True})(),
+        )
         result = cmd_init(FakeArgs())
         assert result == 1
 

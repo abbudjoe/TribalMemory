@@ -4,11 +4,14 @@ Indexes conversation transcripts as chunked embeddings for contextual recall.
 Supports delta-based ingestion and retention-based cleanup.
 """
 
+import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from ..interfaces import IEmbeddingService, IVectorStore
 
@@ -192,6 +195,9 @@ class SessionStore:
             
             return results
         
+        except ValueError:
+            # Re-raise ValueError (e.g., invalid session_id)
+            raise
         except Exception as e:
             logger.exception(f"Failed to search sessions: {e}")
             return []
@@ -410,3 +416,217 @@ class SessionStore:
         if not hasattr(self, '_chunks'):
             return []
         return self._chunks
+
+
+class LanceDBSessionStore(SessionStore):
+    """LanceDB-backed session store for persistent storage.
+    
+    Stores session chunks in a dedicated LanceDB table with full persistence
+    across restarts. Inherits chunking and delta ingestion logic from SessionStore.
+    """
+    
+    TABLE_NAME = "session_chunks"
+    
+    def __init__(
+        self,
+        instance_id: str,
+        embedding_service: IEmbeddingService,
+        vector_store: IVectorStore,
+        db_path: Optional[Union[str, Path]] = None,
+        db_uri: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ):
+        super().__init__(instance_id, embedding_service, vector_store)
+        self.db_path = Path(db_path) if db_path else None
+        self.db_uri = db_uri
+        self.api_key = api_key or os.environ.get("LANCEDB_API_KEY")
+        
+        self._db = None
+        self._table = None
+        self._initialized = False
+    
+    async def _ensure_initialized(self):
+        """Lazily initialize database connection."""
+        if self._initialized:
+            return
+        
+        try:
+            import lancedb
+        except ImportError:
+            raise ImportError("LanceDB not installed. Run: pip install lancedb")
+        
+        if self.db_uri:
+            self._db = lancedb.connect(self.db_uri, api_key=self.api_key)
+        elif self.db_path:
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            self._db = lancedb.connect(str(self.db_path))
+        else:
+            raise ValueError("Either db_path or db_uri must be provided")
+        
+        if self.TABLE_NAME in self._db.table_names():
+            self._table = self._db.open_table(self.TABLE_NAME)
+        else:
+            self._table = self._create_table()
+        
+        self._initialized = True
+    
+    def _create_table(self) -> "lancedb.table.Table":
+        """Create the session_chunks table with the defined schema."""
+        import pyarrow as pa
+        
+        schema = pa.schema([
+            pa.field("id", pa.string()),
+            pa.field("session_id", pa.string()),
+            pa.field("instance_id", pa.string()),
+            pa.field("content", pa.string()),
+            pa.field("embedding", pa.list_(pa.float32(), self._get_embedding_dim())),
+            pa.field("chunk_index", pa.int32()),
+            pa.field("created_at", pa.string()),
+            pa.field("start_time", pa.string()),
+            pa.field("end_time", pa.string()),
+            pa.field("metadata", pa.string()),
+        ])
+        
+        return self._db.create_table(self.TABLE_NAME, schema=schema)
+    
+    def _get_embedding_dim(self) -> int:
+        """Get the expected embedding dimension from the embedding service."""
+        if hasattr(self.embedding_service, 'dimensions'):
+            return self.embedding_service.dimensions
+        if hasattr(self.embedding_service, 'embedding_dim'):
+            return self.embedding_service.embedding_dim
+        return 1536  # Default for text-embedding-3-small
+    
+    async def _store_chunk(self, chunk: SessionChunk) -> None:
+        """Store a session chunk in LanceDB."""
+        await self._ensure_initialized()
+        
+        row = {
+            "id": chunk.chunk_id,
+            "session_id": chunk.session_id,
+            "instance_id": chunk.instance_id,
+            "content": chunk.content,
+            "embedding": chunk.embedding,
+            "chunk_index": chunk.chunk_index,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "start_time": chunk.start_time.isoformat(),
+            "end_time": chunk.end_time.isoformat(),
+            "metadata": json.dumps({}),  # Reserved for future use
+        }
+        
+        self._table.add([row])
+    
+    async def _search_chunks(
+        self,
+        query_embedding: list[float],
+        session_id: Optional[str],
+        limit: int,
+        min_relevance: float,
+    ) -> list[dict]:
+        """Search for chunks by similarity using LanceDB vector search."""
+        await self._ensure_initialized()
+        
+        # Build query with optional session filter
+        query = self._table.search(query_embedding).limit(limit * 2)
+        
+        if session_id:
+            # Sanitize session_id to prevent injection
+            safe_session_id = self._sanitize_id(session_id)
+            query = query.where(f"session_id = '{safe_session_id}'")
+        
+        results = query.to_list()
+        
+        # Convert to format expected by callers
+        recall_results = []
+        for row in results:
+            # LanceDB returns L2 distance. Convert to cosine similarity.
+            distance = row.get("_distance", 0)
+            similarity = max(0, 1 - (distance * distance / 2))
+            
+            if similarity >= min_relevance:
+                recall_results.append({
+                    "chunk_id": row["id"],
+                    "session_id": row["session_id"],
+                    "instance_id": row["instance_id"],
+                    "content": row["content"],
+                    "similarity_score": similarity,
+                    "start_time": datetime.fromisoformat(row["start_time"]),
+                    "end_time": datetime.fromisoformat(row["end_time"]),
+                    "chunk_index": row["chunk_index"],
+                })
+        
+        # Sort by similarity
+        recall_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        
+        return recall_results[:limit]
+    
+    async def _delete_chunks_before(self, cutoff_time: datetime) -> int:
+        """Delete chunks older than cutoff time."""
+        await self._ensure_initialized()
+        
+        # Get count before deletion
+        all_chunks = (
+            self._table.search()
+            .limit(1000000)
+            .select(["id", "end_time"])
+            .to_list()
+        )
+        
+        # Filter to find chunks to delete
+        to_delete = [
+            chunk["id"] for chunk in all_chunks
+            if datetime.fromisoformat(chunk["end_time"]) < cutoff_time
+        ]
+        
+        if not to_delete:
+            return 0
+        
+        # Delete chunks (LanceDB doesn't support batch delete by condition,
+        # so we delete by IDs)
+        for chunk_id in to_delete:
+            safe_id = self._sanitize_id(chunk_id)
+            self._table.delete(f"id = '{safe_id}'")
+        
+        return len(to_delete)
+    
+    async def _get_all_chunks(self) -> list[dict]:
+        """Get all stored chunks."""
+        await self._ensure_initialized()
+        
+        results = (
+            self._table.search()
+            .limit(1000000)
+            .to_list()
+        )
+        
+        return [
+            {
+                "chunk_id": row["id"],
+                "session_id": row["session_id"],
+                "instance_id": row["instance_id"],
+                "content": row["content"],
+                "start_time": datetime.fromisoformat(row["start_time"]),
+                "end_time": datetime.fromisoformat(row["end_time"]),
+                "chunk_index": row["chunk_index"],
+            }
+            for row in results
+        ]
+    
+    def _sanitize_id(self, id_str: str) -> str:
+        """Sanitize ID to prevent SQL injection.
+        
+        IDs should only contain alphanumeric characters and hyphens.
+        """
+        import re
+        if not re.match(r'^[a-zA-Z0-9\-]+$', id_str):
+            raise ValueError(f"Invalid ID format: {id_str[:20]}...")
+        return id_str
+
+
+class InMemorySessionStore(SessionStore):
+    """In-memory session store for testing and fallback.
+    
+    This is the original SessionStore implementation, preserved for testing
+    and as a fallback when LanceDB is not available.
+    """
+    pass  # Inherits all behavior from SessionStore

@@ -46,7 +46,12 @@ def _parse(result: Any) -> dict:
         if not text and isinstance(block, dict):
             text = block.get("text")
         if text:
-            return json.loads(text)
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Malformed JSON in MCP response: {e}\nRaw text: {text!r}"
+                ) from e
     raise ValueError(f"Could not parse result: {result}")
 
 
@@ -89,6 +94,7 @@ SAMPLE_MESSAGES_JSON = json.dumps(SAMPLE_MESSAGES_LIST)
 @pytest.fixture
 def embedding_service():
     emb = MockEmbeddingService(embedding_dim=64)
+    # Export/import tools read these via getattr; constructor doesn't set them
     emb.dimensions = 64
     emb.model = "mock-test-model"
     return emb

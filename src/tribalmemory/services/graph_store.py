@@ -12,10 +12,27 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 # Constants
 MIN_ENTITY_NAME_LENGTH = 3
 MAX_HOP_ITERATIONS = 100  # Safety limit for graph traversal
+
+# Temporal relationship types
+TEMPORAL_OCCURRED_ON = "occurred_on"
+TEMPORAL_MENTIONED_DATE = "mentioned_date"
+
+
+@dataclass
+class TemporalFact:
+    """A temporal fact linking an entity/event to a resolved date."""
+    
+    subject: str  # What happened
+    relation: str  # occurred_on, mentioned_date
+    resolved_date: str  # ISO date: "2023-05-07"
+    original_expression: str  # "yesterday"
+    precision: str  # day, week, month, year
+    confidence: float = 1.0
 
 
 @dataclass
@@ -338,10 +355,25 @@ class GraphStore:
                     UNIQUE(relationship_id, memory_id)
                 );
                 
+                -- Temporal facts table (Issue #57)
+                CREATE TABLE IF NOT EXISTS temporal_facts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    memory_id TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    relation TEXT NOT NULL,
+                    resolved_date TEXT NOT NULL,
+                    original_expression TEXT NOT NULL,
+                    precision TEXT NOT NULL,
+                    confidence REAL DEFAULT 1.0,
+                    UNIQUE(memory_id, subject, resolved_date)
+                );
+                
                 CREATE INDEX IF NOT EXISTS idx_entity_name ON entities(name);
                 CREATE INDEX IF NOT EXISTS idx_entity_memories_memory ON entity_memories(memory_id);
                 CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source_entity_id);
                 CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_entity_id);
+                CREATE INDEX IF NOT EXISTS idx_temporal_date ON temporal_facts(resolved_date);
+                CREATE INDEX IF NOT EXISTS idx_temporal_memory ON temporal_facts(memory_id);
             """)
     
     def add_entity(self, entity: Entity, memory_id: str) -> int:
@@ -612,6 +644,12 @@ class GraphStore:
                 (memory_id,)
             )
             
+            # Delete temporal facts
+            conn.execute(
+                "DELETE FROM temporal_facts WHERE memory_id = ?",
+                (memory_id,)
+            )
+            
             # Clean up orphaned relationships (no memory references)
             conn.execute("""
                 DELETE FROM relationships 
@@ -625,3 +663,119 @@ class GraphStore:
                 AND id NOT IN (SELECT source_entity_id FROM relationships)
                 AND id NOT IN (SELECT target_entity_id FROM relationships)
             """)
+    
+    # =========================================================================
+    # Temporal Methods (Issue #57)
+    # =========================================================================
+    
+    def add_temporal_fact(self, fact: TemporalFact, memory_id: str) -> int:
+        """Store a temporal fact for a memory.
+        
+        Args:
+            fact: The temporal fact to store.
+            memory_id: ID of the memory this fact was extracted from.
+        
+        Returns:
+            The temporal fact ID.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO temporal_facts 
+                    (memory_id, subject, relation, resolved_date, 
+                     original_expression, precision, confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(memory_id, subject, resolved_date) DO UPDATE SET
+                    confidence = MAX(excluded.confidence, temporal_facts.confidence)
+                RETURNING id
+                """,
+                (memory_id, fact.subject, fact.relation, fact.resolved_date,
+                 fact.original_expression, fact.precision, fact.confidence)
+            )
+            return cursor.fetchone()[0]
+    
+    def get_temporal_facts_for_memory(self, memory_id: str) -> list[TemporalFact]:
+        """Get all temporal facts for a memory."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT subject, relation, resolved_date, original_expression, 
+                       precision, confidence
+                FROM temporal_facts
+                WHERE memory_id = ?
+                """,
+                (memory_id,)
+            ).fetchall()
+            
+            return [
+                TemporalFact(
+                    subject=row['subject'],
+                    relation=row['relation'],
+                    resolved_date=row['resolved_date'],
+                    original_expression=row['original_expression'],
+                    precision=row['precision'],
+                    confidence=row['confidence'],
+                )
+                for row in rows
+            ]
+    
+    def get_memories_in_date_range(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> list[str]:
+        """Get memory IDs with temporal facts in the given date range.
+        
+        Args:
+            start_date: ISO date string for range start (inclusive).
+            end_date: ISO date string for range end (inclusive).
+        
+        Returns:
+            List of memory IDs.
+        """
+        with self._get_connection() as conn:
+            conditions = []
+            params = []
+            
+            if start_date:
+                conditions.append("resolved_date >= ?")
+                params.append(start_date)
+            if end_date:
+                conditions.append("resolved_date <= ?")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT memory_id
+                FROM temporal_facts
+                WHERE {where_clause}
+                ORDER BY resolved_date
+                """,
+                params
+            ).fetchall()
+            
+            return [row['memory_id'] for row in rows]
+    
+    def get_memories_for_date(self, date: str) -> list[str]:
+        """Get memory IDs with events on a specific date.
+        
+        Args:
+            date: ISO date string (YYYY-MM-DD, YYYY-MM, or YYYY).
+        
+        Returns:
+            List of memory IDs.
+        """
+        with self._get_connection() as conn:
+            # Use LIKE to match partial dates (year, year-month, or full date)
+            rows = conn.execute(
+                """
+                SELECT DISTINCT memory_id
+                FROM temporal_facts
+                WHERE resolved_date LIKE ? || '%'
+                """,
+                (date,)
+            ).fetchall()
+            
+            return [row['memory_id'] for row in rows]

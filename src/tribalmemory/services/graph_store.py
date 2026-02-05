@@ -10,6 +10,7 @@ Uses SQLite for local-first, zero-cloud constraint.
 
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -276,9 +277,10 @@ class GraphStore:
     - relationships: (id, source_entity_id, target_entity_id, relation_type, metadata_json)
     - relationship_memories: (relationship_id, memory_id) - many-to-many
     
-    Note on connection management:
-        Each operation creates a fresh connection. For high-throughput scenarios,
-        consider using connection pooling. SQLite's file locking handles concurrency.
+    Connection management:
+        Uses a persistent SQLite connection with WAL mode for better concurrency.
+        Thread-safe with a lock protecting database operations.
+        Call close() when done to release resources.
     """
     
     # Known technology names for type inference
@@ -292,17 +294,40 @@ class GraphStore:
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Create persistent connection with thread safety
+        self._conn = sqlite3.connect(
+            self.db_path,
+            check_same_thread=False  # Allow usage across threads
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
+        
+        # Enable WAL mode for better concurrency
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        
         self._init_schema()
     
     def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection.
+        """Get the persistent database connection.
         
         Returns:
             SQLite connection with Row factory.
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return self._conn
+    
+    def close(self) -> None:
+        """Close the database connection and release resources.
+        
+        After calling close(), the GraphStore instance should not be used.
+        This method is idempotent - calling it multiple times is safe.
+        """
+        if hasattr(self, '_conn') and self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                # Ignore errors during close (connection may already be closed)
+                pass
     
     def _infer_entity_type(self, name: str) -> str:
         """Infer entity type from name when creating from relationships.
@@ -333,8 +358,8 @@ class GraphStore:
     
     def _init_schema(self) -> None:
         """Initialize database schema."""
-        with self._get_connection() as conn:
-            conn.executescript("""
+        with self._lock:
+            self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS entities (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -394,9 +419,9 @@ class GraphStore:
         
         Returns the entity ID.
         """
-        with self._get_connection() as conn:
+        with self._lock:
             # Upsert entity
-            cursor = conn.execute(
+            cursor = self._conn.execute(
                 """
                 INSERT INTO entities (name, entity_type, metadata_json)
                 VALUES (?, ?, ?)
@@ -409,13 +434,14 @@ class GraphStore:
             entity_id = cursor.fetchone()[0]
             
             # Associate with memory
-            conn.execute(
+            self._conn.execute(
                 """
                 INSERT OR IGNORE INTO entity_memories (entity_id, memory_id)
                 VALUES (?, ?)
                 """,
                 (entity_id, memory_id)
             )
+            self._conn.commit()
             
             return entity_id
     
@@ -429,15 +455,15 @@ class GraphStore:
         Returns:
             The relationship ID.
         """
-        with self._get_connection() as conn:
+        with self._lock:
             # Get or create source entity (infer type from name)
-            source_row = conn.execute(
+            source_row = self._conn.execute(
                 "SELECT id FROM entities WHERE name = ?",
                 (relationship.source,)
             ).fetchone()
             if not source_row:
                 source_type = self._infer_entity_type(relationship.source)
-                cursor = conn.execute(
+                cursor = self._conn.execute(
                     "INSERT INTO entities (name, entity_type) VALUES (?, ?) RETURNING id",
                     (relationship.source, source_type)
                 )
@@ -446,13 +472,13 @@ class GraphStore:
                 source_id = source_row[0]
             
             # Get or create target entity (infer type from name)
-            target_row = conn.execute(
+            target_row = self._conn.execute(
                 "SELECT id FROM entities WHERE name = ?",
                 (relationship.target,)
             ).fetchone()
             if not target_row:
                 target_type = self._infer_entity_type(relationship.target)
-                cursor = conn.execute(
+                cursor = self._conn.execute(
                     "INSERT INTO entities (name, entity_type) VALUES (?, ?) RETURNING id",
                     (relationship.target, target_type)
                 )
@@ -461,7 +487,7 @@ class GraphStore:
                 target_id = target_row[0]
             
             # Upsert relationship
-            cursor = conn.execute(
+            cursor = self._conn.execute(
                 """
                 INSERT INTO relationships (source_entity_id, target_entity_id, relation_type)
                 VALUES (?, ?, ?)
@@ -475,7 +501,7 @@ class GraphStore:
                 rel_id = row[0]
             else:
                 # Relationship already exists, get its ID
-                rel_id = conn.execute(
+                rel_id = self._conn.execute(
                     """
                     SELECT id FROM relationships 
                     WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?
@@ -484,20 +510,21 @@ class GraphStore:
                 ).fetchone()[0]
             
             # Associate with memory
-            conn.execute(
+            self._conn.execute(
                 """
                 INSERT OR IGNORE INTO relationship_memories (relationship_id, memory_id)
                 VALUES (?, ?)
                 """,
                 (rel_id, memory_id)
             )
+            self._conn.commit()
             
             return rel_id
     
     def get_entities_for_memory(self, memory_id: str) -> list[Entity]:
         """Get all entities associated with a memory."""
-        with self._get_connection() as conn:
-            rows = conn.execute(
+        with self._lock:
+            rows = self._conn.execute(
                 """
                 SELECT e.name, e.entity_type, e.metadata_json
                 FROM entities e
@@ -514,8 +541,8 @@ class GraphStore:
     
     def get_relationships_for_entity(self, entity_name: str) -> list[Relationship]:
         """Get all relationships where entity is the source."""
-        with self._get_connection() as conn:
-            rows = conn.execute(
+        with self._lock:
+            rows = self._conn.execute(
                 """
                 SELECT e_source.name as source, e_target.name as target, r.relation_type
                 FROM relationships r
@@ -537,8 +564,8 @@ class GraphStore:
     
     def get_memories_for_entity(self, entity_name: str) -> list[str]:
         """Get all memory IDs associated with an entity."""
-        with self._get_connection() as conn:
-            rows = conn.execute(
+        with self._lock:
+            rows = self._conn.execute(
                 """
                 SELECT DISTINCT em.memory_id
                 FROM entity_memories em
@@ -570,9 +597,9 @@ class GraphStore:
         # Safety: cap hops to prevent runaway traversal
         safe_hops = min(hops, MAX_HOP_ITERATIONS)
         
-        with self._get_connection() as conn:
+        with self._lock:
             # Start with source entity
-            source = conn.execute(
+            source = self._conn.execute(
                 "SELECT id, name, entity_type FROM entities WHERE name = ?",
                 (entity_name,)
             ).fetchone()
@@ -593,7 +620,7 @@ class GraphStore:
                 # len(current_frontier) (an integer), not user input. The actual
                 # values are passed as parameters, not interpolated.
                 placeholders = ','.join('?' * len(current_frontier))
-                rows = conn.execute(
+                rows = self._conn.execute(
                     f"""
                     SELECT DISTINCT e.id, e.name, e.entity_type
                     FROM entities e
@@ -620,7 +647,7 @@ class GraphStore:
                 return []
             
             placeholders = ','.join('?' * len(result_ids))
-            rows = conn.execute(
+            rows = self._conn.execute(
                 f"SELECT name, entity_type FROM entities WHERE id IN ({placeholders})",
                 list(result_ids)
             ).fetchall()
@@ -644,38 +671,39 @@ class GraphStore:
         Note: Entities themselves are preserved (they may be referenced by other memories).
         Only the associations are removed.
         """
-        with self._get_connection() as conn:
+        with self._lock:
             # Delete relationship associations
-            conn.execute(
+            self._conn.execute(
                 "DELETE FROM relationship_memories WHERE memory_id = ?",
                 (memory_id,)
             )
             
             # Delete entity associations
-            conn.execute(
+            self._conn.execute(
                 "DELETE FROM entity_memories WHERE memory_id = ?",
                 (memory_id,)
             )
             
             # Delete temporal facts
-            conn.execute(
+            self._conn.execute(
                 "DELETE FROM temporal_facts WHERE memory_id = ?",
                 (memory_id,)
             )
             
             # Clean up orphaned relationships (no memory references)
-            conn.execute("""
+            self._conn.execute("""
                 DELETE FROM relationships 
                 WHERE id NOT IN (SELECT relationship_id FROM relationship_memories)
             """)
             
             # Optionally clean up orphaned entities (no memory or relationship references)
-            conn.execute("""
+            self._conn.execute("""
                 DELETE FROM entities 
                 WHERE id NOT IN (SELECT entity_id FROM entity_memories)
                 AND id NOT IN (SELECT source_entity_id FROM relationships)
                 AND id NOT IN (SELECT target_entity_id FROM relationships)
             """)
+            self._conn.commit()
     
     # =========================================================================
     # Temporal Methods (Issue #57)
@@ -691,8 +719,8 @@ class GraphStore:
         Returns:
             The temporal fact ID.
         """
-        with self._get_connection() as conn:
-            cursor = conn.execute(
+        with self._lock:
+            cursor = self._conn.execute(
                 """
                 INSERT INTO temporal_facts 
                     (memory_id, subject, relation, resolved_date, 
@@ -705,12 +733,14 @@ class GraphStore:
                 (memory_id, fact.subject, fact.relation, fact.resolved_date,
                  fact.original_expression, fact.precision, fact.confidence)
             )
-            return cursor.fetchone()[0]
+            fact_id = cursor.fetchone()[0]
+            self._conn.commit()
+            return fact_id
     
     def get_temporal_facts_for_memory(self, memory_id: str) -> list[TemporalFact]:
         """Get all temporal facts for a memory."""
-        with self._get_connection() as conn:
-            rows = conn.execute(
+        with self._lock:
+            rows = self._conn.execute(
                 """
                 SELECT subject, relation, resolved_date, original_expression, 
                        precision, confidence
@@ -746,10 +776,10 @@ class GraphStore:
         Returns:
             List of memory IDs.
         """
-        with self._get_connection() as conn:
+        with self._lock:
             # Use explicit query variants to avoid f-string SQL
             if start_date and end_date:
-                rows = conn.execute(
+                rows = self._conn.execute(
                     """SELECT DISTINCT memory_id
                     FROM temporal_facts
                     WHERE resolved_date >= ?
@@ -758,7 +788,7 @@ class GraphStore:
                     (start_date, end_date),
                 ).fetchall()
             elif start_date:
-                rows = conn.execute(
+                rows = self._conn.execute(
                     """SELECT DISTINCT memory_id
                     FROM temporal_facts
                     WHERE resolved_date >= ?
@@ -766,7 +796,7 @@ class GraphStore:
                     (start_date,),
                 ).fetchall()
             elif end_date:
-                rows = conn.execute(
+                rows = self._conn.execute(
                     """SELECT DISTINCT memory_id
                     FROM temporal_facts
                     WHERE resolved_date <= ?
@@ -774,7 +804,7 @@ class GraphStore:
                     (end_date,),
                 ).fetchall()
             else:
-                rows = conn.execute(
+                rows = self._conn.execute(
                     """SELECT DISTINCT memory_id
                     FROM temporal_facts
                     ORDER BY resolved_date"""
@@ -791,9 +821,9 @@ class GraphStore:
         Returns:
             List of memory IDs.
         """
-        with self._get_connection() as conn:
+        with self._lock:
             # Use LIKE to match partial dates (year, year-month, or full date)
-            rows = conn.execute(
+            rows = self._conn.execute(
                 """
                 SELECT DISTINCT memory_id
                 FROM temporal_facts

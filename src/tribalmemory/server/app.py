@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
         api_base=config.embedding.api_base,
         embedding_model=config.embedding.model,
         embedding_dimensions=config.embedding.dimensions,
+        embedding_provider=config.embedding.provider,
         hybrid_search=config.search.hybrid_enabled,
         hybrid_vector_weight=config.search.vector_weight,
         hybrid_text_weight=config.search.text_weight,

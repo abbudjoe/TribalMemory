@@ -67,6 +67,7 @@ async def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
         path = str(tmp_path / "db")
 
     class DummyEmbedding:
+        provider = "openai"
         api_key = "sk-test"
         api_base = None
         model = "test"

@@ -744,6 +744,57 @@ class TribalMemoryService(IMemoryService):
         return {"entities": entities, "relationships": relationships}
 
 
+def _create_embedding_service(
+    provider: str = "openai",
+    api_key: Optional[str] = None,
+    api_base: Optional[str] = None,
+    model: Optional[str] = None,
+    dimensions: Optional[int] = None,
+) -> "IEmbeddingService":
+    """Create an embedding service for the given provider.
+
+    Args:
+        provider: "openai" or "fastembed".
+        api_key: API key (OpenAI only).
+        api_base: API base URL (OpenAI/Ollama only).
+        model: Model name override.
+        dimensions: Embedding dimensions override.
+
+    Returns:
+        An IEmbeddingService implementation.
+
+    Raises:
+        ValueError: If provider is unknown.
+        ImportError: If fastembed is not installed.
+    """
+    if provider == "fastembed":
+        from .fastembed_service import FastEmbedService
+
+        kwargs: dict = {}
+        if model is not None:
+            kwargs["model"] = model
+        if dimensions is not None:
+            kwargs["dimensions"] = dimensions
+        return FastEmbedService(**kwargs)
+
+    if provider == "openai":
+        from .embeddings import OpenAIEmbeddingService
+
+        kwargs = {"api_key": api_key}
+        if api_base is not None:
+            kwargs["api_base"] = api_base
+        if model is not None:
+            kwargs["model"] = model
+        if dimensions is not None:
+            kwargs["dimensions"] = dimensions
+        return OpenAIEmbeddingService(**kwargs)
+
+    raise ValueError(
+        f"Unknown embedding provider: {provider!r}. "
+        f"Valid options: 'openai', 'fastembed'"
+    )
+
+
 def create_memory_service(
     instance_id: Optional[str] = None,
     db_path: Optional[str] = None,
@@ -751,6 +802,7 @@ def create_memory_service(
     api_base: Optional[str] = None,
     embedding_model: Optional[str] = None,
     embedding_dimensions: Optional[int] = None,
+    embedding_provider: str = "openai",
     hybrid_search: bool = True,
     hybrid_vector_weight: float = 0.7,
     hybrid_text_weight: float = 0.3,
@@ -766,19 +818,25 @@ def create_memory_service(
         instance_id: Unique identifier for this agent instance.
         db_path: Path for LanceDB persistent storage. If None, uses in-memory.
         openai_api_key: API key. Falls back to OPENAI_API_KEY env var.
-            Not required for local models (when api_base is set).
+            Not required for local models (when api_base is set)
+            or when using fastembed provider.
         api_base: Base URL for the embedding API.
             For Ollama: "http://localhost:11434/v1"
-        embedding_model: Embedding model name. Default: "text-embedding-3-small".
-        embedding_dimensions: Embedding output dimensions. Default: 1536.
+        embedding_model: Embedding model name.
+            OpenAI default: "text-embedding-3-small".
+            FastEmbed default: "BAAI/bge-small-en-v1.5".
+        embedding_dimensions: Embedding output dimensions.
+            OpenAI default: 1536.  FastEmbed default: 384.
+        embedding_provider: Embedding provider: "openai", "fastembed"
+            (default: "openai").
         hybrid_search: Enable BM25 hybrid search (default: True).
         hybrid_vector_weight: Weight for vector similarity (default: 0.7).
         hybrid_text_weight: Weight for BM25 text score (default: 0.3).
         hybrid_candidate_multiplier: Multiplier for candidate pool size
             (default: 4). Retrieves 4× limit from each source before
             merging.
-        reranking: Reranking mode: "auto", "cross-encoder", "heuristic", "none"
-            (default: "heuristic").
+        reranking: Reranking mode: "auto", "cross-encoder", "heuristic",
+            "none" (default: "heuristic").
         recency_decay_days: Half-life for recency boost (default: 30.0).
         tag_boost_weight: Weight for tag match boost (default: 0.1).
         rerank_pool_multiplier: How many candidates to give the reranker
@@ -799,17 +857,17 @@ def create_memory_service(
     logger = logging.getLogger(__name__)
     
     if not instance_id:
-        instance_id = os.environ.get("TRIBAL_MEMORY_INSTANCE_ID", "default")
+        instance_id = os.environ.get(
+            "TRIBAL_MEMORY_INSTANCE_ID", "default"
+        )
     
-    kwargs: dict = {"api_key": openai_api_key}
-    if api_base is not None:
-        kwargs["api_base"] = api_base
-    if embedding_model is not None:
-        kwargs["model"] = embedding_model
-    if embedding_dimensions is not None:
-        kwargs["dimensions"] = embedding_dimensions
-    
-    embedding_service = OpenAIEmbeddingService(**kwargs)
+    embedding_service = _create_embedding_service(
+        provider=embedding_provider,
+        api_key=openai_api_key,
+        api_base=api_base,
+        model=embedding_model,
+        dimensions=embedding_dimensions,
+    )
     
     if db_path:
         try:

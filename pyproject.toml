@@ -59,6 +59,9 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+fastembed = [
+    "fastembed>=0.3.0",
+]
 benchmarks = [
     "datasets>=2.14.0",
     "ragas>=0.1.0",

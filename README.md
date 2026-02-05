@@ -57,15 +57,22 @@ No API keys. No cloud. No external services. Everything runs on your machine.
 # Install with FastEmbed support
 pip install "tribalmemory[fastembed]"
 
-# Initialize config
+# Initialize config and edit for FastEmbed
 tribalmemory init
+```
 
-# Edit ~/.tribal-memory/config.yaml and set:
-#   embedding.provider: fastembed
-#   embedding.model: BAAI/bge-small-en-v1.5
-#   embedding.dimensions: 384
+Edit `~/.tribal-memory/config.yaml` — change the embedding section to:
 
-# Start the server
+```yaml
+embedding:
+  provider: fastembed
+  model: BAAI/bge-small-en-v1.5
+  dimensions: 384
+```
+
+Then start the server:
+
+```bash
 tribalmemory serve
 ```
 
@@ -81,7 +88,7 @@ tribalmemory serve
 
 Server runs on `http://localhost:18790`.
 
-> **Other embedding options:** Tribal Memory also supports [Ollama](docs/ollama-quickstart.md) for local embeddings if you already have it installed.
+> **Other embedding options:** Tribal Memory also supports [Ollama](docs/ollama-quickstart.md) for local embeddings — useful if you already have it running.
 
 ---
 
@@ -142,7 +149,19 @@ openclaw config set plugins.slots.memory=memory-tribal
 
 ### Cloud Setup (Coming Soon)
 
-A hosted Tribal Memory service for teams — no server management, automatic syncing across machines. [Join the waitlist →](https://github.com/abbudjoe/TribalMemory/issues)
+A hosted Tribal Memory service for teams — no server management, automatic syncing across machines. [Star the repo](https://github.com/abbudjoe/TribalMemory) for updates.
+
+---
+
+## Demo
+
+Run the interactive demo to see Tribal Memory in action:
+
+```bash
+./demo.sh
+```
+
+See [docs/demo-output.md](docs/demo-output.md) for sample output.
 
 ---
 
@@ -173,17 +192,21 @@ server:
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key (not needed for FastEmbed/local mode) |
+| `OPENAI_API_KEY` | Required for OpenAI embeddings; not needed for FastEmbed/local mode |
 | `TRIBAL_MEMORY_CONFIG` | Path to config file (default: `~/.tribal-memory/config.yaml`) |
 | `TRIBAL_MEMORY_INSTANCE_ID` | Override instance ID |
 
 ### Docker
 
 ```bash
-docker compose up -d
+# With OpenAI embeddings
+OPENAI_API_KEY=sk-... docker compose up -d
+
+# With local Ollama (zero cloud)
+docker compose --profile local up -d
 ```
 
-See `docker-compose.yml` for configuration options.
+The Docker setup defaults to OpenAI embeddings. Set `OPENAI_API_KEY` as an environment variable, or use `--profile local` to spin up a bundled Ollama instance instead. Mount a custom `config.yaml` to change embedding provider, model, or dimensions. See `docker-compose.yml` for all options.
 
 ---
 
@@ -233,6 +256,8 @@ When connected via MCP, your AI gets these tools:
 ```python
 from tribalmemory.services import create_memory_service
 
+# FastEmbed auto-defaults to BAAI/bge-small-en-v1.5 (384 dims).
+# For OpenAI: omit embedding_provider or set to "openai".
 service = create_memory_service(
     instance_id="my-agent",
     db_path="./memories",
@@ -300,6 +325,8 @@ In local mode (FastEmbed + LanceDB), **zero data leaves your machine**:
 - Embeddings computed locally (ONNX runtime)
 - Memories stored locally in LanceDB
 - No API keys, no cloud services, no telemetry
+
+When using OpenAI embeddings, memory content is sent to the OpenAI API for embedding generation. Memories themselves are still stored locally — only the embedding step requires an external call.
 
 ---
 

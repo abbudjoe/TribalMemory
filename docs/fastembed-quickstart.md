@@ -73,8 +73,10 @@ Then edit `~/.tribal-memory/config.yaml` to set
 ## Switching Providers
 
 ⚠️ **Different providers produce different embedding vectors.**
-If you switch from OpenAI to FastEmbed (or vice versa), existing
-memories won't match new queries. Options:
+Embeddings from different providers are incompatible even if they
+have the same dimensions (e.g., `bge-base-en-v1.5` at 768 dims
+vs Ollama's `nomic-embed-text` at 768 dims). Always re-embed when
+switching providers. Options:
 
 1. **Start fresh**: Delete `~/.tribal-memory/lancedb`
 2. **Export → switch → re-import**:

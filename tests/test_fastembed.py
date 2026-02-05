@@ -204,6 +204,43 @@ class TestFastEmbedServiceSimilarity:
         assert sim_cat_dog > sim_cat_quantum
 
 
+class TestFastEmbedServiceNativeBatch:
+    """Test that batch processing uses fastembed's native batching."""
+
+    @pytest.fixture
+    def service(self):
+        from tribalmemory.services.fastembed_service import (
+            FastEmbedService,
+        )
+        return FastEmbedService()
+
+    @pytest.mark.asyncio
+    async def test_batch_calls_model_embed_once(self, service):
+        """embed_batch should call model.embed() once, not per-text."""
+        from unittest.mock import MagicMock, patch
+        import numpy as np
+
+        # Force model initialization
+        _ = service._get_model()
+
+        fake_embeddings = [
+            np.random.randn(384).astype(np.float32)
+            for _ in range(3)
+        ]
+        mock_embed = MagicMock(return_value=fake_embeddings)
+
+        with patch.object(service._model, "embed", mock_embed):
+            results = await service.embed_batch(
+                ["text1", "text2", "text3"]
+            )
+
+        # Should be called exactly once with all texts
+        mock_embed.assert_called_once_with(
+            ["text1", "text2", "text3"]
+        )
+        assert len(results) == 3
+
+
 class TestFastEmbedServiceFactory:
     """Test factory integration."""
 
@@ -259,3 +296,75 @@ class TestFastEmbedServiceFactory:
         finally:
             if old is not None:
                 os.environ["OPENAI_API_KEY"] = old
+
+    def test_unknown_provider_raises(self):
+        """Unknown provider should raise ValueError."""
+        from tribalmemory.services.memory import (
+            _create_embedding_service,
+        )
+        with pytest.raises(ValueError, match="Unknown embedding"):
+            _create_embedding_service(provider="nonexistent")
+
+    def test_provider_name_attribute(self):
+        """FastEmbedService should expose provider_name."""
+        from tribalmemory.services.fastembed_service import (
+            FastEmbedService,
+        )
+        service = FastEmbedService()
+        assert service.provider_name == "fastembed"
+
+    def test_openai_provider_name_attribute(self):
+        """OpenAIEmbeddingService should expose provider_name."""
+        from tribalmemory.services.embeddings import (
+            OpenAIEmbeddingService,
+        )
+        service = OpenAIEmbeddingService(api_key="test-key")
+        assert service.provider_name == "openai"
+
+
+class TestFastEmbedServiceIntegration:
+    """End-to-end integration with TribalMemoryService."""
+
+    @pytest.mark.asyncio
+    async def test_remember_and_recall(self, tmp_path):
+        """Full round-trip: store + recall via fastembed."""
+        from tribalmemory.services.memory import (
+            create_memory_service,
+        )
+        service = create_memory_service(
+            instance_id="test-fastembed",
+            db_path=str(tmp_path / "db"),
+            embedding_provider="fastembed",
+        )
+
+        await service.remember("The cat sat on the mat")
+        await service.remember("Quantum entanglement is spooky")
+
+        results = await service.recall(
+            "feline sitting", min_relevance=0.0, limit=2
+        )
+        assert len(results) >= 1
+        # Cat sentence should rank higher than quantum
+        contents = [r.memory.content for r in results]
+        assert "cat" in contents[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_fastembed_with_hybrid_search(self, tmp_path):
+        """FastEmbed should work with BM25 hybrid search."""
+        from tribalmemory.services.memory import (
+            create_memory_service,
+        )
+        service = create_memory_service(
+            instance_id="test-hybrid",
+            db_path=str(tmp_path / "db"),
+            embedding_provider="fastembed",
+            hybrid_search=True,
+        )
+
+        await service.remember("Python is a programming language")
+
+        results = await service.recall(
+            "programming", min_relevance=0.0
+        )
+        assert len(results) >= 1
+        assert "Python" in results[0].memory.content

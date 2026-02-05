@@ -77,6 +77,8 @@ class FastEmbedService(IEmbeddingService):
             else _MODEL_DIMENSIONS.get(model, 384)
         )
         self._cache_dir = cache_dir
+        # String annotation: TextEmbedding is lazy-imported in _get_model()
+        # to avoid pulling in fastembed + onnxruntime at import time.
         self._model: Optional["TextEmbedding"] = None
 
     def _get_model(self):
@@ -94,6 +96,11 @@ class FastEmbedService(IEmbeddingService):
                 self.dimensions,
             )
         return self._model
+
+    @property
+    def provider_name(self) -> str:
+        """Return the provider identifier for metadata."""
+        return "fastembed"
 
     def __repr__(self) -> str:
         return (

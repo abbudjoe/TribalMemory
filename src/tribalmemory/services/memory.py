@@ -768,7 +768,13 @@ def _create_embedding_service(
         ImportError: If fastembed is not installed.
     """
     if provider == "fastembed":
-        from .fastembed_service import FastEmbedService
+        try:
+            from .fastembed_service import FastEmbedService
+        except ImportError as e:
+            raise ImportError(
+                "FastEmbed provider requires the fastembed package. "
+                "Install with: pip install 'tribalmemory[fastembed]'"
+            ) from e
 
         kwargs: dict = {}
         if model is not None:

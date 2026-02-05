@@ -506,23 +506,7 @@ function sizeCanvas() {
 sizeCanvas();
 window.addEventListener('resize', () => { sizeCanvas(); buildParticles(); });
 
-// ASCII Arts
-const BRAIN_RAW =
-  '               \u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\n' +
-  '          \u2584\u2588\u2588\u2580\u2580              \u2580\u2580\u2588\u2588\u2584\n' +
-  '       \u2584\u2588\u2580   \u2584\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2584   \u2580\u2588\u2584\n' +
-  '     \u2584\u2588\u2580  \u2584\u2588\u2580\u2580   \u2584\u2588\u2588\u2588\u2588\u2584   \u2580\u2580\u2588\u2584  \u2580\u2588\u2584\n' +
-  '    \u2588\u2580  \u2584\u2588\u2580   \u2584\u2588\u2580      \u2580\u2588\u2584   \u2580\u2588\u2584  \u2580\u2588\n' +
-  '   \u2588\u2580  \u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2588\u2588\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588  \u2580\u2588\n' +
-  '   \u2588  \u2588\u2580  \u2584\u2588  \u2584\u2588\u2580    \u2580\u2588\u2584  \u2588\u2584  \u2580\u2588  \u2588\n' +
-  '   \u2588  \u2588  \u2584\u2588  \u2588\u2580   \u2588\u2588   \u2580\u2588  \u2588\u2584  \u2588  \u2588\n' +
-  '   \u2588  \u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2584    \u2584\u2588\u2580  \u2584\u2588  \u2584\u2588  \u2588\n' +
-  '   \u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2588\u2588\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\n' +
-  '    \u2580\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2588\u2584      \u2584\u2588\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2580\n' +
-  '      \u2580\u2588\u2584  \u2580\u2588\u2584\u2584  \u2580\u2580\u2588\u2588\u2588\u2588\u2580\u2580  \u2584\u2584\u2588\u2580  \u2584\u2588\u2580\n' +
-  '        \u2580\u2588\u2588\u2584  \u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2580\u2580  \u2584\u2588\u2588\u2580\n' +
-  '           \u2580\u2580\u2588\u2588\u2584\u2584            \u2584\u2584\u2588\u2588\u2580\u2580\n' +
-  '               \u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580';
+// ASCII Arts — brain generated procedurally
 
 const WORD_RAW =
   '\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588  \u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588   \u2588\u2588\u2588  \u2588    \n' +
@@ -586,14 +570,181 @@ function matchPoints(srcPts, tgtPts) {
 const CLOUD_CHARS = '\u00B7\u2022\u2218\u25E6\u25CB\u2219\u2591\u25AA\u25AB';
 const GLITCH = '\u2591\u2592\u2593\u2588\u2580\u2584\u2571\u2572\u2502\u2500\u250C\u2510\u00B7:;*~\u2573';
 
+// ================================
+// PROCEDURAL BRAIN GENERATOR
+// ================================
+function generateBrainPoints(cx, cy) {
+  const pts = [];
+  const R = Math.min(CW * 0.33, CH * 0.35);
+  const innerChars = '01(){}=|-/\\01<>:;,.0101011001()[]{}|01';
+  const edgeChars = '(){}()/\\|()(){}';
+
+  function brainSDF(x, y) {
+    const dx = (x - cx) / R;
+    const dy = (y - (cy - R * 0.05)) / R;
+    // Main cerebrum
+    const mx = dx * 0.88, my = (dy + 0.05) * 1.1;
+    const main = mx * mx + my * my - 1;
+    // Temporal lobe bulge
+    const tx = (dx + 0.25) / 0.38, ty = (dy - 0.52) / 0.22;
+    const temporal = tx * tx + ty * ty - 1;
+    // Cerebellum
+    const cex = (dx - 0.42) / 0.32, cey = (dy - 0.58) / 0.2;
+    const cereb = cex * cex + cey * cey - 1;
+    // Brain stem
+    const sx = (dx - 0.28) / 0.065, sy = (dy - 0.92) / 0.2;
+    const stem = sx * sx + sy * sy - 1;
+    return Math.min(main, temporal, cereb, stem);
+  }
+
+  function foldDensity(x, y) {
+    const dx = (x - cx) / R;
+    const dy = (y - cy) / R;
+    // Sylvian fissure
+    const sylvian = Math.abs(dy - dx * 0.3 + 0.12);
+    const sylvianFx = sylvian < 0.07 ? 0.35 : 0;
+    // Cortical folds
+    const f1 = Math.sin(dx * 13 + dy * 5) * 0.22;
+    const f2 = Math.cos(dx * 7 - dy * 11) * 0.15;
+    const f3 = Math.sin((dx + dy) * 9) * 0.1;
+    // Central sulcus
+    const central = Math.abs(dx + 0.05 + Math.sin(dy * 4) * 0.07);
+    const centralFx = central < 0.055 ? 0.3 : 0;
+    return 0.68 + f1 + f2 + f3 - sylvianFx - centralFx;
+  }
+
+  for (let y = cy - R * 1.25; y < cy + R * 1.45; y += CHAR_H) {
+    for (let x = cx - R * 1.15; x < cx + R * 1.15; x += CHAR_W) {
+      const sdf = brainSDF(x, y);
+      if (sdf < 0) {
+        const isEdge = sdf > -0.1;
+        const density = foldDensity(x, y);
+        if (Math.random() < Math.max(0.12, density)) {
+          const cSet = isEdge ? edgeChars : innerChars;
+          pts.push({
+            px: x, py: y,
+            ch: cSet[Math.floor(Math.random() * cSet.length)],
+            gx: 0, gy: 0
+          });
+        }
+      }
+    }
+  }
+  return pts;
+}
+
+// ================================
+// SYNAPSE LIGHTNING SYSTEM
+// ================================
+let synapses = [];
+let brainPtsRef = [];
+let lastSynapseSpawn = 0;
+
+function createSynapse(ts) {
+  if (brainPtsRef.length === 0) return null;
+  const start = brainPtsRef[Math.floor(Math.random() * brainPtsRef.length)];
+  const segs = [];
+
+  function branch(x, y, angle, depth, maxD) {
+    if (depth >= maxD) return;
+    const len = 10 + Math.random() * 25;
+    const a = angle + (Math.random() - 0.5) * 1.5;
+    const ex = x + Math.cos(a) * len;
+    const ey = y + Math.sin(a) * len;
+    segs.push({ x1: x, y1: y, x2: ex, y2: ey, depth: depth, order: segs.length });
+    branch(ex, ey, a, depth + 1, maxD);
+    if (Math.random() < 0.45 && depth < maxD - 1) {
+      const ba = a + (Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.8);
+      branch(ex, ey, ba, depth + 1, maxD - 1);
+    }
+  }
+
+  branch(start.px, start.py, Math.random() * Math.PI * 2, 0, 4 + Math.floor(Math.random() * 3));
+  return { segs: segs, birth: ts, total: segs.length, life: 500 + Math.random() * 400 };
+}
+
+function drawSynapses(now) {
+  if (synapses.length === 0) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+
+  for (let i = synapses.length - 1; i >= 0; i--) {
+    const s = synapses[i];
+    const age = now - s.birth;
+    if (age > s.life * 1.6) { synapses.splice(i, 1); continue; }
+
+    const growT = Math.min(age / (s.life * 0.3), 1);
+    const vis = Math.ceil(growT * s.total);
+    const lifeRatio = age / s.life;
+    const fadeT = lifeRatio > 0.6 ? (lifeRatio - 0.6) / 0.8 : 0;
+    const alpha = Math.max(0, 1 - fadeT);
+
+    for (let j = 0; j < vis && j < s.segs.length; j++) {
+      const seg = s.segs[j];
+      const sa = alpha * Math.max(0.15, 1 - seg.depth * 0.18);
+      const lw = Math.max(0.5, 2.5 - seg.depth * 0.45);
+
+      // Outer glow
+      ctx.beginPath();
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+      ctx.strokeStyle = 'rgba(0,255,0,' + (sa * 0.15) + ')';
+      ctx.lineWidth = lw + 10;
+      ctx.shadowColor = '#00ff00';
+      ctx.shadowBlur = 30;
+      ctx.stroke();
+
+      // Core
+      ctx.beginPath();
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+      ctx.strokeStyle = 'rgba(0,255,0,' + (sa * 0.85) + ')';
+      ctx.lineWidth = lw;
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+
+      // Bright center
+      ctx.beginPath();
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+      ctx.strokeStyle = 'rgba(200,255,200,' + (sa * 0.5) + ')';
+      ctx.lineWidth = Math.max(0.3, lw * 0.3);
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+    }
+
+    // Glow nodes at branch starts
+    if (growT > 0.3) {
+      for (let j = 0; j < Math.min(vis, s.segs.length); j++) {
+        const seg = s.segs[j];
+        if (seg.depth <= 1) {
+          ctx.beginPath();
+          ctx.arc(seg.x1, seg.y1, 3.5 - seg.depth, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0,255,0,' + (alpha * 0.5) + ')';
+          ctx.shadowBlur = 20;
+          ctx.shadowColor = '#00ff00';
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
 // Particles array
 let particles = [];
 
 function buildParticles() {
   const artCenterY = CH * 0.43;
-  const brainArt = parseArt(BRAIN_RAW);
+
+  // Generate brain procedurally
+  const brainPx = generateBrainPoints(CW / 2, artCenterY);
+  brainPtsRef = brainPx;
+
+  // Parse word art
   const wordArt = parseArt(WORD_RAW);
-  const brainPx = toPixel(brainArt.pts, brainArt.cw, brainArt.ch_, artCenterY);
   const wordPx = toPixel(wordArt.pts, wordArt.cw, wordArt.ch_, artCenterY);
 
   // Match brain to word
@@ -664,15 +815,16 @@ function buildParticles() {
 }
 buildParticles();
 
-// State machine (0.25x speed = 4x longer)
-const STATES = ['cloud', 'cloudToBrain', 'brain', 'brainToWord', 'word', 'wordToCloud'];
+// State machine — cloud > brain > synapses > word > loop
+const STATES = ['cloud', 'cloudToBrain', 'brain', 'brainSynapse', 'brainToWord', 'word', 'wordToCloud'];
 const DURS = {
-  cloud:        2500,
-  cloudToBrain: 2500,
-  brain:        2000,
-  brainToWord:  2500,
+  cloud:        1800,
+  cloudToBrain: 2200,
+  brain:        1000,
+  brainSynapse: 3000,
+  brainToWord:  2000,
   word:         2000,
-  wordToCloud:  2500,
+  wordToCloud:  2000,
 };
 
 let stateIdx = 0;
@@ -693,6 +845,8 @@ function render(ts) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
+  const isSynapseState = (state === 'brainSynapse');
+
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
     let x, y, ch, alpha;
@@ -701,7 +855,6 @@ function render(ts) {
     switch (state) {
 
       case 'cloud': {
-        // Gentle drift
         p.cloudX += p.driftVx + sin * 0.02;
         p.cloudY += p.driftVy + Math.cos(ts * 0.0005 + p.phase) * 0.015;
         if (p.cloudX < -20) p.cloudX += CW + 40;
@@ -722,14 +875,12 @@ function render(ts) {
           ch = et > 0.75 ? p.brainCh : p.cloudCh;
           alpha = lerp(0.15, 1, et);
         } else if (p.type === 'cloud') {
-          // Fade away toward edges
           const drift = et * 0.4;
-          x = lerp(p.cloudX, p.cloudX + (p.cloudX - CW/2) * drift, et);
-          y = lerp(p.cloudY, p.cloudY + (p.cloudY - CH/2) * drift, et);
+          x = lerp(p.cloudX, p.cloudX + (p.cloudX - CW / 2) * drift, et);
+          y = lerp(p.cloudY, p.cloudY + (p.cloudY - CH / 2) * drift, et);
           ch = p.cloudCh;
           alpha = 0.15 * (1 - easeOut(rawT));
         } else {
-          // wordOnly: gentle fade
           x = p.cloudX; y = p.cloudY;
           ch = p.cloudCh;
           alpha = 0.15 * (1 - et * 0.6);
@@ -737,7 +888,8 @@ function render(ts) {
         break;
       }
 
-      case 'brain': {
+      case 'brain':
+      case 'brainSynapse': {
         if (p.brainX != null) {
           x = p.brainX + sin * 0.3;
           y = p.brainY + Math.cos(ts * 0.0005 + p.phase) * 0.2;
@@ -797,7 +949,6 @@ function render(ts) {
           ch = p.cloudCh;
           alpha = et * 0.15;
         } else {
-          // Cloud-only: fade back in
           x = p.cloudX; y = p.cloudY;
           ch = p.cloudCh;
           alpha = et * 0.15;
@@ -808,24 +959,47 @@ function render(ts) {
 
     if (alpha > 0.01) {
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.isAccent ? '#00ff00' : '#ffffff';
+      let color = p.isAccent ? '#00ff00' : '#ffffff';
+
+      // Green tint during synapse phase
+      if (isSynapseState && p.brainX != null) {
+        const wave = Math.sin(ts * 0.004 + p.phase * 5);
+        if (wave > 0.5) color = '#00ff00';
+        else if (wave > 0.1) color = '#00cc00';
+      }
+
+      ctx.fillStyle = color;
       ctx.fillText(ch, x, y);
     }
   }
 
   ctx.globalAlpha = 1;
 
+  // Synapse spawning and drawing
+  if (isSynapseState) {
+    if (elapsed > 200 && ts - lastSynapseSpawn > 220) {
+      const s = createSynapse(ts);
+      if (s) synapses.push(s);
+      lastSynapseSpawn = ts;
+    }
+    drawSynapses(ts);
+  } else if (synapses.length > 0) {
+    drawSynapses(ts);
+  }
+
   // Advance state
   if (rawT >= 1) {
     stateIdx = (stateIdx + 1) % STATES.length;
     stateStart = ts;
+    if (STATES[stateIdx] === 'cloud') {
+      synapses = [];
+    }
   }
 
   requestAnimationFrame(render);
 }
 
 if (reducedMotion) {
-  // Static: show word art
   const wordArt = parseArt(WORD_RAW);
   const wordPx = toPixel(wordArt.pts, wordArt.cw, wordArt.ch_, CH * 0.43);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -835,6 +1009,7 @@ if (reducedMotion) {
 } else {
   requestAnimationFrame(render);
 }
+
 
 // ================================
 // ARCHITECTURE

@@ -370,33 +370,34 @@ class TestCheckServerHealth:
     """Tests for _check_server_health()."""
 
     @patch("tribalmemory.service._read_server_port", return_value=18790)
-    def test_healthy_server(self, mock_port, capsys):
-        import json as json_mod
-        import urllib.request
+    @patch("tribalmemory.service.urllib.request.urlopen")
+    def test_healthy_server(self, mock_urlopen, mock_port, capsys):
+        import json
 
         mock_resp = MagicMock()
-        mock_resp.read.return_value = json_mod.dumps({
+        mock_resp.read.return_value = json.dumps({
             "status": "ok",
             "memory_count": 42,
             "version": "0.4.2",
         }).encode()
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
 
-        with patch.object(urllib.request, "urlopen", return_value=mock_resp):
-            _check_server_health()
-
+        _check_server_health()
         out = capsys.readouterr().out
         assert "ok" in out
         assert "42" in out
 
     @patch("tribalmemory.service._read_server_port", return_value=18790)
-    def test_unreachable_server(self, mock_port, capsys):
-        import urllib.request
-
-        with patch.object(urllib.request, "urlopen", side_effect=Exception("refused")):
-            _check_server_health()
-
+    @patch(
+        "tribalmemory.service.urllib.request.urlopen",
+        side_effect=OSError("connection refused"),
+    )
+    def test_unreachable_server(
+        self, mock_urlopen, mock_port, capsys
+    ):
+        _check_server_health()
         out = capsys.readouterr().out
         assert "not reachable" in out
 
@@ -404,6 +405,47 @@ class TestCheckServerHealth:
 # ============================================================================
 # CLI integration — init --service
 # ============================================================================
+
+
+class TestReadServerPort:
+    """Tests for _read_server_port()."""
+
+    def test_default_when_no_config(self, tmp_path):
+        from tribalmemory.service import _read_server_port
+        with patch("tribalmemory.service.CONFIG_FILE", tmp_path / "nope.yaml"):
+            assert _read_server_port() == 18790
+
+    def test_reads_port_from_config(self, tmp_path):
+        from tribalmemory.service import _read_server_port
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("server:\n  port: 9999\n")
+        with patch("tribalmemory.service.CONFIG_FILE", cfg):
+            assert _read_server_port() == 9999
+
+    def test_default_when_yaml_missing(self, tmp_path):
+        """Falls back to default if yaml module is unavailable."""
+        from tribalmemory.service import _read_server_port
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("server:\n  port: 8888\n")
+        with patch("tribalmemory.service.CONFIG_FILE", cfg), \
+             patch.dict("sys.modules", {"yaml": None}):
+            assert _read_server_port() == 18790
+
+
+class TestSystemdStatus:
+    """Tests for systemd status command."""
+
+    @patch("tribalmemory.service._check_server_health")
+    @patch("tribalmemory.service.subprocess.run")
+    def test_status_shows_output(self, mock_run, mock_health, capsys):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="● tribalmemory.service - active",
+            stderr="",
+        )
+        result = cmd_service_status(ServiceManager.SYSTEMD)
+        assert result == 0
+        assert "active" in capsys.readouterr().out
 
 
 class TestInitServiceFlag:

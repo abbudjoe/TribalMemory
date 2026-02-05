@@ -1,23 +1,28 @@
-"""Tribal Memory service management — systemd (Linux) and launchd (macOS).
+"""Tribal Memory service management — systemd and launchd.
 
-Manages the TribalMemory HTTP server as a background system service:
-    tribalmemory service install   # Create and enable the service
+Manages the TribalMemory HTTP server as a background service:
+    tribalmemory service install   # Create and enable
     tribalmemory service start     # Start the service
     tribalmemory service stop      # Stop the service
     tribalmemory service status    # Show service status
     tribalmemory service uninstall # Remove the service
 """
 
+import json as json_mod
 import os
 import shutil
 import subprocess
 import sys
 import textwrap
+import urllib.error
+import urllib.request
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from .cli import TRIBAL_DIR, CONFIG_FILE
+
+# Health-check timeout (seconds)
+HEALTH_CHECK_TIMEOUT = 3
 
 
 class ServiceManager(Enum):
@@ -44,11 +49,9 @@ LOG_FILE = LOG_DIR / "server.log"
 def detect_service_manager() -> ServiceManager:
     """Detect the available service manager on this platform."""
     if sys.platform == "darwin":
-        # macOS always has launchd
         return ServiceManager.LAUNCHD
 
     if sys.platform.startswith("linux"):
-        # Check for systemd
         if shutil.which("systemctl"):
             return ServiceManager.SYSTEMD
 
@@ -74,8 +77,13 @@ def _resolve_serve_command() -> str:
 
 
 def _build_path_env() -> str:
-    """Build a PATH env string that includes common binary locations."""
-    paths = []
+    """Build a PATH string including common binary locations.
+
+    Includes the tribalmemory binary dir, ~/.local/bin, standard
+    system paths, and nvm node paths (needed for OpenClaw plugin
+    environments that require node).
+    """
+    paths: list[str] = []
 
     # Include the directory containing the tribalmemory binary
     binary = shutil.which("tribalmemory")
@@ -90,26 +98,14 @@ def _build_path_env() -> str:
         "/bin",
     ])
 
-    # nvm node path (if present)
-    nvm_dir = os.environ.get("NVM_DIR", str(Path.home() / ".nvm"))
-    nvm_path = Path(nvm_dir)
-    if nvm_path.exists():
-        # Find current node version
-        current = nvm_path / "alias" / "default"
-        if current.exists():
-            try:
-                version = current.read_text().strip()
-                node_bin = nvm_path / "versions" / "node" / f"v{version}" / "bin"
-                if node_bin.exists():
-                    paths.append(str(node_bin))
-            except OSError:
-                pass
-        # Also check via currently active node
-        node = shutil.which("node")
-        if node:
-            paths.append(str(Path(node).parent))
+    # nvm node path — needed when OpenClaw or other node
+    # tools are invoked alongside the Python server.
+    node = shutil.which("node")
+    if node:
+        paths.append(str(Path(node).parent))
 
-    return ":".join(dict.fromkeys(paths))  # deduplicate, preserve order
+    # Deduplicate while preserving order
+    return ":".join(dict.fromkeys(paths))
 
 
 def _read_server_port() -> int:
@@ -117,10 +113,14 @@ def _read_server_port() -> int:
     if not CONFIG_FILE.exists():
         return 18790
     try:
-        import yaml
-        config = yaml.safe_load(CONFIG_FILE.read_text())
+        import yaml  # noqa: F811
+    except ImportError:
+        return 18790
+    try:
+        text = CONFIG_FILE.read_text()
+        config = yaml.safe_load(text)
         return config.get("server", {}).get("port", 18790)
-    except Exception:
+    except (OSError, yaml.YAMLError, AttributeError):
         return 18790
 
 
@@ -128,13 +128,7 @@ def _generate_systemd_unit() -> str:
     """Generate the systemd user unit file content."""
     serve_cmd = _resolve_serve_command()
     path_env = _build_path_env()
-
-    # If the command contains a space (e.g. "python -m tribalmemory"),
-    # we need to handle it differently
-    if " " in serve_cmd:
-        exec_start = f"{serve_cmd} serve"
-    else:
-        exec_start = f"{serve_cmd} serve"
+    exec_start = f"{serve_cmd} serve"
 
     return textwrap.dedent(f"""\
         [Unit]
@@ -164,11 +158,16 @@ def _generate_launchd_plist() -> str:
     else:
         parts = [serve_cmd, "serve"]
 
-    args_xml = "\n".join(f"        <string>{p}</string>" for p in parts)
+    args_xml = "\n".join(
+        f"        <string>{p}</string>" for p in parts
+    )
 
+    # The DOCTYPE line is intentionally long (XML standard).
     return textwrap.dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <!DOCTYPE plist PUBLIC \
+"-//Apple//DTD PLIST 1.0//EN" \
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
         <dict>
             <key>Label</key>
@@ -198,17 +197,16 @@ def cmd_service_install(manager: ServiceManager) -> int:
         SYSTEMD_UNIT_PATH.write_text(unit_content)
         print(f"✅ Systemd unit written: {SYSTEMD_UNIT_PATH}")
 
-        # Reload daemon
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-
-        # Enable (starts on boot)
+        subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            check=True,
+        )
         subprocess.run(
             ["systemctl", "--user", "enable", SYSTEMD_UNIT_NAME],
             check=True,
         )
-        print(f"✅ Service enabled (starts on boot)")
+        print("✅ Service enabled (starts on boot)")
 
-        # Check linger
         _check_linger()
 
         print()
@@ -221,7 +219,10 @@ def cmd_service_install(manager: ServiceManager) -> int:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         plist_content = _generate_launchd_plist()
         LAUNCHD_PLIST_PATH.write_text(plist_content)
-        print(f"✅ LaunchAgent plist written: {LAUNCHD_PLIST_PATH}")
+        print(
+            f"✅ LaunchAgent plist written: "
+            f"{LAUNCHD_PLIST_PATH}"
+        )
         print()
         print("🚀 Start it now:")
         print("   tribalmemory service start")
@@ -233,7 +234,6 @@ def cmd_service_install(manager: ServiceManager) -> int:
 def cmd_service_uninstall(manager: ServiceManager) -> int:
     """Remove the service unit/plist."""
     if manager == ServiceManager.SYSTEMD:
-        # Stop first if running
         subprocess.run(
             ["systemctl", "--user", "stop", SYSTEMD_UNIT_NAME],
             capture_output=True,
@@ -244,14 +244,16 @@ def cmd_service_uninstall(manager: ServiceManager) -> int:
         )
         if SYSTEMD_UNIT_PATH.exists():
             SYSTEMD_UNIT_PATH.unlink()
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+            subprocess.run(
+                ["systemctl", "--user", "daemon-reload"],
+                check=True,
+            )
             print(f"✅ Service removed: {SYSTEMD_UNIT_PATH}")
         else:
             print("⚠️  Service unit not found (already removed?)")
         return 0
 
     elif manager == ServiceManager.LAUNCHD:
-        # Unload first if loaded
         if LAUNCHD_PLIST_PATH.exists():
             subprocess.run(
                 ["launchctl", "unload", str(LAUNCHD_PLIST_PATH)],
@@ -260,7 +262,9 @@ def cmd_service_uninstall(manager: ServiceManager) -> int:
             LAUNCHD_PLIST_PATH.unlink()
             print(f"✅ Service removed: {LAUNCHD_PLIST_PATH}")
         else:
-            print("⚠️  LaunchAgent plist not found (already removed?)")
+            print(
+                "⚠️  LaunchAgent plist not found (already removed?)"
+            )
         return 0
 
     return 1
@@ -275,7 +279,9 @@ def cmd_service_start(manager: ServiceManager) -> int:
             text=True,
         )
         if result.returncode != 0:
-            print(f"❌ Failed to start: {result.stderr.strip()}")
+            print(
+                f"❌ Failed to start: {result.stderr.strip()}"
+            )
             return 1
         print("✅ Tribal Memory server started")
         _print_status_hint()
@@ -283,7 +289,10 @@ def cmd_service_start(manager: ServiceManager) -> int:
 
     elif manager == ServiceManager.LAUNCHD:
         if not LAUNCHD_PLIST_PATH.exists():
-            print("❌ Service not installed. Run: tribalmemory service install")
+            print(
+                "❌ Service not installed. "
+                "Run: tribalmemory service install"
+            )
             return 1
         result = subprocess.run(
             ["launchctl", "load", str(LAUNCHD_PLIST_PATH)],
@@ -291,7 +300,9 @@ def cmd_service_start(manager: ServiceManager) -> int:
             text=True,
         )
         if result.returncode != 0:
-            print(f"❌ Failed to start: {result.stderr.strip()}")
+            print(
+                f"❌ Failed to start: {result.stderr.strip()}"
+            )
             return 1
         print("✅ Tribal Memory server started")
         _print_status_hint()
@@ -309,7 +320,9 @@ def cmd_service_stop(manager: ServiceManager) -> int:
             text=True,
         )
         if result.returncode != 0:
-            print(f"❌ Failed to stop: {result.stderr.strip()}")
+            print(
+                f"❌ Failed to stop: {result.stderr.strip()}"
+            )
             return 1
         print("✅ Tribal Memory server stopped")
         return 0
@@ -324,7 +337,9 @@ def cmd_service_stop(manager: ServiceManager) -> int:
             text=True,
         )
         if result.returncode != 0:
-            print(f"❌ Failed to stop: {result.stderr.strip()}")
+            print(
+                f"❌ Failed to stop: {result.stderr.strip()}"
+            )
             return 1
         print("✅ Tribal Memory server stopped")
         return 0
@@ -344,7 +359,6 @@ def cmd_service_status(manager: ServiceManager) -> int:
         if result.stderr:
             print(result.stderr)
 
-        # Also check HTTP health
         _check_server_health()
         return 0
 
@@ -366,25 +380,38 @@ def cmd_service_status(manager: ServiceManager) -> int:
 
 
 def _check_server_health() -> None:
-    """Check if the server is reachable and print health info."""
-    import json as json_mod
-    import urllib.request
-
+    """Check if the TribalMemory HTTP server is reachable."""
     port = _read_server_port()
+    url = f"http://127.0.0.1:{port}/v1/health"
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/health")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(
+            req, timeout=HEALTH_CHECK_TIMEOUT
+        ) as resp:
             data = json_mod.loads(resp.read())
             status = data.get("status", "unknown")
             count = data.get("memory_count", "?")
             version = data.get("version", "?")
-            print(f"🧠 Server: {status} | {count} memories | v{version}")
-    except Exception:
-        print(f"🔴 Server not reachable at http://127.0.0.1:{port}")
+            print(
+                f"🧠 Server: {status} "
+                f"| {count} memories | v{version}"
+            )
+    except (
+        urllib.error.URLError,
+        OSError,
+        json_mod.JSONDecodeError,
+        TimeoutError,
+    ):
+        print(f"🔴 Server not reachable at {url}")
 
 
 def _check_linger() -> None:
-    """Check if loginctl linger is enabled for the current user."""
+    """Check if loginctl linger is enabled for the current user.
+
+    Linger allows user-level systemd services to start at boot
+    without requiring an active login session. Without it, the
+    service only runs while the user is logged in.
+    """
     user = os.environ.get("USER", "")
     if not user:
         return
@@ -392,8 +419,13 @@ def _check_linger() -> None:
     linger_path = Path(f"/var/lib/systemd/linger/{user}")
     if not linger_path.exists():
         print()
-        print("⚠️  Linger not enabled — service won't start on boot without login.")
-        print(f"   Enable with: sudo loginctl enable-linger {user}")
+        print(
+            "⚠️  Linger not enabled — service won't start "
+            "on boot without login."
+        )
+        print(
+            f"   Enable with: sudo loginctl enable-linger {user}"
+        )
 
 
 def _print_status_hint() -> None:
@@ -409,9 +441,15 @@ def cmd_service(action: str) -> int:
         print("❌ No supported service manager found.")
         print()
         if sys.platform == "win32":
-            print("   Windows: Run tribalmemory as a scheduled task or use NSSM.")
+            print(
+                "   Windows: Run tribalmemory as a scheduled "
+                "task or use NSSM."
+            )
         else:
-            print("   Supported: systemd (Linux) and launchd (macOS).")
+            print(
+                "   Supported: systemd (Linux) "
+                "and launchd (macOS)."
+            )
         print("   Alternatively, run: tribalmemory serve")
         return 1
 

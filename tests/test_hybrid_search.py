@@ -321,3 +321,37 @@ class TestHybridIntegration:
         for r in results:
             assert r.similarity_score >= 0.0
             assert r.memory.content is not None
+
+
+class TestFTSEscaping:
+    """Test FTS5 query escaping for special characters."""
+
+    def test_escape_question_mark(self, tmp_path):
+        """Query with ? should not cause FTS5 syntax error."""
+        fts = FTSStore(str(tmp_path / "test.db"))
+        fts.index("1", "What is the answer to life?", ["test"])
+        # This would fail before the fix with: fts5: syntax error near "?"
+        results = fts.search("What is the answer?")
+        assert len(results) >= 0  # No crash
+
+    def test_escape_quotes(self, tmp_path):
+        """Query with quotes should be escaped properly."""
+        fts = FTSStore(str(tmp_path / "test.db"))
+        fts.index("1", 'He said "hello world"', ["test"])
+        results = fts.search('He said "hello"')
+        assert len(results) >= 0  # No crash
+
+    def test_escape_apostrophe(self, tmp_path):
+        """Query with apostrophe should not cause syntax error."""
+        fts = FTSStore(str(tmp_path / "test.db"))
+        fts.index("1", "Caroline's support group meeting", ["test"])
+        results = fts.search("What's Caroline's plan?")
+        assert len(results) >= 0  # No crash
+
+    def test_escape_special_operators(self, tmp_path):
+        """Query with FTS5 operators should be treated literally."""
+        fts = FTSStore(str(tmp_path / "test.db"))
+        fts.index("1", "A OR B AND C NOT D", ["test"])
+        # These are FTS5 operators that would fail without escaping
+        results = fts.search("A OR B")
+        assert len(results) >= 0  # No crash

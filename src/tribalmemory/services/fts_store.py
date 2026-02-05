@@ -109,6 +109,21 @@ class FTSStore:
         )
         conn.commit()
 
+    def _escape_fts_query(self, query: str) -> str:
+        """Escape a query string for FTS5 MATCH.
+
+        FTS5 interprets characters like ? * - " ' ( ) : as operators.
+        We quote the entire query as a phrase to match literally.
+        Internal double-quotes are escaped by doubling them.
+
+        Example: "What's the answer?" -> '"What''s the answer?"'
+        """
+        # Remove or escape FTS5 special chars
+        # Double-quote the whole thing to treat as phrase
+        # Internal quotes get doubled per FTS5 escaping rules
+        escaped = query.replace('"', '""')
+        return f'"{escaped}"'
+
     def search(
         self, query: str, limit: int = 10
     ) -> list[dict]:
@@ -120,6 +135,8 @@ class FTSStore:
         if not self.is_available():
             return []
         conn = self._get_conn()
+        # Escape query for FTS5 syntax
+        safe_query = self._escape_fts_query(query)
         # Use bm25() for ranking. FTS5 bm25() returns negative values
         # where more negative = better match.
         try:
@@ -131,7 +148,7 @@ class FTSStore:
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (query, limit),
+                (safe_query, limit),
             ).fetchall()
             return [{"id": row["id"], "rank": row["rank"]} for row in rows]
         except sqlite3.OperationalError as e:

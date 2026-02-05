@@ -356,7 +356,7 @@ A subtle, understated teaser for the upcoming cloud sync feature. Not a full sec
 **Footer link targets:**
 - ★ Star on GitHub → [github.com/abbudjoe/TribalMemory](https://github.com/abbudjoe/TribalMemory)
 - 📖 Read the Docs → docs site (TBD — `/docs` on the landing page domain, or separate subdomain)
-- 💬 Join Discord → Discord invite link (need permanent invite URL from Joe — `discord.gg/xxx`)
+- 💬 Join Discord → [discord.gg/Rzk3E8g2s5](https://discord.gg/Rzk3E8g2s5)
 
 ---
 

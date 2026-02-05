@@ -497,6 +497,16 @@ def _write_instructions_file(instructions_path: Path, label: str) -> None:
     print(f"✅ Auto-capture instructions written for {label}: {instructions_path}")
 
 
+def _build_mcp_entry(mcp_command: str, no_api_key: bool) -> dict:
+    """Build MCP config entry with optional environment variables."""
+    mcp_entry: dict = {"command": mcp_command}
+    if no_api_key:
+        mcp_entry["env"] = {
+            "TRIBAL_MEMORY_EMBEDDING_API_BASE": "http://localhost:11434/v1",
+        }
+    return mcp_entry
+
+
 def _setup_claude_code_mcp(no_api_key: bool) -> None:
     """Add Tribal Memory to Claude Code CLI's MCP configuration.
 
@@ -506,16 +516,7 @@ def _setup_claude_code_mcp(no_api_key: bool) -> None:
     """
     claude_cli_config = Path.home() / ".claude.json"
     mcp_command = _resolve_mcp_command()
-
-    mcp_entry: dict = {
-        "command": mcp_command,
-    }
-
-    env: dict = {}
-    if no_api_key:
-        env["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
-    if env:
-        mcp_entry["env"] = env
+    mcp_entry = _build_mcp_entry(mcp_command, no_api_key)
 
     _update_mcp_config(claude_cli_config, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Code CLI config updated: {claude_cli_config}")
@@ -538,21 +539,13 @@ def _setup_claude_desktop_mcp(no_api_key: bool) -> None:
     mcp_command = _resolve_mcp_command()
 
     if mcp_command == "tribalmemory-mcp":
-        # Couldn't resolve — warn the user
+        # Couldn't resolve — warn the user early
         print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
         print("   Claude Desktop needs the absolute path to the binary.")
         print("   After installing, run: tribalmemory init --claude-desktop --force")
         print()
 
-    mcp_entry: dict = {
-        "command": mcp_command,
-    }
-
-    env: dict = {}
-    if no_api_key:
-        env["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
-    if env:
-        mcp_entry["env"] = env
+    mcp_entry = _build_mcp_entry(mcp_command, no_api_key)
 
     # Ensure parent directory exists (macOS Application Support/Claude/)
     desktop_path.parent.mkdir(parents=True, exist_ok=True)

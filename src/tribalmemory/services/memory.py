@@ -19,8 +19,9 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
-from .graph_store import GraphStore, EntityExtractor
+from .graph_store import GraphStore, EntityExtractor, TemporalFact
 from .reranker import IReranker, NoopReranker, create_reranker
+from .temporal import TemporalExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class TribalMemoryService(IMemoryService):
         self.graph_store = graph_store
         self.graph_enabled = graph_enabled and graph_store is not None
         self.entity_extractor = EntityExtractor() if self.graph_enabled else None
+        self.temporal_extractor = TemporalExtractor() if self.graph_enabled else None
         
         self.dedup_service = SemanticDeduplicationService(
             vector_store=vector_store,
@@ -149,6 +151,32 @@ class TribalMemoryService(IMemoryService):
                     )
             except Exception as e:
                 logger.warning("Graph indexing failed for %s: %s", entry.id, e)
+        
+        # Extract and store temporal facts
+        if result.success and self.graph_enabled and self.temporal_extractor:
+            try:
+                # Use entry timestamp as reference for resolving relative dates
+                temporal_entities = self.temporal_extractor.extract(
+                    content, reference_time=entry.created_at
+                )
+                for temp in temporal_entities:
+                    fact = TemporalFact(
+                        subject=temp.expression,
+                        relation="occurred_on" if temp.confidence > 0.8 else "mentioned_date",
+                        resolved_date=temp.resolved_date or "",
+                        original_expression=temp.expression,
+                        precision=temp.precision,
+                        confidence=temp.confidence,
+                    )
+                    self.graph_store.add_temporal_fact(fact, memory_id=entry.id)
+                if temporal_entities:
+                    logger.debug(
+                        "Extracted temporal facts: %s from %s",
+                        [(t.expression, t.resolved_date) for t in temporal_entities],
+                        entry.id
+                    )
+            except Exception as e:
+                logger.warning("Temporal extraction failed for %s: %s", entry.id, e)
         
         return result
     

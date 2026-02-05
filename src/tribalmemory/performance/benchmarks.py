@@ -331,23 +331,35 @@ def _generate_graph_corpus(
 ) -> list[tuple[str, str]]:
     """Generate corpus entries with extractable entities.
     
-    Returns list of (memory_id, content) tuples with service names
-    and technology references for entity extraction.
+    Creates synthetic text entries containing service names and technology
+    references that EntityExtractor can identify. Templates are designed
+    to match EntityExtractor.RELATIONSHIP_PATTERNS for realistic benchmarks.
+    
+    Args:
+        num_entries: Number of corpus entries to generate.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        List of (memory_id, content) tuples suitable for entity extraction.
     """
     rng = random.Random(seed)
     
+    # Service names match EntityExtractor.SERVICE_PATTERN (kebab-case)
     services = [
         'auth-service', 'user-api', 'payment-gateway', 'order-worker',
-        'notification-service', 'cache-proxy', 'data-pipeline', 'ml-service',
-        'search-api', 'analytics-worker', 'billing-service', 'report-api',
-        'audit-service', 'config-server', 'gateway-proxy', 'sync-worker',
+        'notification-service', 'cache-proxy', 'data-pipeline',
+        'ml-service', 'search-api', 'analytics-worker',
+        'billing-service', 'report-api', 'audit-service',
+        'config-server', 'gateway-proxy', 'sync-worker',
     ]
     
+    # Technologies match EntityExtractor.TECHNOLOGIES set
     technologies = [
         'PostgreSQL', 'Redis', 'Kafka', 'Docker', 'Kubernetes',
         'Python', 'FastAPI', 'MongoDB', 'Elasticsearch', 'Nginx',
     ]
     
+    # Templates match EntityExtractor.RELATIONSHIP_PATTERNS for extraction
     templates = [
         "{service} uses {tech} for data storage",
         "{service} connects to {tech} for caching",
@@ -359,7 +371,7 @@ def _generate_graph_corpus(
         "{service} talks to {tech} for real-time updates",
     ]
     
-    entries = []
+    entries: list[tuple[str, str]] = []
     for i in range(num_entries):
         service = rng.choice(services)
         tech = rng.choice(technologies)
@@ -373,7 +385,19 @@ def _generate_graph_corpus(
 # --- Graph Benchmark Functions ---
 
 
-def benchmark_entity_extraction(
+@dataclass
+class RelationshipExtractionResult:
+    """Result of a relationship extraction throughput benchmark."""
+    total_texts: int
+    total_entities: int
+    total_relationships: int
+    total_time_ms: float
+    ms_per_text: float
+    entities_per_text: float
+    relationships_per_text: float
+
+
+async def benchmark_entity_extraction(
     num_texts: int = 1000,
     seed: int = 42,
 ) -> EntityExtractionResult:
@@ -381,6 +405,9 @@ def benchmark_entity_extraction(
     
     Measures how fast EntityExtractor can process text and extract
     entities. Target: <1ms per entry.
+    
+    Note: This benchmarks extract() only. For production usage which
+    includes relationship extraction, see benchmark_relationship_extraction().
     
     Args:
         num_texts: Number of text entries to process.
@@ -390,7 +417,7 @@ def benchmark_entity_extraction(
         EntityExtractionResult with timing and entity count metrics.
     """
     corpus = _generate_graph_corpus(num_texts, seed)
-    extractor = EntityExtractor()
+    extractor: EntityExtractor = EntityExtractor()
     
     total_entities = 0
     start = time.perf_counter()
@@ -410,7 +437,51 @@ def benchmark_entity_extraction(
     )
 
 
-def benchmark_graph_store_queries(
+async def benchmark_relationship_extraction(
+    num_texts: int = 1000,
+    seed: int = 42,
+) -> RelationshipExtractionResult:
+    """Benchmark entity + relationship extraction throughput.
+    
+    Measures extract_with_relationships() which is the method used in
+    production when storing memories. This is more representative of
+    actual performance than entity-only extraction.
+    
+    Args:
+        num_texts: Number of text entries to process.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        RelationshipExtractionResult with timing and count metrics.
+    """
+    corpus = _generate_graph_corpus(num_texts, seed)
+    extractor: EntityExtractor = EntityExtractor()
+    
+    total_entities = 0
+    total_relationships = 0
+    start = time.perf_counter()
+    
+    for _, content in corpus:
+        entities, relationships = extractor.extract_with_relationships(content)
+        total_entities += len(entities)
+        total_relationships += len(relationships)
+    
+    total_ms = (time.perf_counter() - start) * 1000
+    
+    return RelationshipExtractionResult(
+        total_texts=num_texts,
+        total_entities=total_entities,
+        total_relationships=total_relationships,
+        total_time_ms=total_ms,
+        ms_per_text=total_ms / num_texts if num_texts > 0 else 0,
+        entities_per_text=total_entities / num_texts if num_texts > 0 else 0,
+        relationships_per_text=(
+            total_relationships / num_texts if num_texts > 0 else 0
+        ),
+    )
+
+
+async def benchmark_graph_store_queries(
     num_entities: int = 1000,
     num_queries: int = 50,
     hops: int = 1,
@@ -435,10 +506,12 @@ def benchmark_graph_store_queries(
     # Create temp database
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "benchmark_graph.db"
-        graph = GraphStore(db_path)
+        graph: GraphStore = GraphStore(db_path)
         
         # Generate entities
-        entity_names = [f"entity-{i:04d}" for i in range(num_entities)]
+        entity_names: list[str] = [
+            f"entity-{i:04d}" for i in range(num_entities)
+        ]
         
         # Create entities with memory associations
         for i, name in enumerate(entity_names):
@@ -447,13 +520,16 @@ def benchmark_graph_store_queries(
         
         # Create relationships (sparse graph: ~3 connections per entity)
         num_relationships = 0
-        for name in entity_names:
+        for idx, name in enumerate(entity_names):
             num_connections = rng.randint(1, 5)
-            targets = rng.sample(entity_names, min(num_connections, len(entity_names)))
+            sample_size = min(num_connections, len(entity_names))
+            targets = rng.sample(entity_names, sample_size)
             for target in targets:
                 if target != name:
-                    rel = Relationship(source=name, target=target, relation_type='uses')
-                    graph.add_relationship(rel, f"mem_{entity_names.index(name):06d}")
+                    rel = Relationship(
+                        source=name, target=target, relation_type='uses'
+                    )
+                    graph.add_relationship(rel, f"mem_{idx:06d}")
                     num_relationships += 1
         
         # Select random entities to query
@@ -486,13 +562,16 @@ def benchmark_graph_store_queries(
         )
 
 
-def benchmark_get_memories_for_entity(
+async def benchmark_get_memories_for_entity(
     num_entities: int = 1000,
     memories_per_entity: int = 5,
     num_queries: int = 50,
     seed: int = 42,
 ) -> GraphQueryResult:
     """Benchmark get_memories_for_entity latency.
+    
+    Measures the time to look up memory IDs associated with an entity.
+    This is a key operation for entity-centric recall.
     
     Args:
         num_entities: Number of entities to create.
@@ -507,9 +586,11 @@ def benchmark_get_memories_for_entity(
     
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "benchmark_graph.db"
-        graph = GraphStore(db_path)
+        graph: GraphStore = GraphStore(db_path)
         
-        entity_names = [f"entity-{i:04d}" for i in range(num_entities)]
+        entity_names: list[str] = [
+            f"entity-{i:04d}" for i in range(num_entities)
+        ]
         
         # Create entities with multiple memory associations
         memory_idx = 0

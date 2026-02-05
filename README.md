@@ -10,79 +10,92 @@ One memory store, many agents. Teach Claude Code something — Codex already kno
   <em>Claude Code stores architecture decisions → Codex recalls them instantly</em>
 </p>
 
-[![asciinema demo](https://img.shields.io/badge/demo-asciinema-d40000)](https://asciinema.org/a/ZM74iIXzM07SV21P)
 [![PyPI](https://img.shields.io/pypi/v/tribalmemory)](https://pypi.org/project/tribalmemory/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
+---
 
 ## Why
 
 Every AI coding assistant starts fresh. Claude Code doesn't know what you told Codex. Codex doesn't know what you told Claude. You repeat yourself constantly.
 
-Tribal Memory is a shared memory server that any AI agent can connect to. Store a memory from one agent, recall it from another. It just works.
+Tribal Memory is a shared memory server that any AI agent can connect to via [MCP](https://modelcontextprotocol.io). Store a memory from one agent, recall it from another. It just works.
+
+---
 
 ## Install
 
 **macOS:**
 ```bash
-# Install uv (https://docs.astral.sh/uv/)
+# Install uv (recommended — avoids macOS "externally-managed-environment" errors)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Restart your terminal, or run:
 source ~/.zshrc
 
 # Install tribalmemory
 uv tool install tribalmemory
 ```
 
-> **Why uv?** macOS blocks `pip install` into the system Python with "externally-managed-environment" errors. `uv tool install` handles isolated environments automatically.
-
 **Linux:**
 ```bash
 pip install tribalmemory
-
-# Or with uv:
-# curl -LsSf https://astral.sh/uv/install.sh | sh
-# source ~/.bashrc
-# uv tool install tribalmemory
 ```
+
+**With local embeddings (no API keys needed):**
+```bash
+pip install "tribalmemory[fastembed]"
+```
+
+---
 
 ## Quick Start
 
-### Option A: Local Mode (Zero Cloud, Zero Cost)
+### Option A: FastEmbed (Zero Cloud, Zero Cost)
 
-No API keys. No cloud. Everything runs on your machine.
+No API keys. No cloud. No external services. Everything runs on your machine.
 
 ```bash
-# Set up with local Ollama embeddings
-tribalmemory init --local
+# Install with FastEmbed support
+pip install "tribalmemory[fastembed]"
 
-# Pull an embedding model (one time)
-ollama pull nomic-embed-text
+# Initialize config
+tribalmemory init
+
+# Edit ~/.tribal-memory/config.yaml and set:
+#   embedding.provider: fastembed
+#   embedding.model: BAAI/bge-small-en-v1.5
+#   embedding.dimensions: 384
 
 # Start the server
 tribalmemory serve
 ```
 
+The first run downloads a ~130MB embedding model. After that, it's instant. See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for full setup details.
+
 ### Option B: OpenAI Embeddings
 
 ```bash
-# Set up with OpenAI
 export OPENAI_API_KEY=sk-...
 tribalmemory init
-
-# Start the server
 tribalmemory serve
 ```
 
 Server runs on `http://localhost:18790`.
 
-## Claude Code Integration (MCP)
+> **Other embedding options:** Tribal Memory also supports [Ollama](docs/ollama-quickstart.md) for local embeddings if you already have it installed.
+
+---
+
+## Integrations
+
+Tribal Memory connects to AI agents via [MCP (Model Context Protocol)](https://modelcontextprotocol.io). Set up one or more of these:
+
+### Claude Code
 
 ```bash
-# Auto-configure Claude Code
-tribalmemory init --local --claude-code
+# Auto-configure (recommended)
+tribalmemory init --claude-code
 
-# Or manually add to your Claude Code MCP config:
+# Or manually — add to your Claude Code MCP config:
 ```
 
 ```json
@@ -107,104 +120,35 @@ You: How does the auth service work?
 Claude: Based on my memory, the auth service uses JWT with RS256...
 ```
 
-## Architecture
+### Codex CLI
 
-```
-┌─────────────┐
-│  Claude Code │──── MCP ────┐
-└─────────────┘              │
-┌─────────────┐              ▼
-│  Codex CLI   │──── MCP ───► Tribal Memory Server
-└─────────────┘              ▲  (localhost:18790)
-┌─────────────┐              │
-│  OpenClaw    │── plugin ───┘
-└─────────────┘
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.tribal-memory]
+command = "tribalmemory-mcp"
 ```
 
-The server is the single source of truth. Each agent connects as an instance. Memories are tagged with `source_instance` so you can see *who* learned *what*.
+That's it. Codex now shares the same memory store as Claude Code. Memories stored by one are instantly available to the other.
 
-## Features
+### OpenClaw
 
-- **Semantic search** — Find memories by meaning, not keywords
-- **Cross-agent sharing** — Memories from one agent are available to all
-- **Graph search** — Entity extraction + relationship traversal (NEW in v0.3.0)
-- **Automatic deduplication** — Won't store the same thing twice
-- **Memory corrections** — Update outdated information with audit trail
-- **Import/export** — Portable JSON bundles with embedding metadata
-- **Token budgets** — Smart context management to avoid LLM overload
-- **Local-only mode** — Ollama + LanceDB = zero data leaves your machine
-- **MCP server** — Native integration with Claude Code and compatible tools
+Tribal Memory includes a plugin for [OpenClaw](https://github.com/openclaw/openclaw):
 
-## Graph Search (NEW in v0.3.0)
-
-Tribal Memory doesn't just store text — it understands **entities** and **relationships**.
-
-### How It Works
-
-When you store a memory like:
-```
-"The auth-service uses PostgreSQL for user credentials"
+```bash
+openclaw plugins install ./extensions/memory-tribal
+openclaw config set plugins.slots.memory=memory-tribal
 ```
 
-Tribal Memory extracts:
-- **Entities:** `auth-service` (service), `PostgreSQL` (technology)
-- **Relationship:** `auth-service` → uses → `PostgreSQL`
+### Cloud Setup (Coming Soon)
 
-### Entity-Centric Queries
+A hosted Tribal Memory service for teams — no server management, automatic syncing across machines. [Join the waitlist →](https://github.com/abbudjoe/TribalMemory/issues)
 
-Ask about an entity and get everything related:
+---
 
-```python
-# Find all memories about PostgreSQL
-results = await service.recall_entity("PostgreSQL", hops=2)
+## Self-Hosted Setup
 
-# Explore the relationship graph
-graph = service.get_entity_graph("auth-service")
-# → {"entities": [...], "relationships": [...]}
-```
-
-### Graph-Aware Recall
-
-Standard `recall()` now expands via the entity graph (enabled by default):
-
-```python
-results = await service.recall("What database does auth-service use?")
-```
-
-This finds:
-1. Memories directly mentioning "auth-service" (vector search)
-2. Memories about connected entities like PostgreSQL (graph expansion)
-
-Each result includes `retrieval_method`:
-- `"vector"` — Pure semantic similarity
-- `"graph"` — Found via entity connections
-- `"hybrid"` — Combined vector + keyword search
-
-### MCP Tools for Graph Search
-
-| Tool | Description |
-|------|-------------|
-| `tribal_recall_entity` | Query memories by entity name |
-| `tribal_entity_graph` | Explore entity relationships |
-
-## MCP Tools
-
-When connected via MCP, your AI gets these tools:
-
-| Tool | Description |
-|------|-------------|
-| `tribal_store` | Store a new memory with deduplication |
-| `tribal_recall` | Search memories (vector + graph expansion) |
-| `tribal_recall_entity` | Query by entity name with hop traversal |
-| `tribal_entity_graph` | Explore entity relationships |
-| `tribal_correct` | Update/correct an existing memory |
-| `tribal_forget` | Delete a memory (soft delete) |
-| `tribal_stats` | Get memory statistics |
-| `tribal_export` | Export memories to portable JSON |
-| `tribal_import` | Import memories from a bundle |
-| `tribal_sessions_ingest` | Index conversation transcripts |
-
-## Configuration
+### Configuration
 
 Generated by `tribalmemory init`. Lives at `~/.tribal-memory/config.yaml`:
 
@@ -212,11 +156,9 @@ Generated by `tribalmemory init`. Lives at `~/.tribal-memory/config.yaml`:
 instance_id: my-agent
 
 embedding:
-  provider: openai
-  model: nomic-embed-text        # or text-embedding-3-small
-  api_base: http://localhost:11434/v1  # Ollama (omit for OpenAI)
-  dimensions: 768                # 768 for nomic, 1536 for OpenAI
-  # api_key not needed for local Ollama
+  provider: fastembed              # or openai
+  model: BAAI/bge-small-en-v1.5   # or text-embedding-3-small
+  dimensions: 384                  # 384 for fastembed, 1536 for OpenAI
 
 db:
   provider: lancedb
@@ -231,23 +173,70 @@ server:
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key (not needed for local mode) |
+| `OPENAI_API_KEY` | OpenAI API key (not needed for FastEmbed/local mode) |
 | `TRIBAL_MEMORY_CONFIG` | Path to config file (default: `~/.tribal-memory/config.yaml`) |
 | `TRIBAL_MEMORY_INSTANCE_ID` | Override instance ID |
-| `TRIBAL_MEMORY_EMBEDDING_API_BASE` | Override embedding API base URL |
 
-## Python API
+### Docker
+
+```bash
+docker compose up -d
+```
+
+See `docker-compose.yml` for configuration options.
+
+---
+
+## Tribal API
+
+### HTTP Endpoints
+
+All endpoints are under the `/v1` prefix.
+
+```bash
+# Store a memory
+curl -X POST http://localhost:18790/v1/remember \
+  -H "Content-Type: application/json" \
+  -d '{"content": "The database uses Postgres 16", "tags": ["infra"]}'
+
+# Search memories
+curl -X POST http://localhost:18790/v1/recall \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what database", "limit": 5}'
+
+# Health check
+curl http://localhost:18790/v1/health
+
+# Get stats
+curl http://localhost:18790/v1/stats
+```
+
+### MCP Tools
+
+When connected via MCP, your AI gets these tools:
+
+| Tool | Description |
+|------|-------------|
+| `tribal_store` | Store a new memory with deduplication |
+| `tribal_recall` | Search memories (vector + graph expansion) |
+| `tribal_recall_entity` | Query by entity name with hop traversal |
+| `tribal_entity_graph` | Explore entity relationships |
+| `tribal_correct` | Update/correct an existing memory |
+| `tribal_forget` | Delete a memory |
+| `tribal_stats` | Get memory statistics |
+| `tribal_export` | Export memories to portable JSON |
+| `tribal_import` | Import memories from a bundle |
+| `tribal_sessions_ingest` | Index conversation transcripts |
+
+### Python API
 
 ```python
 from tribalmemory.services import create_memory_service
 
-# Local embeddings
 service = create_memory_service(
     instance_id="my-agent",
     db_path="./memories",
-    api_base="http://localhost:11434/v1",
-    embedding_model="nomic-embed-text",
-    embedding_dimensions=768,
+    embedding_provider="fastembed",
 )
 
 # Store
@@ -268,50 +257,51 @@ await service.correct(
 )
 ```
 
-## Demo
+---
 
-See cross-agent memory sharing in action:
+## Architecture
 
-```bash
-# Start the server
-tribalmemory serve
-
-# Run the interactive demo
-./demo.sh
+```
+┌─────────────┐
+│  Claude Code │──── MCP ────┐
+└─────────────┘              │
+┌─────────────┐              ▼
+│  Codex CLI   │──── MCP ───► Tribal Memory Server
+└─────────────┘              ▲  (localhost:18790)
+┌─────────────┐              │
+│  OpenClaw    │── plugin ───┘
+└─────────────┘
 ```
 
-See [docs/demo-output.md](docs/demo-output.md) for example output.
+The server is the single source of truth. Each agent connects as an instance. Memories are tagged with `source_instance` so you can see *who* learned *what*.
 
-## HTTP API
+---
 
-All endpoints are under the `/v1` prefix.
+## Features
 
-```bash
-# Store a memory
-curl -X POST http://localhost:18790/v1/remember \
-  -H "Content-Type: application/json" \
-  -d '{"content": "The database uses Postgres 16", "tags": ["infra"]}'
+- **Semantic search** — Find memories by meaning, not keywords
+- **Cross-agent sharing** — Memories from one agent are available to all
+- **Graph search** — Entity extraction + relationship traversal
+- **Hybrid retrieval** — Vector + BM25 keyword search combined
+- **FastEmbed support** — Local ONNX embeddings, no API keys needed
+- **Session indexing** — Index conversation transcripts for search
+- **Automatic deduplication** — Won't store the same thing twice
+- **Memory corrections** — Update outdated information with audit trail
+- **Temporal reasoning** — Date extraction and time-based filtering
+- **Import/export** — Portable JSON bundles with embedding metadata
+- **Token budgets** — Smart context management to avoid LLM overload
+- **MCP server** — Native integration with Claude Code, Codex, and more
 
-# Search memories
-curl -X POST http://localhost:18790/v1/recall \
-  -H "Content-Type: application/json" \
-  -d '{"query": "what database", "limit": 5}'
+---
 
-# Get stats
-curl http://localhost:18790/v1/stats
+## Privacy
 
-# Health check
-curl http://localhost:18790/v1/health
-```
+In local mode (FastEmbed + LanceDB), **zero data leaves your machine**:
+- Embeddings computed locally (ONNX runtime)
+- Memories stored locally in LanceDB
+- No API keys, no cloud services, no telemetry
 
-## OpenClaw Integration
-
-Tribal Memory includes a plugin for [OpenClaw](https://github.com/openclaw/openclaw):
-
-```bash
-openclaw plugins install ./extensions/memory-tribal
-openclaw config set plugins.slots.memory=memory-tribal
-```
+---
 
 ## Development
 
@@ -328,12 +318,7 @@ ruff check .
 black --check .
 ```
 
-## Privacy
-
-In local mode (Ollama + LanceDB), **zero data leaves your machine**:
-- Embeddings computed locally by Ollama
-- Memories stored locally in LanceDB
-- No API keys, no cloud services, no telemetry
+---
 
 ## License
 

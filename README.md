@@ -117,6 +117,13 @@ tribalmemory init --claude-desktop
 
 Claude Desktop doesn't inherit your shell PATH, so the bare command `tribalmemory-mcp` won't work. The init flag resolves the absolute path and writes it to `claude_desktop_config.json` for you.
 
+### Both Claude Apps
+
+```bash
+# Configure Claude Code CLI and Claude Desktop together
+tribalmemory init --claude-code --claude-desktop
+```
+
 ### Codex CLI
 
 ```bash

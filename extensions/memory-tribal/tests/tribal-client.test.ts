@@ -47,10 +47,61 @@ describe("TribalClient", () => {
             query: "test query",
             limit: 5,
             min_relevance: 0.3,
-            tags: undefined,
           }),
         })
       );
+    });
+
+    it("includes temporal filters when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] }),
+      });
+
+      await client.recall("test query", {
+        maxResults: 3,
+        minScore: 0.2,
+        after: "2026-01-01",
+        before: "2026-02-01",
+      });
+
+      const callBody = JSON.parse(
+        mockFetch.mock.calls[0][1].body,
+      );
+      expect(callBody.after).toBe("2026-01-01");
+      expect(callBody.before).toBe("2026-02-01");
+    });
+
+    it("includes tags when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] }),
+      });
+
+      await client.recall("test query", {
+        tags: ["decision", "architecture"],
+      });
+
+      const callBody = JSON.parse(
+        mockFetch.mock.calls[0][1].body,
+      );
+      expect(callBody.tags).toEqual(["decision", "architecture"]);
+    });
+
+    it("omits optional fields when not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ results: [] }),
+      });
+
+      await client.recall("test query");
+
+      const callBody = JSON.parse(
+        mockFetch.mock.calls[0][1].body,
+      );
+      expect(callBody).not.toHaveProperty("tags");
+      expect(callBody).not.toHaveProperty("after");
+      expect(callBody).not.toHaveProperty("before");
     });
 
     it("transforms server response to SearchResult format", async () => {

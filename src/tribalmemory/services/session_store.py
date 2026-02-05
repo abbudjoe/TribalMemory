@@ -123,6 +123,9 @@ class SessionStore:
                 "messages_processed": 0,
             }
         
+        # Allow subclasses to initialize (e.g., restore state from DB)
+        await self._ensure_ready()
+
         # Delta ingestion: only process new messages
         last_index = self._session_state.get(session_id, 0)
         new_messages = messages[last_index:]
@@ -183,6 +186,8 @@ class SessionStore:
             content, similarity_score, start_time, end_time, chunk_index
         """
         try:
+            await self._ensure_ready()
+
             # Generate query embedding
             query_embedding = await self.embedding_service.embed(query)
             
@@ -337,6 +342,13 @@ class SessionStore:
         
         return chunks
     
+    async def _ensure_ready(self) -> None:
+        """Hook for subclasses to perform lazy initialization.
+
+        Called at the start of ``ingest()`` and ``search()`` before any
+        state is read.  The default implementation is a no-op.
+        """
+
     async def _store_chunk(
         self, chunk: SessionChunk, total_messages: int = 0
     ) -> None:
@@ -470,7 +482,12 @@ class LanceDBSessionStore(SessionStore):
         # first to avoid overwriting an existing table with a potentially
         # different schema.  Schema migrations are not yet supported —
         # delete the table manually if the schema changes.
-        if self.TABLE_NAME in self._db.table_names():
+        existing_tables = (
+            self._db.table_names()
+            if hasattr(self._db, "table_names")
+            else self._db.list_tables()
+        )
+        if self.TABLE_NAME in existing_tables:
             self._table = self._db.open_table(self.TABLE_NAME)
             # Restore delta ingestion state from persisted chunks
             self._restore_session_state()
@@ -531,22 +548,25 @@ class LanceDBSessionStore(SessionStore):
         the same (or superset) message list.
         """
         try:
-            rows = (
-                self._table.search()
-                .select(["session_id", "metadata"])
-                .limit(self._MAX_SCAN_LIMIT)
-                .to_list()
-            )
-            for row in rows:
-                sid = row["session_id"]
+            # Use head() to scan rows - it returns an Arrow table
+            # Note: head() might not return all rows, but will get recent ones
+            arrow_table = self._table.head(self._MAX_SCAN_LIMIT)
+            
+            # Convert to Python dict for easier iteration
+            data = arrow_table.to_pydict()
+            session_ids = data.get("session_id", [])
+            metadatas = data.get("metadata", [])
+            
+            for sid, meta_str in zip(session_ids, metadatas):
                 try:
-                    meta = json.loads(row.get("metadata", "{}"))
+                    meta = json.loads(meta_str if meta_str else "{}")
                     msg_count = meta.get("message_count", 0)
                 except (json.JSONDecodeError, TypeError):
                     msg_count = 0
                 # Keep the highest message_count per session
                 if sid not in self._session_state or msg_count > self._session_state[sid]:
                     self._session_state[sid] = msg_count
+            
             if self._session_state:
                 logger.info(
                     "Restored session state for %d sessions from LanceDB",
@@ -554,6 +574,10 @@ class LanceDBSessionStore(SessionStore):
                 )
         except Exception as e:
             logger.warning("Failed to restore session state: %s", e)
+
+    async def _ensure_ready(self) -> None:
+        """Initialize LanceDB connection and restore session state."""
+        await self._ensure_initialized()
 
     async def _store_chunk(
         self, chunk: SessionChunk, total_messages: int = 0

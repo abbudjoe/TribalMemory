@@ -124,10 +124,12 @@ Claude Desktop doesn't inherit your shell PATH, so the bare command `tribalmemor
 tribalmemory init --claude-code --claude-desktop
 ```
 
-### Codex CLI
+### Codex (CLI & Desktop)
+
+The Codex CLI and desktop app share the same config file (`~/.codex/config.toml`), so one command sets up both:
 
 ```bash
-# Auto-configure (recommended)
+# Auto-configure (recommended — works for both CLI and desktop app)
 tribalmemory init --codex
 ```
 
@@ -137,6 +139,8 @@ Or manually — add to `~/.codex/config.toml`:
 [mcp_servers.tribal-memory]
 command = "tribalmemory-mcp"
 ```
+
+> **Note:** The init flag resolves the full binary path automatically, so the desktop app finds the command even if it doesn't inherit your shell PATH.
 
 That's it. Codex now shares the same memory store as Claude Code. Memories stored by one are instantly available to the other.
 

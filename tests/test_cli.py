@@ -24,6 +24,7 @@ class FakeArgs:
         self.ollama = kwargs.get("ollama", False)
         self.local = kwargs.get("local", False)
         self.claude_code = kwargs.get("claude_code", False)
+        self.claude_desktop = kwargs.get("claude_desktop", False)
         self.codex = kwargs.get("codex", False)
         self.instance_id = kwargs.get("instance_id", None)
         self.force = kwargs.get("force", False)
@@ -412,21 +413,19 @@ class TestInitCommand:
         assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in env
         assert "localhost:11434" in env["TRIBAL_MEMORY_EMBEDDING_API_BASE"]
 
-    def test_init_claude_code_creates_desktop_config(self, cli_env):
-        """init --claude-code should create both CLI and Desktop configs."""
+    def test_init_claude_code_does_not_touch_desktop_config(self, cli_env):
+        """init --claude-code should only create CLI config, not Desktop."""
         result = cmd_init(FakeArgs(claude_code=True))
 
         assert result == 0
-        # CLI config
+        # CLI config should exist
         cli_config = cli_env / ".claude.json"
         assert cli_config.exists()
         cli_mcp = json.loads(cli_config.read_text())
         assert "tribal-memory" in cli_mcp["mcpServers"]
-        # Desktop config (Linux path under fake home)
+        # Desktop config should NOT be created by --claude-code
         desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
-        assert desktop_config.exists()
-        desktop_mcp = json.loads(desktop_config.read_text())
-        assert "tribal-memory" in desktop_mcp["mcpServers"]
+        assert not desktop_config.exists()
 
     def test_init_claude_code_backs_up_invalid_json(self, cli_env):
         """init --claude-code should backup invalid JSON config before replacing."""
@@ -444,19 +443,60 @@ class TestInitCommand:
         assert backup.exists()
         assert backup.read_text() == "not valid json {{{"
 
-    def test_init_claude_code_preserves_existing_desktop_entries(self, cli_env):
-        """init --claude-code should not clobber existing Desktop MCP entries."""
+    def test_init_claude_desktop_creates_config(self, cli_env):
+        """init --claude-desktop should create Desktop config with absolute path."""
+        result = cmd_init(FakeArgs(claude_desktop=True))
+
+        assert result == 0
+        desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
+        assert desktop_config.exists()
+        mcp = json.loads(desktop_config.read_text())
+        assert "tribal-memory" in mcp["mcpServers"]
+        cmd = mcp["mcpServers"]["tribal-memory"]["command"]
+        assert cmd.endswith("tribalmemory-mcp")
+
+    def test_init_claude_desktop_ollama_adds_env(self, cli_env):
+        """init --ollama --claude-desktop should set api_base env."""
+        result = cmd_init(FakeArgs(ollama=True, claude_desktop=True))
+
+        assert result == 0
+        desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
+        mcp = json.loads(desktop_config.read_text())
+        env = mcp["mcpServers"]["tribal-memory"]["env"]
+        assert "TRIBAL_MEMORY_EMBEDDING_API_BASE" in env
+        assert "localhost:11434" in env["TRIBAL_MEMORY_EMBEDDING_API_BASE"]
+
+    def test_init_claude_desktop_preserves_existing_entries(self, cli_env):
+        """init --claude-desktop should not clobber existing MCP entries."""
         desktop_dir = cli_env / ".claude"
         desktop_dir.mkdir(parents=True, exist_ok=True)
         desktop_config = desktop_dir / "claude_desktop_config.json"
         desktop_config.write_text(json.dumps({"mcpServers": {"other": {"command": "other-cmd"}}}) + "\n")
 
-        result = cmd_init(FakeArgs(claude_code=True))
+        result = cmd_init(FakeArgs(claude_desktop=True))
 
         assert result == 0
         desktop_mcp = json.loads(desktop_config.read_text())
         assert "tribal-memory" in desktop_mcp["mcpServers"]
         assert "other" in desktop_mcp["mcpServers"]  # preserved
+
+    def test_init_claude_desktop_does_not_touch_cli_config(self, cli_env):
+        """init --claude-desktop should not create CLI config."""
+        result = cmd_init(FakeArgs(claude_desktop=True))
+
+        assert result == 0
+        cli_config = cli_env / ".claude.json"
+        assert not cli_config.exists()
+
+    def test_init_both_claude_flags(self, cli_env):
+        """init --claude-code --claude-desktop should configure both."""
+        result = cmd_init(FakeArgs(claude_code=True, claude_desktop=True))
+
+        assert result == 0
+        cli_config = cli_env / ".claude.json"
+        assert cli_config.exists()
+        desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
+        assert desktop_config.exists()
 
 
 class TestResolveMcpCommand:
@@ -502,7 +542,7 @@ class TestResolveMcpCommand:
         assert result == "tribalmemory-mcp"
 
     def test_init_claude_code_uses_full_path(self, cli_env):
-        """init --claude-code should write the resolved full path to configs."""
+        """init --claude-code should write the resolved full path to CLI config."""
         fake_path = "/home/test/.local/bin/tribalmemory-mcp"
         with patch("tribalmemory.cli.shutil.which", return_value=fake_path):
             result = cmd_init(FakeArgs(claude_code=True))
@@ -514,7 +554,14 @@ class TestResolveMcpCommand:
         mcp = json.loads(cli_config.read_text())
         assert mcp["mcpServers"]["tribal-memory"]["command"] == fake_path
 
-        # Desktop config should also have full path
+    def test_init_claude_desktop_uses_full_path(self, cli_env):
+        """init --claude-desktop should write the resolved full path."""
+        fake_path = "/home/test/.local/bin/tribalmemory-mcp"
+        with patch("tribalmemory.cli.shutil.which", return_value=fake_path):
+            result = cmd_init(FakeArgs(claude_desktop=True))
+
+        assert result == 0
+
         desktop_config = cli_env / ".claude" / "claude_desktop_config.json"
         desktop_mcp = json.loads(desktop_config.read_text())
         assert desktop_mcp["mcpServers"]["tribal-memory"]["command"] == fake_path

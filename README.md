@@ -77,14 +77,14 @@ Server runs on `http://localhost:18790`.
 
 Tribal Memory connects to AI agents via [MCP (Model Context Protocol)](https://modelcontextprotocol.io). Set up one or more of these:
 
-### Claude Code
+### Claude Code (CLI)
 
 ```bash
 # Auto-configure (recommended)
 tribalmemory init --claude-code
-
-# Or manually — add to your Claude Code MCP config:
 ```
+
+Or manually — add to `~/.claude.json`:
 
 ```json
 {
@@ -108,9 +108,23 @@ You: How does the auth service work?
 Claude: Based on my memory, the auth service uses JWT with RS256...
 ```
 
+### Claude Desktop
+
+```bash
+# Auto-configure (recommended — resolves the full binary path automatically)
+tribalmemory init --claude-desktop
+```
+
+Claude Desktop doesn't inherit your shell PATH, so the bare command `tribalmemory-mcp` won't work. The init flag resolves the absolute path and writes it to `claude_desktop_config.json` for you.
+
 ### Codex CLI
 
-Add to `~/.codex/config.toml`:
+```bash
+# Auto-configure (recommended)
+tribalmemory init --codex
+```
+
+Or manually — add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.tribal-memory]

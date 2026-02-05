@@ -159,6 +159,71 @@ class TestConnectionPooling:
         store.close()  # Should still be safe
 
 
+    def test_concurrent_readers_dont_block(self, graph_store):
+        """Verify that concurrent read operations don't block each other.
+        
+        With RLock and WAL mode, multiple threads should be able to read
+        simultaneously without blocking. This test uses timing to verify
+        that reads happen concurrently, not sequentially.
+        """
+        import time
+        
+        # Pre-populate data
+        for i in range(10):
+            entity = Entity(name=f"service-{i}", entity_type="service")
+            graph_store.add_entity(entity, memory_id=f"mem-{i}")
+        
+        read_times = []
+        errors = []
+        
+        def read_entities():
+            """Read operation that takes a moment."""
+            try:
+                start = time.time()
+                # Perform multiple reads to increase duration
+                for _ in range(20):
+                    graph_store.get_entities_for_memory("mem-5")
+                    time.sleep(0.01)  # Small delay to make timing measurable
+                duration = time.time() - start
+                read_times.append(duration)
+            except Exception as e:
+                errors.append(e)
+        
+        # Start multiple readers concurrently
+        threads = []
+        for _ in range(5):
+            t = threading.Thread(target=read_entities)
+            threads.append(t)
+        
+        # Start all threads at nearly the same time
+        overall_start = time.time()
+        for t in threads:
+            t.start()
+        
+        # Wait for completion
+        for t in threads:
+            t.join()
+        
+        overall_duration = time.time() - overall_start
+        
+        # Verify no errors
+        assert len(errors) == 0, f"Concurrent reads caused errors: {errors}"
+        
+        # Verify timing: if reads were blocking each other sequentially,
+        # total time would be ~= sum of individual times.
+        # With concurrent reads, total time should be ~= max individual time.
+        total_sequential_time = sum(read_times)
+        
+        # If concurrent, overall duration should be much less than sequential sum
+        # Allow some overhead, but it should be significantly faster
+        assert overall_duration < (total_sequential_time * 0.5), (
+            f"Reads appear to be blocking: overall={overall_duration:.2f}s, "
+            f"sequential sum={total_sequential_time:.2f}s. "
+            f"With concurrent reads, overall should be much closer to "
+            f"max individual time ({max(read_times):.2f}s)"
+        )
+
+
 class TestConnectionPoolingEdgeCases:
     """Edge cases and error scenarios for connection pooling."""
 

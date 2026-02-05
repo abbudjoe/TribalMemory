@@ -405,7 +405,11 @@ class GraphStore:
         return 'concept'
     
     def _init_schema(self) -> None:
-        """Initialize database schema."""
+        """Initialize database schema.
+        
+        Thread-safe: Uses lock even though typically called during __init__.
+        This ensures safety if schema updates are added later.
+        """
         with self._lock:
             self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS entities (

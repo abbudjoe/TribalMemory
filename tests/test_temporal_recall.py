@@ -63,7 +63,11 @@ def service_no_hybrid(embedding_service, vector_store, graph_store):
 
 
 class TestTemporalRecallParams:
-    """Test that recall() accepts after/before params."""
+    """Test that recall() accepts after/before params without errors.
+    
+    These tests verify the API contract — params are accepted and
+    return valid results regardless of filtering behavior.
+    """
 
     @pytest.mark.asyncio
     async def test_recall_accepts_after_param(self, service):
@@ -91,7 +95,11 @@ class TestTemporalRecallParams:
 
 
 class TestTemporalFiltering:
-    """Test that temporal params actually filter results."""
+    """Test that temporal params actually filter results.
+    
+    Memories with temporal facts outside the range are excluded.
+    Memories without temporal facts pass through unfiltered.
+    """
 
     @pytest.mark.asyncio
     async def test_after_filters_old_memories(self, service):
@@ -194,7 +202,11 @@ class TestTemporalRecallRetrieval:
 
 
 class TestTemporalRecallEdgeCases:
-    """Edge cases for temporal filtering."""
+    """Edge cases for temporal filtering.
+    
+    Covers: empty results, None params, invalid dates, limit enforcement,
+    vector-only mode (no FTS), and month-precision date matching.
+    """
 
     @pytest.mark.asyncio
     async def test_empty_results_with_strict_range(self, service):
@@ -205,11 +217,9 @@ class TestTemporalRecallEdgeCases:
             "event", after="2025-01-01", before="2025-12-31"
         )
         
-        # No 2025 events stored
-        temporal_contents = [r.memory.content for r in results if "2024" in r.memory.content]
-        # The 2024 event should be filtered out
-        assert not any("March 15, 2024" in c for c in [r.memory.content for r in results] 
-                       if results and any("2024" in r.memory.content for r in results))
+        # The 2024 event should be filtered out — no 2025 events stored
+        contents = [r.memory.content for r in results]
+        assert not any("March 15, 2024" in c for c in contents)
 
     @pytest.mark.asyncio
     async def test_after_none_before_none_no_filtering(self, service):
@@ -220,6 +230,17 @@ class TestTemporalRecallEdgeCases:
         results_without = await service.recall("event", min_relevance=0.0)
         
         assert len(results_with) == len(results_without)
+
+    @pytest.mark.asyncio
+    async def test_after_later_than_before_returns_empty(self, service):
+        """When after > before, should return empty list (invalid range)."""
+        await service.remember("Event on March 15, 2024")
+        
+        results = await service.recall(
+            "event", after="2025-01-01", before="2024-01-01"
+        )
+        
+        assert results == []
 
     @pytest.mark.asyncio
     async def test_invalid_date_string_handled_gracefully(self, service):

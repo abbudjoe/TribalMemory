@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -208,11 +209,6 @@ class TribalMemoryService(IMemoryService):
         When graph expansion is enabled, entities are extracted from the query
         and the candidate pool is expanded via entity graph traversal.
         
-        When after/before are provided, results are filtered to only include
-        memories that have temporal facts within the specified date range.
-        Memories without any temporal facts pass through unfiltered (they
-        have no dates that could violate the range).
-        
         Args:
             query: Natural language query
             limit: Maximum results
@@ -221,10 +217,12 @@ class TribalMemoryService(IMemoryService):
             graph_expansion: Expand candidates via entity graph (default True)
             after: Only include memories with temporal facts on or after this
                 date. Accepts ISO format (YYYY-MM-DD) or natural language
-                (parsed via TemporalExtractor).
+                (parsed via TemporalExtractor). Memories **without** any
+                temporal facts pass through unfiltered — they have no dates
+                that could violate the range. Invalid/unparseable dates are
+                logged and silently ignored.
             before: Only include memories with temporal facts on or before this
-                date. Accepts ISO format (YYYY-MM-DD) or natural language
-                (parsed via TemporalExtractor).
+                date. Same format and passthrough rules as ``after``.
         
         Returns:
             List of RecallResult objects with retrieval_method indicating source:
@@ -530,18 +528,21 @@ class TribalMemoryService(IMemoryService):
         natural language expressions via TemporalExtractor.
 
         Args:
-            date_str: Date string to resolve.
+            date_str: Date string to resolve. Can be ISO format
+                (``"2024-06-01"``, ``"2024-06"``, ``"2024"``) or natural
+                language (``"last week"``, ``"yesterday"``).
 
         Returns:
-            ISO date string, or None if the input cannot be parsed.
+            ISO date string on success. Returns ``None`` when the input
+            cannot be parsed — callers should treat ``None`` as "skip
+            this filter boundary" and log a warning.
         """
         if not date_str or not date_str.strip():
             return None
 
         date_str = date_str.strip()
 
-        # Fast path: already ISO format
-        import re
+        # Fast path: ISO format YYYY, YYYY-MM, or YYYY-MM-DD
         if re.match(r'^\d{4}(-\d{2}(-\d{2})?)?$', date_str):
             return date_str
 
@@ -580,10 +581,27 @@ class TribalMemoryService(IMemoryService):
         if resolved_after is None and resolved_before is None:
             return results
 
+        # Validate date range order
+        if (
+            resolved_after is not None
+            and resolved_before is not None
+            and resolved_after > resolved_before
+        ):
+            logger.warning(
+                "after date '%s' is later than before date '%s'; "
+                "returning empty results",
+                resolved_after,
+                resolved_before,
+            )
+            return []
+
         if not self.graph_store:
             return results
 
-        # Get the set of memory IDs that fall within the date range
+        # These sets are bounded by the number of memories with temporal
+        # facts in the graph store — typically a fraction of total memories.
+        # We need both to distinguish "no temporal facts" (passthrough)
+        # from "temporal facts outside range" (exclude).
         temporal_memory_ids = set(
             self.graph_store.get_memories_in_date_range(
                 start_date=resolved_after,
@@ -591,7 +609,6 @@ class TribalMemoryService(IMemoryService):
             )
         )
 
-        # Also get all memory IDs that have ANY temporal facts
         all_temporal_ids = set(
             self.graph_store.get_memories_in_date_range()
         )

@@ -69,6 +69,8 @@ CLAUDE_CODE_MCP_CONFIG = {
     }
 }
 
+ENV_FILE = TRIBAL_DIR / ".env"
+
 FASTEMBED_CONFIG_TEMPLATE = """\
 # Tribal Memory Configuration — FastEmbed (Zero Cloud)
 # Local ONNX embeddings — no API keys, no external services.
@@ -92,6 +94,7 @@ server:
 
 OPENAI_CONFIG_TEMPLATE = """\
 # Tribal Memory Configuration — OpenAI Embeddings
+# API key stored in ~/.tribal-memory/.env (not here — keep configs safe to share)
 # Docs: https://github.com/abbudjoe/TribalMemory
 
 instance_id: {instance_id}
@@ -100,7 +103,6 @@ embedding:
   provider: openai
   model: text-embedding-3-small
   dimensions: 1536
-  api_key: {api_key}
 
 db:
   provider: lancedb
@@ -132,6 +134,50 @@ server:
   host: 127.0.0.1
   port: 18790
 {auto_capture_line}"""
+
+
+def _write_env_file(key: str, value: str) -> None:
+    """Write or update a key in ~/.tribal-memory/.env.
+
+    The file is created with 600 permissions (owner-only read/write)
+    so API keys stay out of config.yaml and are harder to leak.
+    """
+    ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: dict[str, str] = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                existing[k.strip()] = v.strip()
+
+    existing[key] = value
+
+    content = "# Tribal Memory secrets — auto-generated, do not commit\n"
+    for k, v in existing.items():
+        content += f"{k}={v}\n"
+
+    ENV_FILE.write_text(content)
+    ENV_FILE.chmod(0o600)
+
+
+def load_env_file() -> None:
+    """Load ~/.tribal-memory/.env into os.environ if it exists.
+
+    Called at server startup so API keys from ``tribalmemory init --openai``
+    are available without the user manually exporting them.
+    """
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip()
+            # Don't overwrite explicit env vars
+            if k not in os.environ:
+                os.environ[k] = v
 
 
 def _detect_provider(args: argparse.Namespace) -> str:
@@ -189,7 +235,17 @@ def cmd_init(args: argparse.Namespace) -> int:
         auto_capture_line = "\nauto_capture: true\n"
 
     provider = _detect_provider(args)
-    is_local = provider in ("fastembed", "ollama")
+    no_api_key = provider in ("fastembed", "ollama")
+
+    # Validate FastEmbed is installed before writing config
+    if provider == "fastembed":
+        try:
+            import fastembed as _  # noqa: F401
+        except ImportError:
+            print("⚠️  FastEmbed not installed. Install with:")
+            print("   pip install 'tribalmemory[fastembed]'")
+            print("   Or use --openai or --ollama instead.")
+            return 1
 
     # Choose template + build config
     if provider == "openai":
@@ -197,7 +253,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         config_content = OPENAI_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
-            api_key=api_key,
             auto_capture_line=auto_capture_line,
         )
     elif provider == "ollama":
@@ -222,6 +277,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     CONFIG_FILE.write_text(config_content)
     print(f"✅ Config written: {CONFIG_FILE}")
 
+    # Write API key to .env (not config.yaml) for security
+    if provider == "openai":
+        _write_env_file("OPENAI_API_KEY", api_key)
+        print(f"🔑 API key saved to {ENV_FILE} (600 permissions)")
+
     # Provider-specific post-install guidance
     if provider == "fastembed":
         print()
@@ -235,14 +295,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("   ollama serve  # if not already running")
     else:
         print()
-        print("🔑 OpenAI — API key saved to config.")
+        print("🔑 OpenAI — ready to go.")
 
     # Set up MCP integrations
     if args.claude_code:
-        _setup_claude_code_mcp(is_local)
+        _setup_claude_code_mcp(no_api_key)
 
     if args.codex:
-        _setup_codex_mcp(is_local)
+        _setup_codex_mcp(no_api_key)
 
     # Set up auto-capture instructions
     if args.auto_capture:
@@ -470,6 +530,9 @@ def _setup_codex_mcp(is_local: bool) -> None:
 
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start the HTTP server."""
+    # Load .env before config so API keys are in os.environ
+    load_env_file()
+
     from .server.app import run_server
     from .server.config import TribalMemoryConfig
 
@@ -489,6 +552,8 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def cmd_mcp(args: argparse.Namespace) -> None:
     """Start the MCP server (stdio)."""
+    load_env_file()
+
     from .mcp.server import main as mcp_main
     mcp_main()
 
@@ -508,7 +573,7 @@ def main() -> None:
     provider_group = init_parser.add_mutually_exclusive_group()
     provider_group.add_argument(
         "--fastembed", action="store_true",
-        help="Use FastEmbed local embeddings (default — no API key needed)")
+        help="Use FastEmbed local embeddings (default, no API key needed)")
     provider_group.add_argument(
         "--openai", action="store_true",
         help="Use OpenAI embeddings (prompts for API key)")

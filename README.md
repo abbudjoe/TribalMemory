@@ -37,12 +37,8 @@ uv tool install tribalmemory
 
 **Linux:**
 ```bash
-pip install tribalmemory
-```
-
-**With local embeddings (no API keys needed):**
-```bash
-pip install "tribalmemory[fastembed]"
+pip install "tribalmemory[fastembed]"   # recommended — includes local embeddings
+# or: pip install tribalmemory          # base install (bring your own embeddings)
 ```
 
 ---
@@ -59,7 +55,11 @@ tribalmemory init
 tribalmemory serve
 ```
 
-That's it. The first run downloads a ~130MB embedding model, then it's instant. See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for details.
+That's it. No config editing required.
+
+> **First run:** FastEmbed downloads a ~130MB ONNX model on first use. After that, embeddings are instant and fully offline.
+
+See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for details.
 
 ### Option B: OpenAI Embeddings
 

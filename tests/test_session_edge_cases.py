@@ -181,6 +181,7 @@ class TestPaginationBehavior:
         })
 
         all_ids = set()
+        total_count = None
         offset = 0
         limit = 2
         while True:
@@ -191,6 +192,10 @@ class TestPaginationBehavior:
                 "min_relevance": -1,
             })
             data = resp.json()
+            # Capture total_count from a non-empty page (empty last
+            # page may report total_count=0 depending on implementation)
+            if total_count is None and data["results"]:
+                total_count = data["total_count"]
             page_ids = {r["chunk_id"] for r in data["results"]}
             if not page_ids:
                 break
@@ -198,8 +203,8 @@ class TestPaginationBehavior:
             offset += limit
 
         assert len(all_ids) >= 2
-        # Total should match what we collected
-        assert len(all_ids) == data["total_count"]
+        assert total_count is not None
+        assert len(all_ids) == total_count
 
 
 # ==================================================================

@@ -419,20 +419,26 @@ class TestUnicodeFallback:
         no bogus results).
         """
         with patch("tribalmemory.services.temporal.DATEPARSER_AVAILABLE", False):
-            # French month
+            # French month — fallback only knows English months
             entities = extractor.extract("le 7 mai 2023", reference_time)
-            # Fallback doesn't understand French — should return empty
-            # (the regex patterns only match English month names)
             assert isinstance(entities, list)
-            # No crash is the primary assertion
+            assert len(entities) == 0, (
+                f"Expected empty for French month, got {entities}"
+            )
 
             # German month
             entities = extractor.extract("am 7. März 2023", reference_time)
             assert isinstance(entities, list)
+            assert len(entities) == 0, (
+                f"Expected empty for German month, got {entities}"
+            )
 
             # Japanese date
             entities = extractor.extract("2023年5月7日", reference_time)
             assert isinstance(entities, list)
+            assert len(entities) == 0, (
+                f"Expected empty for Japanese date, got {entities}"
+            )
 
     def test_fallback_still_handles_relative_expressions(
         self, extractor, reference_time
@@ -559,6 +565,23 @@ class TestBatchExtract:
         ]
         results = extractor.batch_extract(items)
         assert results == [[], []]
+
+    def test_batch_extract_mixed_valid_and_none(
+        self, extractor, reference_time
+    ):
+        """Mixed None/valid items should preserve order."""
+        items = [
+            ("yesterday", reference_time),
+            (None, reference_time),
+            ("", reference_time),
+            ("tomorrow", reference_time),
+        ]
+        results = extractor.batch_extract(items)
+        assert len(results) == 4
+        assert len(results[0]) >= 1   # yesterday
+        assert results[1] == []       # None
+        assert results[2] == []       # empty
+        assert len(results[3]) >= 1   # tomorrow
 
     def test_batch_extract_skips_non_temporal(self, extractor, reference_time):
         """Items without temporal signals should be skipped efficiently."""

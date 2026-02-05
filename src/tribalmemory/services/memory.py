@@ -166,7 +166,7 @@ class TribalMemoryService(IMemoryService):
         return result
 
     def _extract_and_store_temporal(
-        self, content: str, entry: "MemoryEntry"
+        self, content: str, entry: MemoryEntry
     ) -> None:
         """Extract temporal facts from *content* and persist them.
 

@@ -119,7 +119,7 @@ class TemporalExtractor:
     # Quick-check pattern: combined lightweight regex that detects whether text
     # contains *any* temporal signal.  Used by ``has_temporal_signal()`` to
     # short-circuit full extraction for texts that obviously have no dates.
-    _QUICK_CHECK_KEYWORDS = (
+    _QUICK_CHECK_PATTERN = (
         r'\byesterday\b|\btoday\b|\btomorrow\b|\btonight\b'
         r'|\blast\s+(?:week|month|year|night|monday|tuesday|wednesday'
         r'|thursday|friday|saturday|sunday)\b'
@@ -146,7 +146,7 @@ class TemporalExtractor:
             re.IGNORECASE
         )
         self._quick_check_regex = re.compile(
-            self._QUICK_CHECK_KEYWORDS, re.IGNORECASE
+            self._QUICK_CHECK_PATTERN, re.IGNORECASE
         )
 
     def has_temporal_signal(self, text: str) -> bool:
@@ -475,10 +475,10 @@ class TemporalExtractor:
         """
         results: list[list[TemporalEntity]] = []
         for text, ref in items:
-            if not text or not self.has_temporal_signal(text):
-                results.append([])
-            else:
+            if text and self.has_temporal_signal(text):
                 results.append(self.extract(text, ref))
+            else:
+                results.append([])
         return results
 
     def batch_extract_with_context(
@@ -498,10 +498,10 @@ class TemporalExtractor:
         """
         results: list[list[TemporalRelationship]] = []
         for text, ref in items:
-            if not text or not self.has_temporal_signal(text):
-                results.append([])
-            else:
+            if text and self.has_temporal_signal(text):
                 results.append(self.extract_with_context(text, ref))
+            else:
+                results.append([])
         return results
 
     def _find_temporal_subject(self, text: str, expression: str) -> Optional[str]:

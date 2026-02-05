@@ -61,6 +61,7 @@ async def get_memory_service() -> TribalMemoryService:
             api_base=config.embedding.api_base,
             embedding_model=config.embedding.model,
             embedding_dimensions=config.embedding.dimensions,
+            embedding_provider=config.embedding.provider,
         )
         logger.info(f"Memory service initialized (instance: {instance_id}, db: {config.db.path})")
 
@@ -614,9 +615,12 @@ def create_server() -> FastMCP:
         service = await get_memory_service()
         emb = service.embedding_service
         meta = create_embedding_metadata(
-            model_name=getattr(emb, "model", "unknown"),
+            model_name=getattr(
+                emb, "model",
+                getattr(emb, "model_name", "unknown"),
+            ),
             dimensions=getattr(emb, "dimensions", 1536),
-            provider="openai",
+            provider=getattr(emb, "provider_name", "openai"),
         )
 
         flt = None
@@ -725,9 +729,12 @@ def create_server() -> FastMCP:
         service = await get_memory_service()
         emb = service.embedding_service
         target_meta = create_embedding_metadata(
-            model_name=getattr(emb, "model", "unknown"),
+            model_name=getattr(
+                emb, "model",
+                getattr(emb, "model_name", "unknown"),
+            ),
             dimensions=getattr(emb, "dimensions", 1536),
-            provider="openai",
+            provider=getattr(emb, "provider_name", "openai"),
         )
 
         cr_map = {

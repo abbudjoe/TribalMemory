@@ -141,14 +141,19 @@ class TribalMemoryConfig:
         """Validate configuration, return list of errors."""
         errors = []
 
-        # api_key is only required when using OpenAI (no custom api_base)
-        api_base = (self.embedding.api_base or "").strip()
-        is_local = (
-            api_base != ""
-            and "api.openai.com" not in api_base.lower()
-        )
-        if not self.embedding.api_key and not is_local:
-            errors.append("embedding.api_key is required (or set OPENAI_API_KEY)")
+        # FastEmbed doesn't need an API key at all
+        if self.embedding.provider != "fastembed":
+            # api_key is only required for OpenAI (no custom api_base)
+            api_base = (self.embedding.api_base or "").strip()
+            is_local = (
+                api_base != ""
+                and "api.openai.com" not in api_base.lower()
+            )
+            if not self.embedding.api_key and not is_local:
+                errors.append(
+                    "embedding.api_key is required "
+                    "(or set OPENAI_API_KEY)"
+                )
 
         if not self.instance_id:
             errors.append("instance_id is required")

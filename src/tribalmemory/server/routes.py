@@ -264,9 +264,12 @@ async def export_memories_route(
     try:
         emb = service.embedding_service
         meta = create_embedding_metadata(
-            model_name=getattr(emb, "model", "unknown"),
+            model_name=getattr(
+                emb, "model",
+                getattr(emb, "model_name", "unknown"),
+            ),
             dimensions=getattr(emb, "dimensions", 1536),
-            provider="openai",
+            provider=getattr(emb, "provider_name", "openai"),
         )
 
         flt = None
@@ -331,9 +334,12 @@ async def import_memories_route(
 
     emb = service.embedding_service
     target_meta = create_embedding_metadata(
-        model_name=getattr(emb, "model", "unknown"),
+        model_name=getattr(
+            emb, "model",
+            getattr(emb, "model_name", "unknown"),
+        ),
         dimensions=getattr(emb, "dimensions", 1536),
-        provider="openai",
+        provider=getattr(emb, "provider_name", "openai"),
     )
 
     cr_map = {

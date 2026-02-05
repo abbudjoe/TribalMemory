@@ -146,6 +146,11 @@ class OpenAIEmbeddingService(IEmbeddingService):
         
         return f"{base}/embeddings"
     
+    @property
+    def provider_name(self) -> str:
+        """Return the provider identifier for metadata."""
+        return "openai"
+
     def __repr__(self) -> str:
         """Safe repr that masks API key to prevent accidental logging."""
         return f"OpenAIEmbeddingService(model={self.model!r}, api_key=***)"

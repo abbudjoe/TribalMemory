@@ -11,7 +11,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..services import create_memory_service, TribalMemoryService
-from ..services.session_store import SessionStore
+from ..services.session_store import (
+    SessionStore,
+    LanceDBSessionStore,
+    InMemorySessionStore,
+)
 from .config import TribalMemoryConfig
 from .routes import router
 
@@ -53,11 +57,44 @@ async def lifespan(app: FastAPI):
     )
 
     # Create session store (shares embedding service and vector store)
-    _session_store = SessionStore(
-        instance_id=config.instance_id,
-        embedding_service=_memory_service.embedding_service,
-        vector_store=_memory_service.vector_store,
-    )
+    # Use LanceDB session store when db_path is available
+    if config.db.path:
+        try:
+            session_db_path = Path(config.db.path) / "session_chunks"
+            _session_store = LanceDBSessionStore(
+                instance_id=config.instance_id,
+                embedding_service=_memory_service.embedding_service,
+                vector_store=_memory_service.vector_store,
+                db_path=session_db_path,
+            )
+        except ImportError:
+            logger.warning(
+                "LanceDB not installed. Falling back to in-memory session storage. "
+                "Session data will NOT persist across restarts. "
+                "Install with: pip install lancedb"
+            )
+            _session_store = InMemorySessionStore(
+                instance_id=config.instance_id,
+                embedding_service=_memory_service.embedding_service,
+                vector_store=_memory_service.vector_store,
+            )
+        except (OSError, PermissionError, ValueError) as exc:
+            logger.warning(
+                "LanceDB session store init failed (%s). "
+                "Falling back to in-memory session storage.",
+                exc,
+            )
+            _session_store = InMemorySessionStore(
+                instance_id=config.instance_id,
+                embedding_service=_memory_service.embedding_service,
+                vector_store=_memory_service.vector_store,
+            )
+    else:
+        _session_store = InMemorySessionStore(
+            instance_id=config.instance_id,
+            embedding_service=_memory_service.embedding_service,
+            vector_store=_memory_service.vector_store,
+        )
 
     search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"
     logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")

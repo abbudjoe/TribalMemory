@@ -16,7 +16,12 @@ from mcp.server.fastmcp import FastMCP
 from ..interfaces import MemorySource
 from ..server.config import TribalMemoryConfig
 from ..services import create_memory_service, TribalMemoryService
-from ..services.session_store import SessionStore, SessionMessage
+from ..services.session_store import (
+    SessionStore,
+    SessionMessage,
+    LanceDBSessionStore,
+    InMemorySessionStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +83,46 @@ async def get_session_store() -> SessionStore:
         config = TribalMemoryConfig.from_env()
         instance_id = os.environ.get("TRIBAL_MEMORY_INSTANCE_ID", "mcp-claude-code")
         
-        _session_store = SessionStore(
-            instance_id=instance_id,
-            embedding_service=memory_service.embedding_service,
-            vector_store=memory_service.vector_store,
-        )
-        logger.info("Session store initialized")
+        # Use LanceDB session store when db_path is available
+        if config.db.path:
+            try:
+                session_db_path = Path(config.db.path) / "session_chunks"
+                _session_store = LanceDBSessionStore(
+                    instance_id=instance_id,
+                    embedding_service=memory_service.embedding_service,
+                    vector_store=memory_service.vector_store,
+                    db_path=session_db_path,
+                )
+                logger.info("LanceDB session store initialized (db: %s)", session_db_path)
+            except ImportError:
+                logger.warning(
+                    "LanceDB not installed. Falling back to in-memory session storage. "
+                    "Session data will NOT persist across restarts. "
+                    "Install with: pip install lancedb"
+                )
+                _session_store = InMemorySessionStore(
+                    instance_id=instance_id,
+                    embedding_service=memory_service.embedding_service,
+                    vector_store=memory_service.vector_store,
+                )
+            except (OSError, PermissionError, ValueError) as exc:
+                logger.warning(
+                    "LanceDB session store init failed (%s). "
+                    "Falling back to in-memory session storage.",
+                    exc,
+                )
+                _session_store = InMemorySessionStore(
+                    instance_id=instance_id,
+                    embedding_service=memory_service.embedding_service,
+                    vector_store=memory_service.vector_store,
+                )
+        else:
+            _session_store = InMemorySessionStore(
+                instance_id=instance_id,
+                embedding_service=memory_service.embedding_service,
+                vector_store=memory_service.vector_store,
+            )
+            logger.info("In-memory session store initialized")
     
     return _session_store
 
@@ -313,8 +352,11 @@ def create_server() -> FastMCP:
             if "timestamp" in msg:
                 try:
                     ts = datetime.fromisoformat(msg["timestamp"])
-                except (ValueError, TypeError):
-                    pass  # Use current time if timestamp is invalid
+                except (ValueError, TypeError) as e:
+                    logger.warning(
+                        "Invalid timestamp '%s' in message %d, using current time: %s",
+                        msg.get("timestamp"), i, e,
+                    )
             
             parsed_messages.append(SessionMessage(
                 role=msg["role"],

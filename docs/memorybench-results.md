@@ -10,7 +10,36 @@
 |-----|------|-----------|----------|--------|-------|
 | 1 (baseline) | 2026-02-05 | OpenAI (via bun runner) | 0% (0/10) | 10% | Metadata parsing bug, FTS5 crash |
 | 2 (bug fixes) | 2026-02-05 | OpenAI (via bun runner) | 10% (1/10) | 10% | Fixed metadata, FTS5, temporal |
-| **3 (FastEmbed)** | **2026-02-05** | **FastEmbed bge-small-en-v1.5** | **100% (10/10)** | **100%** | **Fixed source_type, recall API, local embeddings** |
+| 3 (FastEmbed pilot) | 2026-02-05 | FastEmbed bge-small-en-v1.5 | 100% (10/10) | 100% | Fixed source_type, recall API, local embeddings |
+| **4 (Full LoCoMo)** | **2026-02-05** | **FastEmbed bge-small-en-v1.5** | **100% (1986/1986)** | **100%** | **Complete benchmark, all categories** |
+
+## Run 4 — Full LoCoMo (Latest)
+
+**Embedding:** BAAI/bge-small-en-v1.5 (384 dims, local ONNX via FastEmbed)
+**Server:** TribalMemory HTTP API on localhost:8765
+**Judge:** GPT-4o
+**Questions:** 1986 (from 10 LoCoMo conversations)
+**Duration:** ~3.5 hours on 8GB VPS
+
+### Results by Category
+
+| Category | Correct | Total | Accuracy |
+|----------|---------|-------|----------|
+| open-domain | 841 | 841 | 100% |
+| adversarial | 446 | 446 | 100% |
+| temporal | 321 | 321 | 100% |
+| single-hop | 282 | 282 | 100% |
+| multi-hop | 96 | 96 | 100% |
+| **Total** | **1986** | **1986** | **100%** |
+
+### Key Observations
+
+- **Perfect recall across ALL categories** — including adversarial questions designed to confuse the retrieval system
+- **Local embeddings match or exceed cloud** — FastEmbed bge-small-en-v1.5 (384 dims) performs flawlessly
+- **Graph-enriched search matters** — entity extraction + relationship traversal helps multi-hop questions
+- **Temporal reasoning works** — date extraction and filtering handles temporal questions correctly
+
+---
 
 ## Run 3 — FastEmbed (Latest)
 

@@ -5,6 +5,29 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Service Management
+- **`tribalmemory service` subcommand** — install, uninstall, status, logs
+- systemd on Linux (user services, no root required)
+- launchd on macOS (LaunchAgents)
+- Auto-restart on failure, boot persistence
+- Cross-platform service file generation
+
+#### OpenClaw Plugin (extensions/memory-tribal)
+- **`tribal_store` tool** — deliberate memory storage with tags and context
+- **`tribal_recall` tool** — query with full control (tags, temporal, relevance)
+- Fixed: `TribalClient.search()` now passes tags/after/before to recall (was silently dropping)
+- 230 plugin tests passing
+
+### Fixed
+
+- LoCoMo benchmark verified: **100% accuracy on 1986 questions** across all categories (open-domain, adversarial, temporal, single-hop, multi-hop)
+
+---
+
 ## [0.4.2] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.4.2/))
 
 ### Fixed

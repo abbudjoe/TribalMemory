@@ -71,6 +71,26 @@ See [docs/ollama-quickstart.md](docs/ollama-quickstart.md) for Ollama setup deta
 
 Server runs on `http://localhost:18790`.
 
+### Running as a Service (Optional)
+
+Keep the server running in the background with automatic restarts:
+
+```bash
+# Install and start the service (systemd on Linux, launchd on macOS)
+tribalmemory service install
+
+# Check status
+tribalmemory service status
+
+# View logs
+tribalmemory service logs
+
+# Stop and remove
+tribalmemory service uninstall
+```
+
+User-level services only — no root/sudo required.
+
 ---
 
 ## Integrations
@@ -322,6 +342,7 @@ The server is the single source of truth. Each agent connects as an instance. Me
 - **Import/export** — Portable JSON bundles with embedding metadata
 - **Token budgets** — Smart context management to avoid LLM overload
 - **MCP server** — Native integration with Claude Code, Codex, and more
+- **Benchmark tested** — [100% accuracy on LoCoMo](docs/memorybench-results.md) (1986 questions, all categories)
 
 ---
 

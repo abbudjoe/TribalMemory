@@ -13,6 +13,12 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+# Approximate token counts used to reason about chunk boundaries.
+# InMemorySessionStore creates a new chunk roughly every this many tokens.
+EXPECTED_TOKENS_PER_CHUNK = 400
+# Each generated test message is roughly this many tokens (10 words).
+APPROX_TOKENS_PER_MESSAGE = 13
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -283,6 +289,34 @@ class TestUnicodeMessages:
         result = await session_store.ingest("mixed-sess", messages)
         assert result["success"] is True
 
+    @pytest.mark.asyncio
+    async def test_empty_content(self, session_store):
+        """Messages with empty or whitespace-only content should not crash."""
+        messages = [
+            SessionMessage(
+                role="user",
+                content="",
+                timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+            ),
+            SessionMessage(
+                role="user",
+                content="   ",
+                timestamp=datetime(2024, 1, 1, 12, 1, tzinfo=timezone.utc),
+            ),
+            SessionMessage(
+                role="user",
+                content="Actual content after blanks",
+                timestamp=datetime(2024, 1, 1, 12, 2, tzinfo=timezone.utc),
+            ),
+        ]
+        result = await session_store.ingest("empty-content", messages)
+        assert result["success"] is True
+        # The real content should still be searchable
+        search = await session_store.search(
+            "Actual content", min_relevance=-1.0
+        )
+        assert search["total_count"] >= 1
+
     def test_unicode_via_http(self, client):
         """Unicode messages should work through HTTP endpoint."""
         resp = client.post("/v1/sessions/ingest", json={
@@ -315,7 +349,8 @@ class TestLargeMessageLists:
 
         assert result["success"] is True
         assert result["messages_processed"] == 100
-        # ~400 tokens per chunk, ~10 words per message ≈ ~13 tokens
+        # ~EXPECTED_TOKENS_PER_CHUNK tokens per chunk,
+        # ~APPROX_TOKENS_PER_MESSAGE tokens per message
         # 100 messages ≈ 1300 tokens → ~3-4 chunks
         assert result["chunks_created"] >= 2
 
@@ -353,9 +388,46 @@ class TestLargeMessageLists:
         r2 = await session_store.ingest("delta-large", all_messages)
 
         # Delta ingestion only processes NEW messages (50 added)
-        assert r2["chunks_created"] >= 0  # May be 0 if overlap covers them
+        # May be 0 if overlap window absorbs new messages into existing
+        # chunks, but the new content must still be searchable.
+        assert r2["chunks_created"] >= 0
         # messages_processed reflects only the delta (new messages)
         assert r2["messages_processed"] == 50
+        # Verify new content is actually searchable
+        search = await session_store.search("item-99", min_relevance=-1.0)
+        assert search["total_count"] >= 1, (
+            "Last message from delta batch should be searchable"
+        )
+
+    @pytest.mark.asyncio
+    async def test_very_long_single_message(self, session_store):
+        """A single 10K+ character message should produce multiple chunks."""
+        # Build a ~12K char message (~3000 tokens) that should span
+        # several chunks of ~EXPECTED_TOKENS_PER_CHUNK tokens each.
+        long_text = " ".join(
+            f"sentence-{i} about topic-{i % 20} with extra detail"
+            for i in range(1500)
+        )
+        assert len(long_text) > 10_000
+
+        messages = [
+            SessionMessage(
+                role="user",
+                content=long_text,
+                timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+            ),
+        ]
+        result = await session_store.ingest("long-single", messages)
+        assert result["success"] is True
+        assert result["messages_processed"] == 1
+        # Single huge message should still produce chunks
+        assert result["chunks_created"] >= 1
+
+        # Content should be searchable
+        search = await session_store.search(
+            "topic-15 detail", min_relevance=-1.0
+        )
+        assert search["total_count"] >= 1
 
     def test_100_messages_via_http(self, client):
         """Large message list through HTTP endpoint."""
@@ -492,13 +564,15 @@ class TestLoadConcurrency:
         """100 concurrent ingestion requests should not crash."""
 
         async def ingest_one(idx: int):
+            # Spread across minutes + seconds for unique timestamps
+            ts = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc) + timedelta(
+                seconds=idx
+            )
             messages = [
                 SessionMessage(
                     role="user",
                     content=f"Load test message {idx}",
-                    timestamp=datetime(
-                        2024, 1, 1, 12, idx % 60, tzinfo=timezone.utc
-                    ),
+                    timestamp=ts,
                 ),
             ]
             return await session_store.ingest(f"load-{idx}", messages)
@@ -570,14 +644,15 @@ class TestLoadConcurrency:
         await session_store.ingest("contested", [base_msg])
 
         async def append(idx: int):
+            ts = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc) + timedelta(
+                seconds=idx + 1
+            )
             messages = [
                 base_msg,
                 SessionMessage(
                     role="assistant",
                     content=f"Reply {idx}",
-                    timestamp=datetime(
-                        2024, 1, 1, 12, (idx + 1) % 60, tzinfo=timezone.utc
-                    ),
+                    timestamp=ts,
                 ),
             ]
             return await session_store.ingest("contested", messages)

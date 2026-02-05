@@ -366,6 +366,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("💡 Want your agents to remember things automatically?")
         print("   tribalmemory init --auto-capture --force")
 
+    # Show other provider options
+    if provider == "fastembed":
+        print()
+        print("📌 Other embedding providers:")
+        print("   tribalmemory init --openai --force   # OpenAI embeddings")
+        print("   tribalmemory init --ollama --force   # Ollama local embeddings")
+
     return 0
 
 

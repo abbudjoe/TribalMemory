@@ -241,47 +241,85 @@ class TemporalExtractor:
         return self._resolve_fallback(expression, reference_time)
     
     def _resolve_fallback(
-        self, 
-        expression: str, 
-        reference_time: datetime
+        self,
+        expression: str,
+        reference_time: datetime,
     ) -> Optional[dict]:
-        """Fallback resolution for common expressions without dateparser."""
+        """Fallback resolution without dateparser.
+
+        Handles common relative expressions using timedelta.
+
+        Example (LoCoMo benchmark failure that motivated this):
+            Input:  "I went to a LGBTQ support group yesterday"
+            Ref:    2023-05-08T13:56:00Z
+            Result: {"date": "2023-05-07", "precision": "day"}
+
+        Precision levels and date formatting:
+            day   → "YYYY-MM-DD"  (yesterday, 3 days ago)
+            week  → "YYYY-MM-DD"  (last week, 2 weeks ago)
+            month → "YYYY-MM"     (last month)
+            year  → "YYYY"        (last year, in 2022)
+        """
         expr_lower = expression.lower().strip()
-        
+
         from datetime import timedelta
-        
+
+        def _day(dt: datetime) -> str:
+            return dt.strftime("%Y-%m-%d")
+
         if expr_lower == 'yesterday':
-            date = reference_time - timedelta(days=1)
-            return {'date': date.strftime("%Y-%m-%d"), 'precision': 'day', 'confidence': 1.0}
-        
+            d = reference_time - timedelta(days=1)
+            return {
+                'date': _day(d),
+                'precision': 'day',
+                'confidence': 1.0,
+            }
+
         if expr_lower == 'today':
-            return {'date': reference_time.strftime("%Y-%m-%d"), 'precision': 'day', 'confidence': 1.0}
-        
+            return {
+                'date': _day(reference_time),
+                'precision': 'day',
+                'confidence': 1.0,
+            }
+
         if expr_lower == 'tomorrow':
-            date = reference_time + timedelta(days=1)
-            return {'date': date.strftime("%Y-%m-%d"), 'precision': 'day', 'confidence': 1.0}
-        
+            d = reference_time + timedelta(days=1)
+            return {
+                'date': _day(d),
+                'precision': 'day',
+                'confidence': 1.0,
+            }
+
         # N days ago
-        days_ago_match = re.match(r'(\d+)\s+days?\s+ago', expr_lower)
-        if days_ago_match:
-            days = int(days_ago_match.group(1))
-            date = reference_time - timedelta(days=days)
-            return {'date': date.strftime("%Y-%m-%d"), 'precision': 'day', 'confidence': 0.95}
-        
+        m = re.match(r'(\d+)\s+days?\s+ago', expr_lower)
+        if m:
+            d = reference_time - timedelta(days=int(m.group(1)))
+            return {
+                'date': _day(d),
+                'precision': 'day',
+                'confidence': 0.95,
+            }
+
         # N weeks ago
-        weeks_ago_match = re.match(r'(\d+)\s+weeks?\s+ago', expr_lower)
-        if weeks_ago_match:
-            weeks = int(weeks_ago_match.group(1))
-            date = reference_time - timedelta(weeks=weeks)
-            return {'date': date.strftime("%Y-%m-%d"), 'precision': 'week', 'confidence': 0.9}
-        
+        m = re.match(r'(\d+)\s+weeks?\s+ago', expr_lower)
+        if m:
+            d = reference_time - timedelta(weeks=int(m.group(1)))
+            return {
+                'date': _day(d),
+                'precision': 'week',
+                'confidence': 0.9,
+            }
+
         # Last week/month/year
         if expr_lower == 'last week':
-            date = reference_time - timedelta(weeks=1)
-            return {'date': date.strftime("%Y-%m-%d"), 'precision': 'week', 'confidence': 0.85}
-        
+            d = reference_time - timedelta(weeks=1)
+            return {
+                'date': _day(d),
+                'precision': 'week',
+                'confidence': 0.85,
+            }
+
         if expr_lower == 'last month':
-            # Use calendar-aware month subtraction
             month = reference_time.month - 1
             year = reference_time.year
             if month < 1:
@@ -292,16 +330,23 @@ class TemporalExtractor:
                 'precision': 'month',
                 'confidence': 0.8,
             }
-        
+
         if expr_lower == 'last year':
-            year = reference_time.year - 1
-            return {'date': str(year), 'precision': 'year', 'confidence': 0.8}
-        
+            return {
+                'date': str(reference_time.year - 1),
+                'precision': 'year',
+                'confidence': 0.8,
+            }
+
         # Year only (e.g., "in 2022")
-        year_match = re.match(r'in\s+(\d{4})', expr_lower)
-        if year_match:
-            return {'date': year_match.group(1), 'precision': 'year', 'confidence': 1.0}
-        
+        m = re.match(r'in\s+(\d{4})', expr_lower)
+        if m:
+            return {
+                'date': m.group(1),
+                'precision': 'year',
+                'confidence': 1.0,
+            }
+
         return None
     
     def _infer_precision(self, expression: str) -> str:

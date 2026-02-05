@@ -279,4 +279,5 @@ class SessionSearchResponse(BaseModel):
     total_count: int = 0
     offset: int = 0
     limit: int = 5
+    has_more: bool = False
     error: Optional[str] = None

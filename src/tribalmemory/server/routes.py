@@ -460,6 +460,7 @@ async def search_sessions(
             total_count=result["total_count"],
             offset=offset,
             limit=limit,
+            has_more=result.get("has_more", False),
         )
     except Exception as e:
         return SessionSearchResponse(

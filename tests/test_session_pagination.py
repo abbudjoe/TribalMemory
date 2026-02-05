@@ -173,6 +173,45 @@ class TestSearchPagination:
         )
         assert r_neg["items"] == r_zero["items"]
 
+    @pytest.mark.asyncio
+    async def test_has_more_flag(self, store):
+        """has_more should be False when all results fit."""
+        await _ingest_messages(store, "sess-1", 10)
+
+        result = await store.search(
+            "Message", limit=50, offset=0, min_relevance=0.0
+        )
+        # Small dataset — should fit within pool cap
+        assert result["has_more"] is False
+
+    @pytest.mark.asyncio
+    async def test_very_large_offset(self, store):
+        """Very large offset should return empty without error."""
+        await _ingest_messages(store, "sess-1", 10)
+
+        result = await store.search(
+            "Message", limit=5, offset=999999, min_relevance=0.0
+        )
+        assert result["items"] == []
+        assert result["total_count"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_limit_clamped_to_valid_range(self, store):
+        """Limit should be clamped between 1 and 50."""
+        await _ingest_messages(store, "sess-1", 10)
+
+        # limit=0 should clamp to 1
+        r1 = await store.search(
+            "Message", limit=0, min_relevance=0.0
+        )
+        assert len(r1["items"]) <= 1
+
+        # limit=999 should clamp to 50
+        r2 = await store.search(
+            "Message", limit=999, min_relevance=0.0
+        )
+        assert len(r2["items"]) <= 50
+
 
 class TestLanceDBPagination:
     """Test pagination with LanceDB store (if available)."""

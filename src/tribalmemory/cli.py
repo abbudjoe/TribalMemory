@@ -416,6 +416,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.claude_code:
         _setup_claude_code_mcp(no_api_key)
 
+    if getattr(args, "claude_desktop", False):
+        _setup_claude_desktop_mcp(no_api_key)
+
     if args.codex:
         _setup_codex_mcp(no_api_key)
 
@@ -495,43 +498,68 @@ def _write_instructions_file(instructions_path: Path, label: str) -> None:
 
 
 def _setup_claude_code_mcp(no_api_key: bool) -> None:
-    """Add Tribal Memory to Claude Code's MCP configuration.
-    
-    Claude Code CLI reads MCP servers from ~/.claude.json (user scope).
-    Claude Desktop reads from platform-specific claude_desktop_config.json.
-    We update both if they exist, and always ensure ~/.claude.json is set.
-    """
-    # Claude Code CLI config (primary — this is what `claude` CLI reads)
-    claude_cli_config = Path.home() / ".claude.json"
-    
-    # Claude Desktop config paths (secondary — update if they exist)
-    claude_desktop_paths = [
-        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # macOS
-        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",  # Windows
-        Path.home() / ".claude" / "claude_desktop_config.json",  # Legacy / Linux
-    ]
+    """Add Tribal Memory to Claude Code CLI's MCP configuration.
 
-    # Resolve full path to tribalmemory-mcp binary.
-    # Claude Desktop doesn't inherit the user's shell PATH (e.g. ~/.local/bin),
-    # so we need the absolute path for it to find the command.
+    Claude Code CLI reads MCP servers from ``~/.claude.json`` (user scope).
+    The CLI inherits the user's shell PATH, so the bare command name works
+    fine — but we still resolve the absolute path for robustness.
+    """
+    claude_cli_config = Path.home() / ".claude.json"
     mcp_command = _resolve_mcp_command()
 
-    mcp_entry = {
+    mcp_entry: dict = {
         "command": mcp_command,
-        "env": {},
     }
-    
-    if no_api_key:
-        mcp_entry["env"]["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
 
-    # Always update Claude Code CLI config (~/.claude.json)
+    env: dict = {}
+    if no_api_key:
+        env["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
+    if env:
+        mcp_entry["env"] = env
+
     _update_mcp_config(claude_cli_config, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Code CLI config updated: {claude_cli_config}")
 
-    # Also update Claude Desktop config (create platform-appropriate path)
+
+def _setup_claude_desktop_mcp(no_api_key: bool) -> None:
+    """Add Tribal Memory to Claude Desktop's MCP configuration.
+
+    Claude Desktop does NOT inherit the user's shell PATH (e.g.
+    ``~/.local/bin`` from uv/pipx). The absolute path to the binary
+    is resolved at init time and written into the config so the app
+    can find it regardless of its limited PATH.
+
+    Config path is platform-specific:
+      - macOS: ``~/Library/Application Support/Claude/claude_desktop_config.json``
+      - Windows: ``%APPDATA%/Claude/claude_desktop_config.json``
+      - Linux: ``~/.claude/claude_desktop_config.json``
+    """
     desktop_path = _get_claude_desktop_config_path()
+    mcp_command = _resolve_mcp_command()
+
+    if mcp_command == "tribalmemory-mcp":
+        # Couldn't resolve — warn the user
+        print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
+        print("   Claude Desktop needs the absolute path to the binary.")
+        print("   After installing, run: tribalmemory init --claude-desktop --force")
+        print()
+
+    mcp_entry: dict = {
+        "command": mcp_command,
+    }
+
+    env: dict = {}
+    if no_api_key:
+        env["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
+    if env:
+        mcp_entry["env"] = env
+
+    # Ensure parent directory exists (macOS Application Support/Claude/)
+    desktop_path.parent.mkdir(parents=True, exist_ok=True)
+
     _update_mcp_config(desktop_path, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Desktop config updated: {desktop_path}")
+    print(f"   Binary: {mcp_command}")
 
 
 def _resolve_mcp_command() -> str:
@@ -706,7 +734,9 @@ def main() -> None:
         "--local", action="store_true",
         help=argparse.SUPPRESS)  # deprecated alias for --ollama
     init_parser.add_argument("--claude-code", action="store_true",
-                             help="Configure Claude Code MCP integration")
+                             help="Configure Claude Code CLI MCP integration")
+    init_parser.add_argument("--claude-desktop", action="store_true",
+                             help="Configure Claude Desktop app MCP integration")
     init_parser.add_argument("--codex", action="store_true",
                              help="Configure Codex CLI MCP integration")
     init_parser.add_argument("--auto-capture", action="store_true",

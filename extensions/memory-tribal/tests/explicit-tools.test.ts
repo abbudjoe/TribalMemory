@@ -91,7 +91,7 @@ describe("tribal_store tool", () => {
       { sessionId: "test-session" },
     );
 
-    expect(result.content[0].text).toContain("Stored memory mem-001");
+    expect(result.content[0].text).toMatch(/^Stored memory mem-001/);
     expect(result.isError).toBeUndefined();
   });
 
@@ -160,6 +160,33 @@ describe("tribal_store tool", () => {
     expect(rememberCall).toBeDefined();
     const body = JSON.parse(rememberCall![1].body);
     expect(body.source_type).toBe("deliberate");
+  });
+
+  it("sends custom context when provided", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        memory_id: "mem-004",
+      }),
+    });
+
+    await storeTool.execute(
+      "call-ctx",
+      {
+        content: "Architecture decision",
+        context: "Decided during PR #88 review",
+      },
+      { sessionId: "test-session" },
+    );
+
+    const rememberCall = mockFetch.mock.calls.find(
+      (c: any[]) =>
+        typeof c[0] === "string" && c[0].includes("/v1/remember"),
+    );
+    expect(rememberCall).toBeDefined();
+    const body = JSON.parse(rememberCall![1].body);
+    expect(body.context).toBe("Decided during PR #88 review");
   });
 
   it("returns error on server failure", async () => {
@@ -316,7 +343,7 @@ describe("tribal_recall tool", () => {
     expect(body.min_relevance).toBe(0.5);
   });
 
-  it("returns empty results on server failure (search is resilient)", async () => {
+  it("returns empty results on fetch error (TribalClient.search swallows per-query errors)", async () => {
     mockFetch.mockRejectedValueOnce(
       new Error("Connection refused"),
     );
@@ -327,8 +354,10 @@ describe("tribal_recall tool", () => {
       { sessionId: "test-session" },
     );
 
-    // search() catches per-query errors and returns empty results
-    // rather than propagating — this is by design for resilience
+    // tribal_recall calls TribalClient.search() which iterates over
+    // query variants and catches per-query errors (tribal-client.ts:105).
+    // When the only query fails, search() returns [], and tribal_recall
+    // formats that as "No memories found" rather than an error response.
     expect(result.content[0].text).toContain("No memories found");
   });
 });

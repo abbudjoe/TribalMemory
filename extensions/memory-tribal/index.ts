@@ -625,7 +625,7 @@ const memoryTribalPlugin = {
             content: [{
               type: "text",
               text:
-                `✅ Stored memory ${result.memoryId}${tagStr}: ` +
+                `Stored memory ${result.memoryId}${tagStr}: ` +
                 `"${params.content.slice(0, 80)}..."`,
             }],
           };
@@ -734,7 +734,7 @@ const memoryTribalPlugin = {
           return {
             content: [{
               type: "text",
-              text: `Recall failed: ${err.message}`,
+              text: `Failed to recall memories: ${err.message}`,
             }],
             isError: true,
           };

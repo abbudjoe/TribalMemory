@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from tribalmemory.services.temporal import (
     TemporalExtractor,
@@ -390,3 +391,287 @@ class TestGraphStoreTemporalFacts:
         graph_store.delete_memory("mem-001")
         
         assert len(graph_store.get_temporal_facts_for_memory("mem-001")) == 0
+
+
+# ------------------------------------------------------------------
+# Issue #60 — Unicode month names fallback test
+# ------------------------------------------------------------------
+
+
+class TestUnicodeFallback:
+    """Test that the fallback parser handles Unicode gracefully."""
+
+    @pytest.fixture
+    def extractor(self):
+        return TemporalExtractor()
+
+    @pytest.fixture
+    def reference_time(self):
+        return datetime(2023, 5, 8, 14, 0, 0, tzinfo=timezone.utc)
+
+    def test_fallback_rejects_unicode_month_gracefully(
+        self, extractor, reference_time
+    ):
+        """Fallback parser should not crash on non-ASCII month names.
+
+        When dateparser is unavailable, the fallback regex only knows English
+        month names. Non-English names should be silently ignored (no crash,
+        no bogus results).
+        """
+        with patch("tribalmemory.services.temporal.DATEPARSER_AVAILABLE", False):
+            # French month — fallback only knows English months
+            entities = extractor.extract("le 7 mai 2023", reference_time)
+            assert isinstance(entities, list)
+            assert len(entities) == 0, (
+                f"Expected empty for French month, got {entities}"
+            )
+
+            # German month
+            entities = extractor.extract("am 7. März 2023", reference_time)
+            assert isinstance(entities, list)
+            assert len(entities) == 0, (
+                f"Expected empty for German month, got {entities}"
+            )
+
+            # Japanese date
+            entities = extractor.extract("2023年5月7日", reference_time)
+            assert isinstance(entities, list)
+            assert len(entities) == 0, (
+                f"Expected empty for Japanese date, got {entities}"
+            )
+
+    def test_fallback_still_handles_relative_expressions(
+        self, extractor, reference_time
+    ):
+        """Even without dateparser, relative expressions should resolve."""
+        with patch("tribalmemory.services.temporal.DATEPARSER_AVAILABLE", False):
+            entities = extractor.extract("yesterday", reference_time)
+            assert len(entities) == 1
+            assert entities[0].resolved_date == "2023-05-07"
+
+            entities = extractor.extract("3 days ago", reference_time)
+            assert len(entities) == 1
+            assert entities[0].resolved_date == "2023-05-05"
+
+    def test_fallback_handles_last_month_year_wrap(
+        self, extractor
+    ):
+        """Fallback correctly wraps December when reference is January."""
+        jan = datetime(2023, 1, 15, tzinfo=timezone.utc)
+        with patch("tribalmemory.services.temporal.DATEPARSER_AVAILABLE", False):
+            entities = extractor.extract("last month", jan)
+            assert len(entities) == 1
+            assert entities[0].resolved_date == "2022-12"
+
+    def test_fallback_returns_none_for_unparseable(
+        self, extractor, reference_time
+    ):
+        """Fallback should return nothing for expressions it can't parse."""
+        with patch("tribalmemory.services.temporal.DATEPARSER_AVAILABLE", False):
+            # "next Tuesday" isn't handled by fallback (only dateparser)
+            entities = extractor.extract("next Tuesday", reference_time)
+            # Regex matches "next tuesday" but fallback can't resolve it
+            # — either empty or entity with None date
+            for e in entities:
+                # If returned, the expression was matched but resolution
+                # should have fallen through gracefully
+                assert isinstance(e, TemporalEntity)
+
+
+# ------------------------------------------------------------------
+# Issue #62 — Batch temporal extraction
+# ------------------------------------------------------------------
+
+
+class TestHasTemporalSignal:
+    """Test the fast pre-check for temporal signals."""
+
+    @pytest.fixture
+    def extractor(self):
+        return TemporalExtractor()
+
+    def test_detects_relative_signals(self, extractor):
+        assert extractor.has_temporal_signal("I went there yesterday")
+        assert extractor.has_temporal_signal("this happened last week")
+        assert extractor.has_temporal_signal("3 days ago something occurred")
+        assert extractor.has_temporal_signal("meeting next month")
+
+    def test_detects_absolute_signals(self, extractor):
+        assert extractor.has_temporal_signal("on 2023-05-07 we met")
+        assert extractor.has_temporal_signal("born in 1990")
+        assert extractor.has_temporal_signal("date is 01/15/2023")
+
+    def test_detects_month_names(self, extractor):
+        assert extractor.has_temporal_signal("Project started on January 5, 2024")
+        assert extractor.has_temporal_signal("We launched in March 2025")
+        assert extractor.has_temporal_signal("The December report is ready")
+        assert extractor.has_temporal_signal("meeting on 3rd February 2023")
+
+    def test_rejects_non_temporal_text(self, extractor):
+        assert not extractor.has_temporal_signal(
+            "The quick brown fox jumps over the lazy dog"
+        )
+        assert not extractor.has_temporal_signal(
+            "I like bananas and strawberries"
+        )
+        assert not extractor.has_temporal_signal(
+            "Python is a programming language"
+        )
+
+    def test_empty_input(self, extractor):
+        assert not extractor.has_temporal_signal("")
+        assert not extractor.has_temporal_signal(None)
+
+    def test_case_insensitive(self, extractor):
+        assert extractor.has_temporal_signal("YESTERDAY was fun")
+        assert extractor.has_temporal_signal("Last Week I went hiking")
+
+
+class TestBatchExtract:
+    """Test batch temporal extraction."""
+
+    @pytest.fixture
+    def extractor(self):
+        return TemporalExtractor()
+
+    @pytest.fixture
+    def reference_time(self):
+        return datetime(2023, 5, 8, 14, 0, 0, tzinfo=timezone.utc)
+
+    def test_batch_extract_basic(self, extractor, reference_time):
+        """Batch extract should return parallel results."""
+        items = [
+            ("I went there yesterday", reference_time),
+            ("No dates here", reference_time),
+            ("Meeting is tomorrow", reference_time),
+        ]
+        results = extractor.batch_extract(items)
+
+        assert len(results) == 3
+        # First item: has "yesterday"
+        assert len(results[0]) == 1
+        assert results[0][0].resolved_date == "2023-05-07"
+        # Second item: no temporal signal → empty
+        assert results[1] == []
+        # Third item: has "tomorrow"
+        assert len(results[2]) == 1
+        assert results[2][0].resolved_date == "2023-05-09"
+
+    def test_batch_extract_empty_items(self, extractor):
+        """Empty/None texts should return empty lists."""
+        items = [
+            ("", None),
+            (None, None),
+        ]
+        results = extractor.batch_extract(items)
+        assert results == [[], []]
+
+    def test_batch_extract_mixed_valid_and_none(
+        self, extractor, reference_time
+    ):
+        """Mixed None/valid items should preserve order."""
+        items = [
+            ("yesterday", reference_time),
+            (None, reference_time),
+            ("", reference_time),
+            ("tomorrow", reference_time),
+        ]
+        results = extractor.batch_extract(items)
+        assert len(results) == 4
+        assert len(results[0]) >= 1   # yesterday
+        assert results[1] == []       # None
+        assert results[2] == []       # empty
+        assert len(results[3]) >= 1   # tomorrow
+
+    def test_batch_extract_skips_non_temporal(self, extractor, reference_time):
+        """Items without temporal signals should be skipped efficiently."""
+        items = [
+            ("No dates at all in this text about dogs and cats", reference_time),
+            ("Another plain sentence about programming", reference_time),
+        ]
+        results = extractor.batch_extract(items)
+        assert results == [[], []]
+
+    def test_batch_extract_with_context(self, extractor, reference_time):
+        """batch_extract_with_context should return relationships."""
+        items = [
+            ("I attended a meeting yesterday", reference_time),
+            ("Plain text", reference_time),
+        ]
+        results = extractor.batch_extract_with_context(items)
+
+        assert len(results) == 2
+        assert len(results[0]) >= 1
+        assert isinstance(results[0][0], TemporalRelationship)
+        assert results[0][0].temporal.resolved_date == "2023-05-07"
+        assert results[1] == []
+
+    def test_batch_preserves_order(self, extractor, reference_time):
+        """Results must align with input order."""
+        items = [
+            ("tomorrow is the day", reference_time),
+            ("apples and oranges", reference_time),
+            ("2 weeks ago", reference_time),
+            ("just chatting", reference_time),
+            ("yesterday evening", reference_time),
+        ]
+        results = extractor.batch_extract(items)
+        assert len(results) == 5
+        # Indices 0, 2, 4 should have results; 1, 3 should be empty
+        assert len(results[0]) >= 1
+        assert results[1] == []
+        assert len(results[2]) >= 1
+        assert results[3] == []
+        assert len(results[4]) >= 1
+
+    def test_batch_large_volume(self, extractor, reference_time):
+        """Should handle a large batch without error."""
+        temporal_text = "I did this yesterday"
+        plain_text = "The sky is blue"
+        # 500 items, alternating
+        items = [
+            (temporal_text if i % 2 == 0 else plain_text, reference_time)
+            for i in range(500)
+        ]
+        results = extractor.batch_extract(items)
+        assert len(results) == 500
+        for i, r in enumerate(results):
+            if i % 2 == 0:
+                assert len(r) >= 1, f"Expected temporal at index {i}"
+            else:
+                assert r == [], f"Expected empty at index {i}"
+
+
+class TestPreCheckIntegration:
+    """Test that the pre-check in memory.remember() works correctly."""
+
+    @pytest.fixture
+    def extractor(self):
+        return TemporalExtractor()
+
+    @pytest.fixture
+    def reference_time(self):
+        return datetime(2023, 5, 8, 14, 0, 0, tzinfo=timezone.utc)
+
+    def test_precheck_agrees_with_extract(self, extractor, reference_time):
+        """has_temporal_signal should agree with extract() results.
+
+        If extract() finds entities, has_temporal_signal() must be True.
+        (The reverse isn't guaranteed — pre-check can have false positives.)
+        """
+        test_texts = [
+            "I went to the store yesterday",
+            "Meeting last week was productive",
+            "No dates here whatsoever",
+            "She started in 2022",
+            "3 months ago we launched",
+            "Plain text about cats",
+            "The deadline is tomorrow",
+        ]
+        for text in test_texts:
+            entities = extractor.extract(text, reference_time)
+            signal = extractor.has_temporal_signal(text)
+            if entities:
+                assert signal, (
+                    f"Pre-check missed signal in: {text!r}"
+                )

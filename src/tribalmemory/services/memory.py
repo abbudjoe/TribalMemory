@@ -153,42 +153,56 @@ class TribalMemoryService(IMemoryService):
             except Exception as e:
                 logger.warning("Graph indexing failed for %s: %s", entry.id, e)
         
-        # Extract and store temporal facts
+        # Extract and store temporal facts (skip if no temporal signal)
         if result.success and self.graph_enabled and self.temporal_extractor:
-            try:
-                # Use extract_with_context to get proper subjects
-                temporal_rels = self.temporal_extractor.extract_with_context(
-                    content, reference_time=entry.created_at
+            if not self.temporal_extractor.has_temporal_signal(content):
+                logger.debug(
+                    "No temporal signal in %s — skipping extraction",
+                    entry.id,
                 )
-                for rel in temporal_rels:
-                    temp = rel.temporal
-                    fact = TemporalFact(
-                        subject=rel.subject or temp.expression,
-                        relation=rel.relation_type,
-                        resolved_date=temp.resolved_date or "",
-                        original_expression=temp.expression,
-                        precision=temp.precision,
-                        confidence=temp.confidence,
-                    )
-                    self.graph_store.add_temporal_fact(
-                        fact, memory_id=entry.id
-                    )
-                if temporal_rels:
-                    logger.debug(
-                        "Extracted temporal facts: %s from %s",
-                        [
-                            (r.subject, r.temporal.resolved_date)
-                            for r in temporal_rels
-                        ],
-                        entry.id,
-                    )
-            except (ValueError, TypeError, AttributeError) as e:
-                logger.warning(
-                    "Temporal extraction failed for %s: %s",
-                    entry.id, e,
-                )
-        
+            else:
+                self._extract_and_store_temporal(content, entry)
+
         return result
+
+    def _extract_and_store_temporal(
+        self, content: str, entry: MemoryEntry
+    ) -> None:
+        """Extract temporal facts from *content* and persist them.
+
+        Separated from ``remember()`` so ``batch_remember()`` can reuse.
+        """
+        try:
+            temporal_rels = self.temporal_extractor.extract_with_context(
+                content, reference_time=entry.created_at
+            )
+            for rel in temporal_rels:
+                temp = rel.temporal
+                fact = TemporalFact(
+                    subject=rel.subject or temp.expression,
+                    relation=rel.relation_type,
+                    resolved_date=temp.resolved_date or "",
+                    original_expression=temp.expression,
+                    precision=temp.precision,
+                    confidence=temp.confidence,
+                )
+                self.graph_store.add_temporal_fact(
+                    fact, memory_id=entry.id
+                )
+            if temporal_rels:
+                logger.debug(
+                    "Extracted temporal facts: %s from %s",
+                    [
+                        (r.subject, r.temporal.resolved_date)
+                        for r in temporal_rels
+                    ],
+                    entry.id,
+                )
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(
+                "Temporal extraction failed for %s: %s",
+                entry.id, e,
+            )
     
     async def recall(
         self,

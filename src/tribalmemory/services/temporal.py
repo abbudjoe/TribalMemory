@@ -116,6 +116,25 @@ class TemporalExtractor:
         r'\bin\s+\d{4}\b',
     ]
     
+    # Quick-check pattern: combined lightweight regex that detects whether text
+    # contains *any* temporal signal.  Used by ``has_temporal_signal()`` to
+    # short-circuit full extraction for texts that obviously have no dates.
+    _QUICK_CHECK_PATTERN = (
+        r'\byesterday\b|\btoday\b|\btomorrow\b|\btonight\b'
+        r'|\blast\s+(?:week|month|year|night|monday|tuesday|wednesday'
+        r'|thursday|friday|saturday|sunday)\b'
+        r'|\bthis\s+(?:week|month|year|morning|afternoon|evening)\b'
+        r'|\bnext\s+(?:week|month|year|monday|tuesday|wednesday'
+        r'|thursday|friday|saturday|sunday)\b'
+        r'|\b\d+\s+(?:days?|weeks?|months?|years?)\s+ago\b'
+        r'|\bin\s+\d{4}\b'
+        r'|\b\d{4}-\d{2}-\d{2}\b'
+        r'|\b\d{1,2}/\d{1,2}/\d{2,4}\b'
+        # Month names — catches "January 5, 2024", "March 2025", etc.
+        r'|\b(?:january|february|march|april|may|june'
+        r'|july|august|september|october|november|december)\b'
+    )
+
     def __init__(self):
         """Initialize the temporal extractor."""
         self._relative_regex = re.compile(
@@ -126,7 +145,23 @@ class TemporalExtractor:
             '|'.join(f'({p})' for p in self.ABSOLUTE_PATTERNS),
             re.IGNORECASE
         )
-    
+        self._quick_check_regex = re.compile(
+            self._QUICK_CHECK_PATTERN, re.IGNORECASE
+        )
+
+    def has_temporal_signal(self, text: str) -> bool:
+        """Fast check whether *text* contains any temporal expression.
+
+        Runs a single lightweight regex — much cheaper than full extraction.
+        Useful to skip ``extract()`` entirely for texts with no dates.
+
+        Returns:
+            ``True`` if the text likely contains a temporal expression.
+        """
+        if not text:
+            return False
+        return self._quick_check_regex.search(text) is not None
+
     def extract(
         self, 
         text: str, 
@@ -417,6 +452,58 @@ class TemporalExtractor:
         
         return relationships
     
+    # ------------------------------------------------------------------
+    # Batch extraction
+    # ------------------------------------------------------------------
+
+    def batch_extract(
+        self,
+        items: list[tuple[str, Optional[datetime]]],
+    ) -> list[list[TemporalEntity]]:
+        """Extract temporal entities from multiple texts in one call.
+
+        Each *item* is a ``(text, reference_time)`` pair.  The pre-check
+        (``has_temporal_signal``) is applied per item so that texts without
+        any temporal signals skip the heavier regex + dateparser work.
+
+        Args:
+            items: List of (text, reference_time) tuples.  *reference_time*
+                may be ``None`` (defaults to UTC now inside ``extract()``).
+
+        Returns:
+            Parallel list — one ``list[TemporalEntity]`` per input item.
+        """
+        results: list[list[TemporalEntity]] = []
+        for text, ref in items:
+            if text and self.has_temporal_signal(text):
+                results.append(self.extract(text, ref))
+            else:
+                results.append([])
+        return results
+
+    def batch_extract_with_context(
+        self,
+        items: list[tuple[str, Optional[datetime]]],
+    ) -> list[list[TemporalRelationship]]:
+        """Extract temporal relationships from multiple texts in one call.
+
+        Combines ``has_temporal_signal`` pre-check with
+        ``extract_with_context`` for each item that passes.
+
+        Args:
+            items: List of (text, reference_time) tuples.
+
+        Returns:
+            Parallel list — one ``list[TemporalRelationship]`` per input item.
+        """
+        results: list[list[TemporalRelationship]] = []
+        for text, ref in items:
+            if text and self.has_temporal_signal(text):
+                results.append(self.extract_with_context(text, ref))
+            else:
+                results.append([])
+        return results
+
     def _find_temporal_subject(self, text: str, expression: str) -> Optional[str]:
         """Find what a temporal expression refers to in the text.
         

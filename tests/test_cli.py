@@ -18,6 +18,9 @@ from tribalmemory.cli import (
 class FakeArgs:
     """Fake argparse namespace."""
     def __init__(self, **kwargs):
+        self.fastembed = kwargs.get("fastembed", False)
+        self.openai = kwargs.get("openai", False)
+        self.ollama = kwargs.get("ollama", False)
         self.local = kwargs.get("local", False)
         self.claude_code = kwargs.get("claude_code", False)
         self.codex = kwargs.get("codex", False)
@@ -42,8 +45,8 @@ def cli_env(tmp_path, monkeypatch):
 class TestInitCommand:
     """Tests for `tribalmemory init`."""
 
-    def test_init_creates_config_file(self, cli_env):
-        """init should create ~/.tribal-memory/config.yaml."""
+    def test_init_default_uses_fastembed(self, cli_env):
+        """init with no flags should generate FastEmbed config."""
         result = cmd_init(FakeArgs())
 
         assert result == 0
@@ -51,10 +54,55 @@ class TestInitCommand:
         assert config.exists()
         content = config.read_text()
         assert "instance_id: default" in content
-        assert "text-embedding-3-small" in content
+        assert "provider: fastembed" in content
+        assert "BAAI/bge-small-en-v1.5" in content
+        assert "dimensions: 384" in content
 
-    def test_init_local_mode_uses_ollama(self, cli_env):
-        """init --local should generate Ollama config."""
+    def test_init_fastembed_explicit(self, cli_env):
+        """init --fastembed should also generate FastEmbed config."""
+        result = cmd_init(FakeArgs(fastembed=True))
+
+        assert result == 0
+        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "provider: fastembed" in content
+        assert "BAAI/bge-small-en-v1.5" in content
+
+    def test_init_openai_prompts_for_key(self, cli_env, monkeypatch):
+        """init --openai should prompt for API key and write it to config."""
+        monkeypatch.setattr("builtins.input", lambda _: "sk-test-key-123")
+        monkeypatch.setattr("sys.stdin", type("FakeTTY", (), {"isatty": lambda s: True})())
+
+        result = cmd_init(FakeArgs(openai=True))
+
+        assert result == 0
+        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "provider: openai" in content
+        assert "text-embedding-3-small" in content
+        assert "sk-test-key-123" in content
+
+    def test_init_openai_uses_env_key_non_interactive(self, cli_env, monkeypatch):
+        """init --openai should use OPENAI_API_KEY env var in non-interactive mode."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key-456")
+        monkeypatch.setattr("sys.stdin", type("FakeNonTTY", (), {"isatty": lambda s: False})())
+
+        result = cmd_init(FakeArgs(openai=True))
+
+        assert result == 0
+        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "sk-env-key-456" in content
+
+    def test_init_ollama(self, cli_env):
+        """init --ollama should generate Ollama config."""
+        result = cmd_init(FakeArgs(ollama=True))
+
+        assert result == 0
+        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "localhost:11434" in content
+        assert "nomic-embed-text" in content
+        assert "768" in content
+
+    def test_init_local_is_ollama_alias(self, cli_env):
+        """init --local (deprecated) should behave like --ollama."""
         result = cmd_init(FakeArgs(local=True))
 
         assert result == 0
@@ -62,7 +110,6 @@ class TestInitCommand:
         assert "localhost:11434" in content
         assert "nomic-embed-text" in content
         assert "768" in content
-        assert "api_key not needed" in content
 
     def test_init_custom_instance_id(self, cli_env):
         """init --instance-id should set custom ID."""
@@ -111,9 +158,9 @@ class TestInitCommand:
         cmd = mcp["mcpServers"]["tribal-memory"]["command"]
         assert cmd.endswith("tribalmemory-mcp")
 
-    def test_init_claude_code_local_adds_env(self, cli_env):
-        """init --local --claude-code should set api_base env."""
-        result = cmd_init(FakeArgs(local=True, claude_code=True))
+    def test_init_claude_code_ollama_adds_env(self, cli_env):
+        """init --ollama --claude-code should set api_base env."""
+        result = cmd_init(FakeArgs(ollama=True, claude_code=True))
 
         assert result == 0
         claude_config = cli_env / ".claude.json"
@@ -244,9 +291,9 @@ class TestCodexIntegration:
         assert "[mcp_servers.tribal-memory]" in content
         assert "tribalmemory-mcp" in content  # resolved or bare
 
-    def test_codex_local_adds_env(self, cli_env):
-        """init --local --codex should add api_base env."""
-        result = cmd_init(FakeArgs(local=True, codex=True))
+    def test_codex_ollama_adds_env(self, cli_env):
+        """init --ollama --codex should add api_base env."""
+        result = cmd_init(FakeArgs(ollama=True, codex=True))
 
         assert result == 0
         codex_config = cli_env / ".codex" / "config.toml"

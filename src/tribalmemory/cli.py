@@ -1,7 +1,9 @@
 """Tribal Memory CLI — init, serve, and MCP entry points.
 
 Usage:
-    tribalmemory init [--local]     # Set up config + MCP integration
+    tribalmemory init               # FastEmbed (default, zero cloud)
+    tribalmemory init --openai      # OpenAI embeddings (prompts for key)
+    tribalmemory init --ollama      # Ollama local embeddings
     tribalmemory serve              # Start the HTTP server
     tribalmemory mcp                # Start the MCP server (stdio)
 """
@@ -67,17 +69,17 @@ CLAUDE_CODE_MCP_CONFIG = {
     }
 }
 
-OPENAI_CONFIG_TEMPLATE = """\
-# Tribal Memory Configuration
+FASTEMBED_CONFIG_TEMPLATE = """\
+# Tribal Memory Configuration — FastEmbed (Zero Cloud)
+# Local ONNX embeddings — no API keys, no external services.
 # Docs: https://github.com/abbudjoe/TribalMemory
 
 instance_id: {instance_id}
 
 embedding:
-  provider: openai
-  model: text-embedding-3-small
-  dimensions: 1536
-  # api_key: sk-...  # Or set OPENAI_API_KEY env var
+  provider: fastembed
+  model: BAAI/bge-small-en-v1.5
+  dimensions: 384
 
 db:
   provider: lancedb
@@ -88,8 +90,29 @@ server:
   port: 18790
 {auto_capture_line}"""
 
-LOCAL_CONFIG_TEMPLATE = """\
-# Tribal Memory Configuration — Local Mode (Zero Cloud)
+OPENAI_CONFIG_TEMPLATE = """\
+# Tribal Memory Configuration — OpenAI Embeddings
+# Docs: https://github.com/abbudjoe/TribalMemory
+
+instance_id: {instance_id}
+
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimensions: 1536
+  api_key: {api_key}
+
+db:
+  provider: lancedb
+  path: {db_path}
+
+server:
+  host: 127.0.0.1
+  port: 18790
+{auto_capture_line}"""
+
+OLLAMA_CONFIG_TEMPLATE = """\
+# Tribal Memory Configuration — Ollama (Local Embeddings)
 # Uses Ollama for embeddings — no API keys needed!
 # Docs: https://github.com/abbudjoe/TribalMemory
 
@@ -100,7 +123,6 @@ embedding:
   model: nomic-embed-text   # Run: ollama pull nomic-embed-text
   api_base: http://localhost:11434/v1
   dimensions: 768
-  # api_key not needed for local Ollama
 
 db:
   provider: lancedb
@@ -110,6 +132,47 @@ server:
   host: 127.0.0.1
   port: 18790
 {auto_capture_line}"""
+
+
+def _detect_provider(args: argparse.Namespace) -> str:
+    """Determine which embedding provider to use.
+
+    Priority: explicit flags > default (fastembed).
+    ``--local`` is a deprecated alias for ``--ollama``.
+    """
+    if args.openai:
+        return "openai"
+    if args.ollama or args.local:
+        return "ollama"
+    # --fastembed or no flag → fastembed (default)
+    return "fastembed"
+
+
+def _prompt_api_key() -> str:
+    """Prompt the user for an OpenAI API key interactively.
+
+    Falls back to the ``OPENAI_API_KEY`` environment variable when
+    stdin is not a terminal (e.g. CI pipelines).
+    """
+    env_key = os.environ.get("OPENAI_API_KEY", "")
+    if sys.stdin.isatty():
+        prompt_msg = "Enter your OpenAI API key"
+        if env_key:
+            masked = env_key[:7] + "..." + env_key[-4:]
+            prompt_msg += f" [{masked}]"
+        prompt_msg += ": "
+        user_input = input(prompt_msg).strip()
+        if user_input:
+            return user_input
+        if env_key:
+            return env_key
+        print("❌ No API key provided.")
+        sys.exit(1)
+    # Non-interactive: use env var
+    if env_key:
+        return env_key
+    print("❌ --openai requires OPENAI_API_KEY (no TTY for prompt).")
+    sys.exit(1)
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -125,15 +188,26 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.auto_capture:
         auto_capture_line = "\nauto_capture: true\n"
 
-    # Choose template
-    if args.local:
-        config_content = LOCAL_CONFIG_TEMPLATE.format(
+    provider = _detect_provider(args)
+    is_local = provider in ("fastembed", "ollama")
+
+    # Choose template + build config
+    if provider == "openai":
+        api_key = _prompt_api_key()
+        config_content = OPENAI_CONFIG_TEMPLATE.format(
+            instance_id=instance_id,
+            db_path=db_path,
+            api_key=api_key,
+            auto_capture_line=auto_capture_line,
+        )
+    elif provider == "ollama":
+        config_content = OLLAMA_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
             auto_capture_line=auto_capture_line,
         )
-    else:
-        config_content = OPENAI_CONFIG_TEMPLATE.format(
+    else:  # fastembed (default)
+        config_content = FASTEMBED_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
             auto_capture_line=auto_capture_line,
@@ -144,23 +218,31 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"⚠️  Config already exists: {CONFIG_FILE}")
         print("   Use --force to overwrite.")
         return 1
-    
+
     CONFIG_FILE.write_text(config_content)
     print(f"✅ Config written: {CONFIG_FILE}")
 
-    if args.local:
+    # Provider-specific post-install guidance
+    if provider == "fastembed":
         print()
-        print("📦 Local mode — make sure Ollama is running:")
+        print("📦 FastEmbed — local ONNX embeddings, zero cloud.")
+        print("   First run downloads a ~130MB model, then it's instant.")
+    elif provider == "ollama":
+        print()
+        print("📦 Ollama — make sure Ollama is running:")
         print("   curl -fsSL https://ollama.com/install.sh | sh")
         print("   ollama pull nomic-embed-text")
         print("   ollama serve  # if not already running")
+    else:
+        print()
+        print("🔑 OpenAI — API key saved to config.")
 
     # Set up MCP integrations
     if args.claude_code:
-        _setup_claude_code_mcp(args.local)
-    
+        _setup_claude_code_mcp(is_local)
+
     if args.codex:
-        _setup_codex_mcp(args.local)
+        _setup_codex_mcp(is_local)
 
     # Set up auto-capture instructions
     if args.auto_capture:
@@ -180,7 +262,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print()
         print("💡 Want your agents to remember things automatically?")
         print("   tribalmemory init --auto-capture --force")
-    
+
     return 0
 
 
@@ -420,9 +502,22 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # init
-    init_parser = subparsers.add_parser("init", help="Initialize config and MCP integration")
-    init_parser.add_argument("--local", action="store_true",
-                             help="Use local Ollama embeddings (no API key needed)")
+    init_parser = subparsers.add_parser(
+        "init", help="Initialize config and MCP integration"
+    )
+    provider_group = init_parser.add_mutually_exclusive_group()
+    provider_group.add_argument(
+        "--fastembed", action="store_true",
+        help="Use FastEmbed local embeddings (default — no API key needed)")
+    provider_group.add_argument(
+        "--openai", action="store_true",
+        help="Use OpenAI embeddings (prompts for API key)")
+    provider_group.add_argument(
+        "--ollama", action="store_true",
+        help="Use Ollama local embeddings (no API key needed)")
+    provider_group.add_argument(
+        "--local", action="store_true",
+        help=argparse.SUPPRESS)  # deprecated alias for --ollama
     init_parser.add_argument("--claude-code", action="store_true",
                              help="Configure Claude Code MCP integration")
     init_parser.add_argument("--codex", action="store_true",

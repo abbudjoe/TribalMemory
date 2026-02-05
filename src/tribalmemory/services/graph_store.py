@@ -279,8 +279,26 @@ class GraphStore:
     
     Connection management:
         Uses a persistent SQLite connection with WAL mode for better concurrency.
-        Thread-safe with a lock protecting database operations.
-        Call close() when done to release resources.
+        Thread-safe with an RLock protecting database operations.
+        
+        Lifecycle:
+            # Option 1: Context manager (recommended)
+            with GraphStore(db_path) as store:
+                store.add_entity(...)
+            
+            # Option 2: Manual cleanup
+            store = GraphStore(db_path)
+            try:
+                store.add_entity(...)
+            finally:
+                store.close()
+            
+            # Option 3: Rely on __del__ (automatic cleanup on garbage collection)
+            store = GraphStore(db_path)
+            store.add_entity(...)
+            # Connection closed when store is garbage collected
+        
+        After calling close(), the GraphStore instance should not be used.
     """
     
     # Known technology names for type inference
@@ -301,7 +319,11 @@ class GraphStore:
             check_same_thread=False  # Allow usage across threads
         )
         self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
+        
+        # Use RLock for better read concurrency
+        # RLock allows same thread to acquire multiple times
+        # WAL mode handles most read concurrency at SQLite level
+        self._lock = threading.RLock()
         
         # Enable WAL mode for better concurrency
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -316,6 +338,23 @@ class GraphStore:
         """
         return self._conn
     
+    def __enter__(self) -> 'GraphStore':
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensure cleanup."""
+        self.close()
+        return None
+    
+    def __del__(self) -> None:
+        """Destructor to ensure connection is closed.
+        
+        Called when the object is garbage collected.
+        Ensures resources are released even if close() wasn't called explicitly.
+        """
+        self.close()
+    
     def close(self) -> None:
         """Close the database connection and release resources.
         
@@ -325,9 +364,18 @@ class GraphStore:
         if hasattr(self, '_conn') and self._conn:
             try:
                 self._conn.close()
-            except Exception:
-                # Ignore errors during close (connection may already be closed)
+            except sqlite3.ProgrammingError:
+                # Connection already closed, this is expected
                 pass
+            except Exception as e:
+                # Log unexpected errors but don't raise
+                # (close should be safe to call multiple times)
+                import warnings
+                warnings.warn(
+                    f"Unexpected error closing GraphStore: {e}",
+                    RuntimeWarning,
+                    stacklevel=2
+                )
     
     def _infer_entity_type(self, name: str) -> str:
         """Infer entity type from name when creating from relationships.

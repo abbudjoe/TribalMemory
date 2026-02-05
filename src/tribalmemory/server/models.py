@@ -273,7 +273,10 @@ class SessionChunkResponse(BaseModel):
 
 
 class SessionSearchResponse(BaseModel):
-    """Response from session search."""
+    """Response from session search with pagination."""
     results: list[SessionChunkResponse]
     query: str
+    total_count: int = 0
+    offset: int = 0
+    limit: int = 5
     error: Optional[str] = None

@@ -142,9 +142,10 @@ class SessionStore:
                 instance_id or self.instance_id,
             )
             
-            # Store chunks in vector store
+            # Store chunks in vector store.
+            # Pass total_messages so LanceDB store can persist delta state.
             for chunk in chunks:
-                await self._store_chunk(chunk)
+                await self._store_chunk(chunk, total_messages=len(messages))
             
             # Update state
             self._session_state[session_id] = len(messages)
@@ -336,13 +337,15 @@ class SessionStore:
         
         return chunks
     
-    async def _store_chunk(self, chunk: SessionChunk) -> None:
+    async def _store_chunk(
+        self, chunk: SessionChunk, total_messages: int = 0
+    ) -> None:
         """Store a session chunk in memory.
         
-        Note: Currently uses in-memory list storage. This is intentional for v0.2.0
-        to keep the initial implementation simple and testable. Data does not persist
-        across restarts. A future version will integrate with LanceDB for persistent
-        storage in a separate 'session_chunks' table. See issue #38 follow-up.
+        Args:
+            chunk: The session chunk to store.
+            total_messages: Total message count for the session (used by
+                LanceDB store to persist delta ingestion state).
         """
         if not hasattr(self, '_chunks'):
             self._chunks = []
@@ -463,15 +466,26 @@ class LanceDBSessionStore(SessionStore):
         else:
             raise ValueError("Either db_path or db_uri must be provided")
         
+        # Open existing table or create new one.  We check table_names()
+        # first to avoid overwriting an existing table with a potentially
+        # different schema.  Schema migrations are not yet supported —
+        # delete the table manually if the schema changes.
         if self.TABLE_NAME in self._db.table_names():
             self._table = self._db.open_table(self.TABLE_NAME)
+            # Restore delta ingestion state from persisted chunks
+            self._restore_session_state()
         else:
             self._table = self._create_table()
         
         self._initialized = True
     
     def _create_table(self) -> "lancedb.table.Table":
-        """Create the session_chunks table with the defined schema."""
+        """Create the session_chunks table with the defined schema.
+        
+        Creates table with cosine distance metric for vector similarity search.
+        This eliminates the need for manual L2-to-cosine conversion and ensures
+        accurate similarity scoring with normalized embeddings.
+        """
         import pyarrow as pa
         
         schema = pa.schema([
@@ -487,7 +501,18 @@ class LanceDBSessionStore(SessionStore):
             pa.field("metadata", pa.string()),
         ])
         
-        return self._db.create_table(self.TABLE_NAME, schema=schema)
+        table = self._db.create_table(self.TABLE_NAME, schema=schema, mode="overwrite")
+        
+        # Create vector index with cosine metric for accurate similarity search
+        # Note: Index creation may fail on empty tables; that's okay, it will be
+        # created automatically on first search
+        try:
+            table.create_index(metric="cosine", num_partitions=256, num_sub_vectors=96)
+            logger.info("Created vector index with cosine metric for session_chunks table")
+        except Exception as e:
+            logger.debug(f"Could not create index immediately (will be created on first search): {e}")
+        
+        return table
     
     def _get_embedding_dim(self) -> int:
         """Get the expected embedding dimension from the embedding service."""
@@ -496,11 +521,51 @@ class LanceDBSessionStore(SessionStore):
         if hasattr(self.embedding_service, 'embedding_dim'):
             return self.embedding_service.embedding_dim
         return 1536  # Default for text-embedding-3-small
-    
-    async def _store_chunk(self, chunk: SessionChunk) -> None:
+
+    def _restore_session_state(self) -> None:
+        """Restore delta ingestion state from persisted chunks.
+
+        Reads ``message_count`` from chunk metadata to find the highest
+        message index per session.  This prevents duplicate chunk creation
+        when the store is restarted and ``ingest()`` is called again with
+        the same (or superset) message list.
+        """
+        try:
+            rows = (
+                self._table.search()
+                .select(["session_id", "metadata"])
+                .limit(self._MAX_SCAN_LIMIT)
+                .to_list()
+            )
+            for row in rows:
+                sid = row["session_id"]
+                try:
+                    meta = json.loads(row.get("metadata", "{}"))
+                    msg_count = meta.get("message_count", 0)
+                except (json.JSONDecodeError, TypeError):
+                    msg_count = 0
+                # Keep the highest message_count per session
+                if sid not in self._session_state or msg_count > self._session_state[sid]:
+                    self._session_state[sid] = msg_count
+            if self._session_state:
+                logger.info(
+                    "Restored session state for %d sessions from LanceDB",
+                    len(self._session_state),
+                )
+        except Exception as e:
+            logger.warning("Failed to restore session state: %s", e)
+
+    async def _store_chunk(
+        self, chunk: SessionChunk, total_messages: int = 0
+    ) -> None:
         """Store a session chunk in LanceDB."""
         await self._ensure_initialized()
         
+        # Store message_count in metadata so we can restore delta
+        # ingestion state on restart (see _restore_session_state).
+        meta = {
+            "message_count": total_messages,
+        }
         row = {
             "id": chunk.chunk_id,
             "session_id": chunk.session_id,
@@ -511,7 +576,7 @@ class LanceDBSessionStore(SessionStore):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "start_time": chunk.start_time.isoformat(),
             "end_time": chunk.end_time.isoformat(),
-            "metadata": json.dumps({}),  # Reserved for future use
+            "metadata": json.dumps(meta),
         }
         
         self._table.add([row])
@@ -526,11 +591,15 @@ class LanceDBSessionStore(SessionStore):
         """Search for chunks by similarity using LanceDB vector search."""
         await self._ensure_initialized()
         
-        # Build query with optional session filter
-        query = self._table.search(query_embedding).limit(limit * 2)
+        # Build query with optional session filter.
+        # Use cosine metric for direct similarity scoring.
+        query = (
+            self._table.search(query_embedding)
+            .metric("cosine")
+            .limit(limit * 2)
+        )
         
         if session_id:
-            # Sanitize session_id to prevent injection
             safe_session_id = self._sanitize_id(session_id)
             query = query.where(f"session_id = '{safe_session_id}'")
         
@@ -539,9 +608,10 @@ class LanceDBSessionStore(SessionStore):
         # Convert to format expected by callers
         recall_results = []
         for row in results:
-            # LanceDB returns L2 distance. Convert to cosine similarity.
+            # With cosine metric, _distance is cosine distance in [0, 2].
+            # Convert to similarity: 1 - distance.
             distance = row.get("_distance", 0)
-            similarity = max(0, 1 - (distance * distance / 2))
+            similarity = max(0.0, 1.0 - distance)
             
             if similarity >= min_relevance:
                 recall_results.append({
@@ -561,43 +631,81 @@ class LanceDBSessionStore(SessionStore):
         return recall_results[:limit]
     
     async def _delete_chunks_before(self, cutoff_time: datetime) -> int:
-        """Delete chunks older than cutoff time."""
+        """Delete chunks older than cutoff time.
+
+        Uses LanceDB's filter-based deletion to avoid loading all rows
+        into memory.  Falls back to ID-based deletion if the filter
+        approach fails (e.g., older LanceDB version).
+
+        All stored timestamps are UTC ISO strings.  The ``cutoff_time``
+        is converted to UTC if timezone-aware, or assumed UTC if naive.
+        """
         await self._ensure_initialized()
-        
-        # Get count before deletion
-        all_chunks = (
+
+        # Normalise cutoff to UTC ISO for consistent string comparison
+        if cutoff_time.tzinfo is not None:
+            cutoff_time = cutoff_time.astimezone(timezone.utc)
+        cutoff_iso = cutoff_time.isoformat()
+
+        try:
+            # Count rows matching the filter first (for return value)
+            matching = (
+                self._table.search()
+                .where(f"end_time < '{cutoff_iso}'")
+                .select(["id"])
+                .limit(1_000_000)
+                .to_list()
+            )
+            count = len(matching)
+            if count == 0:
+                return 0
+
+            # Batch delete via filter expression
+            self._table.delete(f"end_time < '{cutoff_iso}'")
+            return count
+        except Exception:
+            logger.warning(
+                "Filter-based deletion failed, falling back to row-by-row"
+            )
+
+        # Fallback: fetch IDs and delete individually
+        old_chunks = (
             self._table.search()
-            .limit(1000000)
-            .select(["id", "end_time"])
+            .where(f"end_time < '{cutoff_iso}'")
+            .select(["id"])
+            .limit(1_000_000)
             .to_list()
         )
-        
-        # Filter to find chunks to delete
-        to_delete = [
-            chunk["id"] for chunk in all_chunks
-            if datetime.fromisoformat(chunk["end_time"]) < cutoff_time
-        ]
-        
-        if not to_delete:
-            return 0
-        
-        # Delete chunks (LanceDB doesn't support batch delete by condition,
-        # so we delete by IDs)
-        for chunk_id in to_delete:
-            safe_id = self._sanitize_id(chunk_id)
+
+        for chunk in old_chunks:
+            safe_id = self._sanitize_id(chunk["id"])
             self._table.delete(f"id = '{safe_id}'")
-        
-        return len(to_delete)
+
+        return len(old_chunks)
     
+    _MAX_SCAN_LIMIT = 1_000_000
+
     async def _get_all_chunks(self) -> list[dict]:
-        """Get all stored chunks."""
+        """Get all stored chunks.
+
+        .. warning::
+            Scans up to ``_MAX_SCAN_LIMIT`` (1 M) rows. Databases with more
+            chunks will be silently truncated.  Use pagination for
+            production workloads with very large session stores.
+        """
         await self._ensure_initialized()
         
         results = (
             self._table.search()
-            .limit(1000000)
+            .limit(self._MAX_SCAN_LIMIT)
             .to_list()
         )
+
+        if len(results) >= self._MAX_SCAN_LIMIT:
+            logger.warning(
+                "Session chunk scan hit limit (%d); results may be truncated",
+                self._MAX_SCAN_LIMIT,
+            )
         
         return [
             {
@@ -613,14 +721,18 @@ class LanceDBSessionStore(SessionStore):
         ]
     
     def _sanitize_id(self, id_str: str) -> str:
-        """Sanitize ID to prevent SQL injection.
+        """Sanitize ID to prevent SQL injection in LanceDB filter expressions.
         
-        IDs should only contain alphanumeric characters and hyphens.
+        IDs are UUIDs generated by uuid.uuid4() and should only contain
+        lowercase hex chars and hyphens (e.g., ``a1b2c3d4-e5f6-...``).
+        Rejects anything outside this safe set and escapes single quotes
+        as an extra safety layer.
         """
         import re
         if not re.match(r'^[a-zA-Z0-9\-]+$', id_str):
             raise ValueError(f"Invalid ID format: {id_str[:20]}...")
-        return id_str
+        # Extra safety: escape single quotes to prevent SQL injection
+        return id_str.replace("'", "''")
 
 
 class InMemorySessionStore(SessionStore):

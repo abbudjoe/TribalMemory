@@ -70,7 +70,19 @@ async def lifespan(app: FastAPI):
         except ImportError:
             logger.warning(
                 "LanceDB not installed. Falling back to in-memory session storage. "
-                "Session data will NOT persist across restarts. Install with: pip install lancedb"
+                "Session data will NOT persist across restarts. "
+                "Install with: pip install lancedb"
+            )
+            _session_store = InMemorySessionStore(
+                instance_id=config.instance_id,
+                embedding_service=_memory_service.embedding_service,
+                vector_store=_memory_service.vector_store,
+            )
+        except (OSError, PermissionError, ValueError) as exc:
+            logger.warning(
+                "LanceDB session store init failed (%s). "
+                "Falling back to in-memory session storage.",
+                exc,
             )
             _session_store = InMemorySessionStore(
                 instance_id=config.instance_id,

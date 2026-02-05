@@ -346,3 +346,134 @@ class TestLanceDBSessionStoreEdgeCases:
         # Search empty store
         results = await store.search("Docker")
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_delta_ingestion_state_restored_on_restart(self, temp_db_path):
+        """Should restore delta ingestion state from persisted chunks on restart.
+        
+        This test documents the fix for issue #7 - delta ingestion state is now
+        persisted in chunk metadata, preventing duplicate chunks after restart.
+        """
+        embedding = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding)
+
+        # First store instance: ingest session
+        store1 = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+
+        messages = [
+            SessionMessage("user", "Message 1", datetime(2024, 1, 1, 12, 0, 0)),
+            SessionMessage("user", "Message 2", datetime(2024, 1, 1, 12, 1, 0)),
+        ]
+
+        result1 = await store1.ingest("session-1", messages)
+        assert result1["success"] is True
+        chunks_created_first = result1["chunks_created"]
+
+        # Second store instance (simulating restart): re-ingest same session
+        store2 = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+
+        result2 = await store2.ingest("session-1", messages)
+        assert result2["success"] is True
+        # Should not create duplicate chunks since state is restored
+        assert result2["chunks_created"] == 0
+        assert result2["messages_processed"] == 0
+
+        # Verify total chunk count hasn't increased
+        stats = await store2.get_stats()
+        assert stats["total_chunks"] == chunks_created_first
+
+    @pytest.mark.asyncio
+    async def test_search_with_nonexistent_session_id(self, temp_db_path):
+        """Should return empty results for valid but non-existent session ID."""
+        embedding = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding)
+
+        store = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+
+        # Ingest data for session-1
+        await store.ingest("session-1", [
+            SessionMessage("user", "Docker setup", datetime(2024, 1, 1, 12, 0, 0)),
+        ])
+
+        # Search for a valid UUID format session ID that doesn't exist
+        results = await store.search("Docker", session_id="session-nonexistent-123")
+
+        # Should return empty results, not raise an error
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_restart_does_not_duplicate_chunks(self, temp_db_path):
+        """After restart, re-ingesting the same session should NOT create duplicates.
+
+        Delta ingestion state is restored from persisted chunk metadata,
+        so calling ingest() again with the same messages is a no-op.
+        """
+        embedding = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding)
+
+        messages = [
+            SessionMessage("user", "Hello world", datetime(2024, 1, 1, 12, 0, 0)),
+            SessionMessage("assistant", "Hi there!", datetime(2024, 1, 1, 12, 1, 0)),
+        ]
+
+        # Store 1: ingest session
+        store1 = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+        result1 = await store1.ingest("session-dup", messages)
+        assert result1["success"]
+        chunks_created_1 = result1["chunks_created"]
+        assert chunks_created_1 > 0
+
+        # Store 2 (simulating restart): re-ingest same session
+        store2 = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+        result2 = await store2.ingest("session-dup", messages)
+        assert result2["success"]
+        # Delta ingestion should skip already-processed messages
+        assert result2["chunks_created"] == 0
+        assert result2["messages_processed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_search_nonexistent_session_id(self, temp_db_path):
+        """Searching with a valid but non-existent session ID returns empty."""
+        embedding = MockEmbeddingService(embedding_dim=64)
+        vector_store = InMemoryVectorStore(embedding)
+
+        store = LanceDBSessionStore(
+            instance_id="test-instance",
+            embedding_service=embedding,
+            vector_store=vector_store,
+            db_path=temp_db_path,
+        )
+
+        # Ingest into one session
+        await store.ingest("session-exists", [
+            SessionMessage("user", "Hello", datetime(2024, 1, 1, 12, 0, 0)),
+        ])
+
+        # Search with a different, non-existent session ID
+        results = await store.search("Hello", session_id="session-does-not-exist")
+        assert results == []

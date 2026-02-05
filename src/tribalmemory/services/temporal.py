@@ -57,7 +57,7 @@ class TemporalExtractor:
     """
     
     # Patterns for temporal expressions we want to capture
-    RELATIVE_PATTERNS = [
+    RELATIVE_PATTERNS: list[str] = [
         # Days
         r'\byesterday\b',
         r'\btoday\b',
@@ -92,17 +92,26 @@ class TemporalExtractor:
         r'\btonight\b',
     ]
     
+    # Month names for reuse in patterns
+    _MONTHS = (
+        r'january|february|march|april|may|june'
+        r'|july|august|september|october|november|december'
+    )
+
     # Patterns for absolute dates
-    ABSOLUTE_PATTERNS = [
+    ABSOLUTE_PATTERNS: list[str] = [
         # ISO format
         r'\b\d{4}-\d{2}-\d{2}\b',
         # US format
         r'\b\d{1,2}/\d{1,2}/\d{2,4}\b',
-        # Written dates
-        r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\b',
-        r'\b\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december),?\s*\d{4}\b',
-        # Month + year
-        r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\b',
+        # "Month Day, Year"
+        r'\b(?:' + _MONTHS + r')'
+        r'\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\b',
+        # "Day Month, Year"
+        r'\b\d{1,2}(?:st|nd|rd|th)?\s+(?:' + _MONTHS + r')'
+        r',?\s*\d{4}\b',
+        # "Month Year"
+        r'\b(?:' + _MONTHS + r')\s+\d{4}\b',
         # Just year (4 digits, likely a year)
         r'\bin\s+\d{4}\b',
     ]
@@ -224,8 +233,10 @@ class TemporalExtractor:
                     'precision': precision,
                     'confidence': 0.95 if precision == 'day' else 0.8,
                 }
-        except Exception as e:
-            logger.debug(f"dateparser failed for '{expression}': {e}")
+        except (ValueError, TypeError, AttributeError, OverflowError) as e:
+            logger.debug(
+                "dateparser failed for '%s': %s", expression, e
+            )
         
         return self._resolve_fallback(expression, reference_time)
     
@@ -270,9 +281,17 @@ class TemporalExtractor:
             return {'date': date.strftime("%Y-%m-%d"), 'precision': 'week', 'confidence': 0.85}
         
         if expr_lower == 'last month':
-            # Approximate: go back 30 days
-            date = reference_time - timedelta(days=30)
-            return {'date': date.strftime("%Y-%m"), 'precision': 'month', 'confidence': 0.8}
+            # Use calendar-aware month subtraction
+            month = reference_time.month - 1
+            year = reference_time.year
+            if month < 1:
+                month = 12
+                year -= 1
+            return {
+                'date': f"{year}-{month:02d}",
+                'precision': 'month',
+                'confidence': 0.8,
+            }
         
         if expr_lower == 'last year':
             year = reference_time.year - 1

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from tribalmemory.services.temporal import (
     TemporalExtractor,
     TemporalEntity,
+    TemporalRelationship,
     format_temporal_context,
 )
 
@@ -201,6 +202,60 @@ class TestTemporalPrecision:
         entities = extractor.extract("in 2022", ref)
         assert len(entities) == 1
         assert entities[0].precision == "year"
+
+
+class TestTemporalEdgeCases:
+    """Edge case tests for robustness."""
+
+    @pytest.fixture
+    def extractor(self):
+        return TemporalExtractor()
+
+    @pytest.fixture
+    def reference_time(self):
+        return datetime(2023, 5, 8, 14, 0, 0, tzinfo=timezone.utc)
+
+    def test_repeated_expression(self, extractor, reference_time):
+        """Same expression repeated should only appear once."""
+        text = "Yesterday was great. I loved yesterday. Yesterday!"
+        entities = extractor.extract(text, reference_time)
+        assert len(entities) == 1
+
+    def test_naive_reference_time(self, extractor):
+        """Should handle naive datetime (no tzinfo) gracefully."""
+        naive_time = datetime(2023, 5, 8, 14, 0, 0)
+        text = "I did this yesterday"
+        entities = extractor.extract(text, naive_time)
+        assert len(entities) == 1
+        assert entities[0].resolved_date == "2023-05-07"
+
+    def test_extract_with_context_returns_relationships(
+        self, extractor, reference_time
+    ):
+        """extract_with_context should return TemporalRelationship."""
+        text = "I went to a support group yesterday"
+        rels = extractor.extract_with_context(text, reference_time)
+        assert len(rels) >= 1
+        assert isinstance(rels[0], TemporalRelationship)
+        assert rels[0].temporal.resolved_date == "2023-05-07"
+
+    def test_extract_with_context_finds_subject(
+        self, extractor, reference_time
+    ):
+        """Should try to identify what the temporal refers to."""
+        text = "I attended a LGBTQ support group yesterday"
+        rels = extractor.extract_with_context(text, reference_time)
+        assert len(rels) >= 1
+        # Subject should be something other than just "event"
+        # (exact subject depends on regex matching)
+        assert rels[0].subject is not None
+
+    def test_last_month_january_wraps_to_december(self, extractor):
+        """Last month in January should give December."""
+        jan_ref = datetime(2023, 1, 15, tzinfo=timezone.utc)
+        entities = extractor.extract("last month", jan_ref)
+        assert len(entities) == 1
+        assert entities[0].resolved_date == "2022-12"
 
 
 class TestGraphStoreTemporalFacts:

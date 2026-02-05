@@ -279,16 +279,18 @@ async def benchmark_cache_effectiveness(
 def _percentile(data: list[float], pct: int) -> float:
     """Calculate percentile using linear interpolation.
 
-    Uses statistics.quantiles for accurate interpolation, which
-    handles small sample sizes better than nearest-rank.
+    Uses ``statistics.quantiles`` for accurate interpolation, which
+    handles small sample sizes better than nearest-rank.  Data is
+    sorted internally so callers don't need to pre-sort.
     """
     if not data:
         return 0.0
     if len(data) == 1:
         return data[0]
-    # quantiles() returns cut points; for pct-th percentile we need
-    # n=100 cut points and pick the (pct-1)-th one
-    quantile_points = statistics.quantiles(data, n=100)
+    # quantiles(n=100) returns 99 cut points dividing the data into
+    # 100 equal-probability intervals.  Index (pct - 1) gives the
+    # pct-th percentile.  Clamp for edge cases like p100.
+    quantile_points = statistics.quantiles(sorted(data), n=100)
     idx = min(pct - 1, len(quantile_points) - 1)
     return quantile_points[idx]
 

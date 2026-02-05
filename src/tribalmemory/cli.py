@@ -429,9 +429,21 @@ def cmd_init(args: argparse.Namespace) -> int:
             codex=args.codex,
         )
 
-    print()
-    print("🚀 Start the server:")
-    print("   tribalmemory serve")
+    # Set up background service if requested
+    if getattr(args, "service", False):
+        from .service import cmd_service
+        print()
+        result = cmd_service("install")
+        if result == 0:
+            cmd_service("start")
+    else:
+        print()
+        print("🚀 Start the server:")
+        print("   tribalmemory serve")
+        print()
+        print("💡 Or run as a background service:")
+        print("   tribalmemory service install && tribalmemory service start")
+
     print()
     print("🧠 Or use with Claude Code (MCP):")
     print("   tribalmemory-mcp")
@@ -734,6 +746,8 @@ def main() -> None:
                              help="Configure Codex CLI MCP integration")
     init_parser.add_argument("--auto-capture", action="store_true",
                              help="Enable auto-capture (writes instructions to agent config files)")
+    init_parser.add_argument("--service", action="store_true",
+                             help="Install and start as a background service (systemd/launchd)")
     init_parser.add_argument("--instance-id", type=str, default=None,
                              help="Instance identifier (default: 'default')")
     init_parser.add_argument("--force", action="store_true",
@@ -750,6 +764,16 @@ def main() -> None:
     # mcp
     subparsers.add_parser("mcp", help="Start the MCP server (stdio transport)")
 
+    # service
+    service_parser = subparsers.add_parser(
+        "service", help="Manage the background server service"
+    )
+    service_parser.add_argument(
+        "action",
+        choices=["install", "uninstall", "start", "stop", "status"],
+        help="Service action to perform",
+    )
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -758,6 +782,9 @@ def main() -> None:
         cmd_serve(args)
     elif args.command == "mcp":
         cmd_mcp(args)
+    elif args.command == "service":
+        from .service import cmd_service
+        sys.exit(cmd_service(args.action))
     else:
         parser.print_help()
         sys.exit(1)

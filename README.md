@@ -49,46 +49,40 @@ pip install "tribalmemory[fastembed]"
 
 ## Quick Start
 
-### Option A: FastEmbed (Zero Cloud, Zero Cost)
+### Option A: FastEmbed (Zero Cloud, Zero Cost) — Default
 
 No API keys. No cloud. No external services. Everything runs on your machine.
 
 ```bash
-# Install with FastEmbed support
 pip install "tribalmemory[fastembed]"
-
-# Initialize config and edit for FastEmbed
 tribalmemory init
-```
-
-Edit `~/.tribal-memory/config.yaml` — change the embedding section to:
-
-```yaml
-embedding:
-  provider: fastembed
-  model: BAAI/bge-small-en-v1.5
-  dimensions: 384
-```
-
-Then start the server:
-
-```bash
 tribalmemory serve
 ```
 
-The first run downloads a ~130MB embedding model. After that, it's instant. See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for full setup details.
+That's it. The first run downloads a ~130MB embedding model, then it's instant. See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for details.
 
 ### Option B: OpenAI Embeddings
 
 ```bash
-export OPENAI_API_KEY=sk-...
-tribalmemory init
+pip install tribalmemory
+tribalmemory init --openai
+# → prompts for your API key
 tribalmemory serve
 ```
 
-Server runs on `http://localhost:18790`.
+### Option C: Ollama
 
-> **Other embedding options:** Tribal Memory also supports [Ollama](docs/ollama-quickstart.md) for local embeddings — useful if you already have it running.
+If you already have [Ollama](https://ollama.com) running:
+
+```bash
+pip install tribalmemory
+tribalmemory init --ollama
+tribalmemory serve
+```
+
+See [docs/ollama-quickstart.md](docs/ollama-quickstart.md) for Ollama setup details.
+
+Server runs on `http://localhost:18790`.
 
 ---
 

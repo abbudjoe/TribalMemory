@@ -56,6 +56,14 @@ class RecallRequest(BaseModel):
         default=None,
         description="Filter by tags"
     )
+    after: Optional[str] = Field(
+        default=None,
+        description="Only include memories with events on/after this date (ISO or natural language)"
+    )
+    before: Optional[str] = Field(
+        default=None,
+        description="Only include memories with events on/before this date (ISO or natural language)"
+    )
 
 
 class CorrectRequest(BaseModel):

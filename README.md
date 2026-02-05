@@ -25,21 +25,11 @@ Tribal Memory is a shared memory server that any AI agent can connect to via [MC
 
 ## Install
 
-**macOS:**
 ```bash
-# Install uv (recommended — avoids macOS "externally-managed-environment" errors)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.zshrc
-
-# Install tribalmemory
-uv tool install tribalmemory
+pip install tribalmemory    # or: uv tool install tribalmemory
 ```
 
-**Linux:**
-```bash
-pip install "tribalmemory[fastembed]"   # recommended — includes local embeddings
-# or: pip install tribalmemory          # base install (bring your own embeddings)
-```
+`tribalmemory init` defaults to **FastEmbed** (local ONNX embeddings, zero cloud). If FastEmbed isn't installed, it will offer to install it automatically. For OpenAI or Ollama embeddings, use `--openai` or `--ollama`.
 
 ---
 
@@ -50,8 +40,8 @@ pip install "tribalmemory[fastembed]"   # recommended — includes local embeddi
 No API keys. No cloud. No external services. Everything runs on your machine.
 
 ```bash
-pip install "tribalmemory[fastembed]"
-tribalmemory init
+pip install tribalmemory   # or: uv tool install tribalmemory
+tribalmemory init          # auto-installs FastEmbed if needed
 tribalmemory serve
 ```
 
@@ -64,9 +54,7 @@ See [docs/fastembed-quickstart.md](docs/fastembed-quickstart.md) for details.
 ### Option B: OpenAI Embeddings
 
 ```bash
-pip install tribalmemory
-tribalmemory init --openai
-# → prompts for your API key
+tribalmemory init --openai   # prompts for your API key
 tribalmemory serve
 ```
 
@@ -75,7 +63,6 @@ tribalmemory serve
 If you already have [Ollama](https://ollama.com) running:
 
 ```bash
-pip install tribalmemory
 tribalmemory init --ollama
 tribalmemory serve
 ```

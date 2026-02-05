@@ -1,14 +1,18 @@
 """Performance benchmarks for Tribal Memory.
 
 Provides functions to measure retrieval latency, embedding throughput,
-and cache effectiveness using mock services for CI-friendly execution.
+cache effectiveness, and graph operations using mock services for
+CI-friendly execution.
 """
 
 import random
 import statistics
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
+from ..services.graph_store import EntityExtractor, GraphStore, Entity, Relationship
 from ..testing.mocks import MockEmbeddingService, MockVectorStore
 from .corpus_generator import CorpusConfig, generate_corpus
 
@@ -283,3 +287,344 @@ def _percentile(sorted_data: list[float], pct: int) -> float:
     idx = int(len(sorted_data) * pct / 100)
     idx = min(idx, len(sorted_data) - 1)
     return sorted_data[idx]
+
+
+# --- Graph Benchmark Results ---
+
+
+@dataclass
+class EntityExtractionResult:
+    """Result of an entity extraction throughput benchmark."""
+    total_texts: int
+    total_entities: int
+    total_time_ms: float
+    ms_per_text: float
+    entities_per_text: float
+
+
+@dataclass
+class GraphQueryResult:
+    """Result of a graph query latency benchmark."""
+    num_entities: int
+    num_relationships: int
+    query_type: str  # 'get_memories' or 'find_connected'
+    hops: int  # Only relevant for find_connected
+    stats: LatencyStats
+
+
+@dataclass
+class GraphExpansionOverheadResult:
+    """Result of a graph expansion overhead benchmark."""
+    corpus_size: int
+    num_queries: int
+    without_graph_stats: LatencyStats
+    with_graph_stats: LatencyStats
+    overhead_pct: float  # Percentage increase in p50 latency
+
+
+# --- Graph Corpus Generator ---
+
+
+def _generate_graph_corpus(
+    num_entries: int,
+    seed: int = 42,
+) -> list[tuple[str, str]]:
+    """Generate corpus entries with extractable entities.
+    
+    Creates synthetic text entries containing service names and technology
+    references that EntityExtractor can identify. Templates are designed
+    to match EntityExtractor.RELATIONSHIP_PATTERNS for realistic benchmarks.
+    
+    Args:
+        num_entries: Number of corpus entries to generate.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        List of (memory_id, content) tuples suitable for entity extraction.
+    """
+    rng = random.Random(seed)
+    
+    # Service names match EntityExtractor.SERVICE_PATTERN (kebab-case)
+    services = [
+        'auth-service', 'user-api', 'payment-gateway', 'order-worker',
+        'notification-service', 'cache-proxy', 'data-pipeline',
+        'ml-service', 'search-api', 'analytics-worker',
+        'billing-service', 'report-api', 'audit-service',
+        'config-server', 'gateway-proxy', 'sync-worker',
+    ]
+    
+    # Technologies match EntityExtractor.TECHNOLOGIES set
+    technologies = [
+        'PostgreSQL', 'Redis', 'Kafka', 'Docker', 'Kubernetes',
+        'Python', 'FastAPI', 'MongoDB', 'Elasticsearch', 'Nginx',
+    ]
+    
+    # Templates match EntityExtractor.RELATIONSHIP_PATTERNS for extraction
+    templates = [
+        "{service} uses {tech} for data storage",
+        "{service} connects to {tech} for caching",
+        "Configured {service} to handle requests via {tech}",
+        "{service} stores metrics in {tech}",
+        "The {service} depends on {tech} for message queue",
+        "{tech} is used by {service} for persistence",
+        "Deployed {service} with {tech} backend",
+        "{service} talks to {tech} for real-time updates",
+    ]
+    
+    entries: list[tuple[str, str]] = []
+    for i in range(num_entries):
+        service = rng.choice(services)
+        tech = rng.choice(technologies)
+        template = rng.choice(templates)
+        content = template.format(service=service, tech=tech)
+        entries.append((f"mem_{i:06d}", content))
+    
+    return entries
+
+
+# --- Graph Benchmark Functions ---
+
+
+@dataclass
+class RelationshipExtractionResult:
+    """Result of a relationship extraction throughput benchmark."""
+    total_texts: int
+    total_entities: int
+    total_relationships: int
+    total_time_ms: float
+    ms_per_text: float
+    entities_per_text: float
+    relationships_per_text: float
+
+
+async def benchmark_entity_extraction(
+    num_texts: int = 1000,
+    seed: int = 42,
+) -> EntityExtractionResult:
+    """Benchmark entity extraction throughput.
+    
+    Measures how fast EntityExtractor can process text and extract
+    entities. Target: <1ms per entry.
+    
+    Note: This benchmarks extract() only. For production usage which
+    includes relationship extraction, see benchmark_relationship_extraction().
+    
+    Args:
+        num_texts: Number of text entries to process.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        EntityExtractionResult with timing and entity count metrics.
+    """
+    corpus = _generate_graph_corpus(num_texts, seed)
+    extractor: EntityExtractor = EntityExtractor()
+    
+    total_entities = 0
+    start = time.perf_counter()
+    
+    for _, content in corpus:
+        entities = extractor.extract(content)
+        total_entities += len(entities)
+    
+    total_ms = (time.perf_counter() - start) * 1000
+    
+    return EntityExtractionResult(
+        total_texts=num_texts,
+        total_entities=total_entities,
+        total_time_ms=total_ms,
+        ms_per_text=total_ms / num_texts if num_texts > 0 else 0,
+        entities_per_text=total_entities / num_texts if num_texts > 0 else 0,
+    )
+
+
+async def benchmark_relationship_extraction(
+    num_texts: int = 1000,
+    seed: int = 42,
+) -> RelationshipExtractionResult:
+    """Benchmark entity + relationship extraction throughput.
+    
+    Measures extract_with_relationships() which is the method used in
+    production when storing memories. This is more representative of
+    actual performance than entity-only extraction.
+    
+    Args:
+        num_texts: Number of text entries to process.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        RelationshipExtractionResult with timing and count metrics.
+    """
+    corpus = _generate_graph_corpus(num_texts, seed)
+    extractor: EntityExtractor = EntityExtractor()
+    
+    total_entities = 0
+    total_relationships = 0
+    start = time.perf_counter()
+    
+    for _, content in corpus:
+        entities, relationships = extractor.extract_with_relationships(content)
+        total_entities += len(entities)
+        total_relationships += len(relationships)
+    
+    total_ms = (time.perf_counter() - start) * 1000
+    
+    return RelationshipExtractionResult(
+        total_texts=num_texts,
+        total_entities=total_entities,
+        total_relationships=total_relationships,
+        total_time_ms=total_ms,
+        ms_per_text=total_ms / num_texts if num_texts > 0 else 0,
+        entities_per_text=total_entities / num_texts if num_texts > 0 else 0,
+        relationships_per_text=(
+            total_relationships / num_texts if num_texts > 0 else 0
+        ),
+    )
+
+
+async def benchmark_graph_store_queries(
+    num_entities: int = 1000,
+    num_queries: int = 50,
+    hops: int = 1,
+    seed: int = 42,
+) -> GraphQueryResult:
+    """Benchmark GraphStore query latency.
+    
+    Populates a graph with entities and relationships, then measures
+    query latency for find_connected operations.
+    
+    Args:
+        num_entities: Number of entities to populate.
+        num_queries: Number of queries to measure.
+        hops: Number of hops for find_connected.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        GraphQueryResult with p50/p95/p99 latency stats.
+    """
+    rng = random.Random(seed)
+    
+    # Create temp database
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "benchmark_graph.db"
+        graph: GraphStore = GraphStore(db_path)
+        
+        # Generate entities
+        entity_names: list[str] = [
+            f"entity-{i:04d}" for i in range(num_entities)
+        ]
+        
+        # Create entities with memory associations
+        for i, name in enumerate(entity_names):
+            entity = Entity(name=name, entity_type='service')
+            graph.add_entity(entity, f"mem_{i:06d}")
+        
+        # Create relationships (sparse graph: ~3 connections per entity)
+        num_relationships = 0
+        for idx, name in enumerate(entity_names):
+            num_connections = rng.randint(1, 5)
+            sample_size = min(num_connections, len(entity_names))
+            targets = rng.sample(entity_names, sample_size)
+            for target in targets:
+                if target != name:
+                    rel = Relationship(
+                        source=name, target=target, relation_type='uses'
+                    )
+                    graph.add_relationship(rel, f"mem_{idx:06d}")
+                    num_relationships += 1
+        
+        # Select random entities to query
+        query_entities = [rng.choice(entity_names) for _ in range(num_queries)]
+        
+        # Measure query latencies
+        latencies: list[float] = []
+        for entity_name in query_entities:
+            start = time.perf_counter()
+            graph.find_connected(entity_name, hops=hops)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            latencies.append(elapsed_ms)
+        
+        latencies.sort()
+        stats = LatencyStats(
+            p50=_percentile(latencies, 50),
+            p95=_percentile(latencies, 95),
+            p99=_percentile(latencies, 99),
+            mean=statistics.mean(latencies),
+            min=min(latencies),
+            max=max(latencies),
+        )
+        
+        return GraphQueryResult(
+            num_entities=num_entities,
+            num_relationships=num_relationships,
+            query_type='find_connected',
+            hops=hops,
+            stats=stats,
+        )
+
+
+async def benchmark_get_memories_for_entity(
+    num_entities: int = 1000,
+    memories_per_entity: int = 5,
+    num_queries: int = 50,
+    seed: int = 42,
+) -> GraphQueryResult:
+    """Benchmark get_memories_for_entity latency.
+    
+    Measures the time to look up memory IDs associated with an entity.
+    This is a key operation for entity-centric recall.
+    
+    Args:
+        num_entities: Number of entities to create.
+        memories_per_entity: Average memories per entity.
+        num_queries: Number of queries to measure.
+        seed: Random seed for reproducibility.
+    
+    Returns:
+        GraphQueryResult with latency stats.
+    """
+    rng = random.Random(seed)
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "benchmark_graph.db"
+        graph: GraphStore = GraphStore(db_path)
+        
+        entity_names: list[str] = [
+            f"entity-{i:04d}" for i in range(num_entities)
+        ]
+        
+        # Create entities with multiple memory associations
+        memory_idx = 0
+        for name in entity_names:
+            entity = Entity(name=name, entity_type='service')
+            for _ in range(memories_per_entity):
+                graph.add_entity(entity, f"mem_{memory_idx:06d}")
+                memory_idx += 1
+        
+        # Select random entities to query
+        query_entities = [rng.choice(entity_names) for _ in range(num_queries)]
+        
+        # Measure query latencies
+        latencies: list[float] = []
+        for entity_name in query_entities:
+            start = time.perf_counter()
+            graph.get_memories_for_entity(entity_name)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            latencies.append(elapsed_ms)
+        
+        latencies.sort()
+        stats = LatencyStats(
+            p50=_percentile(latencies, 50),
+            p95=_percentile(latencies, 95),
+            p99=_percentile(latencies, 99),
+            mean=statistics.mean(latencies),
+            min=min(latencies),
+            max=max(latencies),
+        )
+        
+        return GraphQueryResult(
+            num_entities=num_entities,
+            num_relationships=0,
+            query_type='get_memories',
+            hops=0,
+            stats=stats,
+        )

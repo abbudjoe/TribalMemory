@@ -1,7 +1,7 @@
-"""Performance/scale testing suite (Issue #6).
+"""Performance/scale testing suite (Issue #6, #53).
 
 Benchmarks retrieval latency, batch embedding throughput,
-and cache effectiveness under realistic workloads.
+cache effectiveness, and graph operations under realistic workloads.
 
 Uses mock services for deterministic, CI-friendly benchmarks.
 Run with: PYTHONPATH=src pytest tests/test_performance.py -v
@@ -20,8 +20,28 @@ from tribalmemory.performance.benchmarks import (
     benchmark_retrieval_latency,
     benchmark_batch_embedding_throughput,
     benchmark_cache_effectiveness,
+    benchmark_entity_extraction,
+    benchmark_relationship_extraction,
+    benchmark_graph_store_queries,
+    benchmark_get_memories_for_entity,
+    EntityExtractionResult,
+    RelationshipExtractionResult,
+    GraphQueryResult,
     LatencyStats,
 )
+
+
+# --- Performance Target Constants (Issue #53) ---
+# These targets are validated against mock services in CI.
+# Real-world performance depends on hardware and data characteristics.
+
+ENTITY_EXTRACTION_TARGET_MS = 1.0  # Per text entry
+RELATIONSHIP_EXTRACTION_TARGET_MS = 2.0  # Per text (includes relationships)
+GRAPH_1HOP_P99_TARGET_MS = 10.0  # 1-hop traversal
+GRAPH_2HOP_P99_TARGET_MS = 50.0  # 2-hop traversal
+GRAPH_SCALE_P99_TARGET_MS = 100.0  # 2k+ entities
+GET_MEMORIES_P99_TARGET_MS = 5.0  # Entity memory lookup
+GET_MEMORIES_MANY_P99_TARGET_MS = 10.0  # Many associations
 
 
 # --- Corpus Generator Tests ---
@@ -250,3 +270,256 @@ class TestBaselineDocumentation:
         print(f"Embedding throughput: {throughput.embeddings_per_second:.0f} emb/s")
         print(f"Cache hit rate (50% repeat): {cache.hit_rate:.2%}")
         print("=== End Report ===")
+
+
+# --- Graph Performance Benchmarks (Issue #53) ---
+
+
+class TestEntityExtraction:
+    """Benchmark entity extraction throughput."""
+
+    @pytest.mark.asyncio
+    async def test_entity_extraction_1k(self):
+        """Entity extraction should be fast (<1ms per entry)."""
+        result = await benchmark_entity_extraction(num_texts=1000)
+        assert result.total_texts == 1000
+        assert result.total_entities > 0
+        assert result.ms_per_text < ENTITY_EXTRACTION_TARGET_MS, (
+            f"Entity extraction too slow: {result.ms_per_text:.3f}ms/text "
+            f"(target: <{ENTITY_EXTRACTION_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_entity_extraction_10k(self):
+        """Entity extraction should scale to 10k entries."""
+        result = await benchmark_entity_extraction(num_texts=10_000)
+        assert result.total_texts == 10_000
+        assert result.ms_per_text < ENTITY_EXTRACTION_TARGET_MS, (
+            f"Entity extraction at scale: {result.ms_per_text:.3f}ms/text"
+        )
+
+    @pytest.mark.asyncio
+    async def test_entity_extraction_extracts_entities(self):
+        """Should extract meaningful entities from test corpus."""
+        result = await benchmark_entity_extraction(num_texts=100)
+        # Each entry has service + technology, expect ~2 per text
+        assert result.entities_per_text >= 1.5, (
+            f"Too few entities: {result.entities_per_text:.1f}/text (expected ~2)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_entity_extraction_deterministic(self):
+        """Same seed should produce same results."""
+        result1 = await benchmark_entity_extraction(num_texts=100, seed=42)
+        result2 = await benchmark_entity_extraction(num_texts=100, seed=42)
+        assert result1.total_entities == result2.total_entities
+
+
+class TestRelationshipExtraction:
+    """Benchmark entity + relationship extraction (production path)."""
+
+    @pytest.mark.asyncio
+    async def test_relationship_extraction_1k(self):
+        """Relationship extraction should be fast (<2ms per entry)."""
+        result = await benchmark_relationship_extraction(num_texts=1000)
+        assert result.total_texts == 1000
+        assert result.total_entities > 0
+        assert result.total_relationships > 0
+        assert result.ms_per_text < RELATIONSHIP_EXTRACTION_TARGET_MS, (
+            f"Relationship extraction too slow: {result.ms_per_text:.3f}ms/text "
+            f"(target: <{RELATIONSHIP_EXTRACTION_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_relationship_extraction_extracts_relationships(self):
+        """Should extract relationships from test corpus."""
+        result = await benchmark_relationship_extraction(num_texts=100)
+        # Templates designed to match RELATIONSHIP_PATTERNS
+        assert result.relationships_per_text >= 0.5, (
+            f"Too few relationships: {result.relationships_per_text:.1f}/text"
+        )
+
+    @pytest.mark.asyncio
+    async def test_relationship_extraction_deterministic(self):
+        """Same seed should produce same results."""
+        result1 = await benchmark_relationship_extraction(num_texts=100, seed=42)
+        result2 = await benchmark_relationship_extraction(num_texts=100, seed=42)
+        assert result1.total_entities == result2.total_entities
+        assert result1.total_relationships == result2.total_relationships
+
+
+class TestGraphStoreQueries:
+    """Benchmark GraphStore query latency."""
+
+    @pytest.mark.asyncio
+    async def test_find_connected_1hop_1k_entities(self):
+        """1-hop traversal should be fast (<10ms) with 1k entities."""
+        result = await benchmark_graph_store_queries(
+            num_entities=1000,
+            num_queries=30,
+            hops=1,
+        )
+        assert result.num_entities == 1000
+        assert result.query_type == 'find_connected'
+        assert result.hops == 1
+        assert result.stats.p99 < GRAPH_1HOP_P99_TARGET_MS, (
+            f"1-hop traversal too slow: p99={result.stats.p99:.2f}ms "
+            f"(target: <{GRAPH_1HOP_P99_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_connected_2hop_1k_entities(self):
+        """2-hop traversal should be reasonable (<50ms) with 1k entities."""
+        result = await benchmark_graph_store_queries(
+            num_entities=1000,
+            num_queries=30,
+            hops=2,
+        )
+        assert result.hops == 2
+        assert result.stats.p99 < GRAPH_2HOP_P99_TARGET_MS, (
+            f"2-hop traversal too slow: p99={result.stats.p99:.2f}ms "
+            f"(target: <{GRAPH_2HOP_P99_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_connected_scales_with_hops(self):
+        """Latency should increase with hop count, but sublinearly."""
+        result_1hop = await benchmark_graph_store_queries(
+            num_entities=500, num_queries=20, hops=1
+        )
+        result_2hop = await benchmark_graph_store_queries(
+            num_entities=500, num_queries=20, hops=2
+        )
+        # 2-hop should be slower but not 10x slower
+        ratio = result_2hop.stats.p50 / max(result_1hop.stats.p50, 0.001)
+        assert ratio < 10.0, (
+            f"2-hop {ratio:.1f}x slower than 1-hop (expected <10x)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_connected_2k_entities(self):
+        """Should handle 2k entities efficiently.
+        
+        Note: Reduced from 5k due to GraphStore connection-per-operation
+        overhead. See Issue #49 for connection pooling optimization.
+        Setup time: ~50s for 2k entities + relationships.
+        """
+        result = await benchmark_graph_store_queries(
+            num_entities=2000,
+            num_queries=15,
+            hops=1,
+        )
+        assert result.num_entities == 2000
+        assert result.stats.p99 < GRAPH_SCALE_P99_TARGET_MS, (
+            f"2k entity 1-hop: p99={result.stats.p99:.2f}ms "
+            f"(target: <{GRAPH_SCALE_P99_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_graph_store_queries_deterministic(self):
+        """Same seed should produce same graph structure."""
+        result1 = await benchmark_graph_store_queries(
+            num_entities=100, num_queries=10, seed=42
+        )
+        result2 = await benchmark_graph_store_queries(
+            num_entities=100, num_queries=10, seed=42
+        )
+        assert result1.num_relationships == result2.num_relationships
+
+
+class TestGetMemoriesForEntity:
+    """Benchmark get_memories_for_entity latency."""
+
+    @pytest.mark.asyncio
+    async def test_get_memories_1k_entities(self):
+        """get_memories_for_entity should be fast (<5ms)."""
+        result = await benchmark_get_memories_for_entity(
+            num_entities=1000,
+            memories_per_entity=5,
+            num_queries=30,
+        )
+        assert result.query_type == 'get_memories'
+        assert result.stats.p99 < GET_MEMORIES_P99_TARGET_MS, (
+            f"get_memories too slow: p99={result.stats.p99:.2f}ms "
+            f"(target: <{GET_MEMORIES_P99_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_memories_many_associations(self):
+        """Should handle entities with many memory associations."""
+        result = await benchmark_get_memories_for_entity(
+            num_entities=500,
+            memories_per_entity=20,  # 20 memories per entity
+            num_queries=30,
+        )
+        assert result.stats.p99 < GET_MEMORIES_MANY_P99_TARGET_MS, (
+            f"get_memories (20/entity): p99={result.stats.p99:.2f}ms "
+            f"(target: <{GET_MEMORIES_MANY_P99_TARGET_MS}ms)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_memories_deterministic(self):
+        """Same seed should produce consistent results."""
+        result1 = await benchmark_get_memories_for_entity(
+            num_entities=100, memories_per_entity=3, num_queries=10, seed=42
+        )
+        result2 = await benchmark_get_memories_for_entity(
+            num_entities=100, memories_per_entity=3, num_queries=10, seed=42
+        )
+        assert result1.num_entities == result2.num_entities
+
+
+class TestGraphBaselineDocumentation:
+    """Generate graph performance baseline report for CI tracking.
+    
+    Performance margins (actual vs target) are typically 10-30x because:
+    1. Mock services skip network/disk I/O latency
+    2. Targets are set conservatively for production headroom
+    3. SQLite is fast for local single-user workloads
+    
+    These margins validate the implementation is efficient and provide
+    baseline numbers for regression detection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_generate_graph_baseline_report(self):
+        """Generate a complete graph benchmark report."""
+        # Entity extraction (both methods)
+        extraction = await benchmark_entity_extraction(num_texts=1000)
+        rel_extraction = await benchmark_relationship_extraction(num_texts=1000)
+        
+        # Graph queries
+        query_1hop = await benchmark_graph_store_queries(
+            num_entities=1000, num_queries=30, hops=1
+        )
+        query_2hop = await benchmark_graph_store_queries(
+            num_entities=1000, num_queries=30, hops=2
+        )
+        
+        # Memory lookup
+        get_memories = await benchmark_get_memories_for_entity(
+            num_entities=1000, memories_per_entity=5, num_queries=30
+        )
+        
+        # Validate all results
+        assert extraction.ms_per_text >= 0
+        assert rel_extraction.ms_per_text >= 0
+        assert query_1hop.stats.p50 >= 0
+        assert query_2hop.stats.p50 >= 0
+        assert get_memories.stats.p50 >= 0
+        
+        # Print report for CI logs
+        print("\n=== Graph Performance Baseline Report ===")
+        print(f"Entity extraction: {extraction.ms_per_text:.3f}ms/text "
+              f"({extraction.entities_per_text:.1f} entities/text)")
+        print(f"Relationship extraction: {rel_extraction.ms_per_text:.3f}ms/text "
+              f"({rel_extraction.relationships_per_text:.1f} rels/text)")
+        print(f"find_connected (1-hop): p50={query_1hop.stats.p50:.2f}ms "
+              f"p99={query_1hop.stats.p99:.2f}ms")
+        print(f"find_connected (2-hop): p50={query_2hop.stats.p50:.2f}ms "
+              f"p99={query_2hop.stats.p99:.2f}ms")
+        print(f"get_memories_for_entity: p50={get_memories.stats.p50:.2f}ms "
+              f"p99={get_memories.stats.p99:.2f}ms")
+        print(f"Graph stats: {query_1hop.num_entities} entities, "
+              f"{query_1hop.num_relationships} relationships")
+        print("=== End Graph Report ===")

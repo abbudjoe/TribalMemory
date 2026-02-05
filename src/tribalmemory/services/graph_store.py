@@ -25,14 +25,27 @@ TEMPORAL_MENTIONED_DATE = "mentioned_date"
 
 @dataclass
 class TemporalFact:
-    """A temporal fact linking an entity/event to a resolved date."""
-    
-    subject: str  # What happened
-    relation: str  # occurred_on, mentioned_date
-    resolved_date: str  # ISO date: "2023-05-07"
-    original_expression: str  # "yesterday"
-    precision: str  # day, week, month, year
+    """A temporal fact linking an entity/event to a resolved date.
+
+    Attributes:
+        subject: What happened (event or entity name).
+        relation: occurred_on or mentioned_date.
+        resolved_date: ISO date string (YYYY-MM-DD, YYYY-MM, YYYY).
+        original_expression: Raw text ("yesterday").
+        precision: day, week, month, or year.
+        confidence: Score in [0.0, 1.0].
+    """
+
+    subject: str
+    relation: str
+    resolved_date: str
+    original_expression: str
+    precision: str
     confidence: float = 1.0
+
+    def __post_init__(self) -> None:
+        """Validate confidence is in [0.0, 1.0]."""
+        self.confidence = max(0.0, min(1.0, self.confidence))
 
 
 @dataclass
@@ -724,38 +737,49 @@ class GraphStore:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> list[str]:
-        """Get memory IDs with temporal facts in the given date range.
-        
+        """Get memory IDs with temporal facts in a date range.
+
         Args:
-            start_date: ISO date string for range start (inclusive).
-            end_date: ISO date string for range end (inclusive).
-        
+            start_date: ISO date string, range start (inclusive).
+            end_date: ISO date string, range end (inclusive).
+
         Returns:
             List of memory IDs.
         """
         with self._get_connection() as conn:
-            conditions = []
-            params = []
-            
-            if start_date:
-                conditions.append("resolved_date >= ?")
-                params.append(start_date)
-            if end_date:
-                conditions.append("resolved_date <= ?")
-                params.append(end_date)
-            
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-            
-            rows = conn.execute(
-                f"""
-                SELECT DISTINCT memory_id
-                FROM temporal_facts
-                WHERE {where_clause}
-                ORDER BY resolved_date
-                """,
-                params
-            ).fetchall()
-            
+            # Use explicit query variants to avoid f-string SQL
+            if start_date and end_date:
+                rows = conn.execute(
+                    """SELECT DISTINCT memory_id
+                    FROM temporal_facts
+                    WHERE resolved_date >= ?
+                      AND resolved_date <= ?
+                    ORDER BY resolved_date""",
+                    (start_date, end_date),
+                ).fetchall()
+            elif start_date:
+                rows = conn.execute(
+                    """SELECT DISTINCT memory_id
+                    FROM temporal_facts
+                    WHERE resolved_date >= ?
+                    ORDER BY resolved_date""",
+                    (start_date,),
+                ).fetchall()
+            elif end_date:
+                rows = conn.execute(
+                    """SELECT DISTINCT memory_id
+                    FROM temporal_facts
+                    WHERE resolved_date <= ?
+                    ORDER BY resolved_date""",
+                    (end_date,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT DISTINCT memory_id
+                    FROM temporal_facts
+                    ORDER BY resolved_date"""
+                ).fetchall()
+
             return [row['memory_id'] for row in rows]
     
     def get_memories_for_date(self, date: str) -> list[str]:

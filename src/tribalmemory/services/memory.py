@@ -155,28 +155,37 @@ class TribalMemoryService(IMemoryService):
         # Extract and store temporal facts
         if result.success and self.graph_enabled and self.temporal_extractor:
             try:
-                # Use entry timestamp as reference for resolving relative dates
-                temporal_entities = self.temporal_extractor.extract(
+                # Use extract_with_context to get proper subjects
+                temporal_rels = self.temporal_extractor.extract_with_context(
                     content, reference_time=entry.created_at
                 )
-                for temp in temporal_entities:
+                for rel in temporal_rels:
+                    temp = rel.temporal
                     fact = TemporalFact(
-                        subject=temp.expression,
-                        relation="occurred_on" if temp.confidence > 0.8 else "mentioned_date",
+                        subject=rel.subject or temp.expression,
+                        relation=rel.relation_type,
                         resolved_date=temp.resolved_date or "",
                         original_expression=temp.expression,
                         precision=temp.precision,
                         confidence=temp.confidence,
                     )
-                    self.graph_store.add_temporal_fact(fact, memory_id=entry.id)
-                if temporal_entities:
+                    self.graph_store.add_temporal_fact(
+                        fact, memory_id=entry.id
+                    )
+                if temporal_rels:
                     logger.debug(
                         "Extracted temporal facts: %s from %s",
-                        [(t.expression, t.resolved_date) for t in temporal_entities],
-                        entry.id
+                        [
+                            (r.subject, r.temporal.resolved_date)
+                            for r in temporal_rels
+                        ],
+                        entry.id,
                     )
-            except Exception as e:
-                logger.warning("Temporal extraction failed for %s: %s", entry.id, e)
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(
+                    "Temporal extraction failed for %s: %s",
+                    entry.id, e,
+                )
         
         return result
     
@@ -187,6 +196,10 @@ class TribalMemoryService(IMemoryService):
         min_relevance: float = 0.7,
         tags: Optional[list[str]] = None,
         graph_expansion: bool = True,
+        # TODO(#57 Phase 3): Add temporal filtering params:
+        #   after: Optional[str] = None,
+        #   before: Optional[str] = None,
+        # to filter/boost results by resolved temporal facts.
     ) -> list[RecallResult]:
         """Recall relevant memories using hybrid search with optional graph expansion.
         

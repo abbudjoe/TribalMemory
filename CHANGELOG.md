@@ -5,6 +5,67 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-05
+
+### Added
+
+#### FastEmbed Local Embeddings
+- **FastEmbed provider** — local ONNX embeddings via `BAAI/bge-small-en-v1.5` (384 dims)
+- Zero cloud, zero API keys, ~130MB model auto-download on first use
+- Optional dependency: `pip install "tribalmemory[fastembed]"`
+- `FastEmbedService` with async `embed()` and `embed_batch()`
+- Provider auto-detection via `provider_name` property on embedding services
+
+#### Zero-Friction CLI Init
+- **FastEmbed is now the default** — `tribalmemory init` generates FastEmbed config
+- `--openai` flag: prompts for API key interactively, saves to `~/.tribal-memory/.env` (600 permissions)
+- `--ollama` flag: generates Ollama config template
+- `--local` kept as deprecated alias for `--ollama`
+- FastEmbed import validation at init time (exits with helpful message if not installed)
+- `load_env_file()` loads `.env` at server/MCP startup (won't overwrite explicit env vars)
+
+#### Temporal Recall Filtering
+- `after` and `before` parameters on `recall()` for date-range queries
+- Temporal extraction via `dateparser` — resolves relative/absolute dates
+- `TemporalExtractor` service with `TemporalEntity` dataclasses
+- GraphStore: `temporal_facts` table, date range queries
+- MCP tool and HTTP API support for temporal filtering
+
+#### Persistent Session Storage
+- **LanceDB-backed SessionStore** — session chunks survive server restarts
+- Delta ingestion state persisted via chunk metadata
+- Cosine metric for vector search, filter-based cleanup
+- `InMemorySessionStore` preserved as fallback
+
+#### Session Search Pagination
+- Offset-based pagination on session search: `offset`, `limit`, `has_more`
+- `_PAGINATION_POOL_CAP = 1000` to bound memory usage
+- `total_count` in response for UI page controls
+
+#### Connection Pooling
+- Persistent SQLite connection in GraphStore (WAL mode, RLock)
+- Eliminates ~6.5ms per-operation connection overhead
+- Context manager support for clean shutdown
+
+### Changed
+- Default embedding provider changed from OpenAI to FastEmbed
+- `tribalmemory init` no longer requires manual config.yaml editing
+- OpenAI API keys stored in `.env` file instead of config.yaml (security)
+- README rewritten: FastEmbed-first, Codex setup documented, integrations after Quick Start
+
+### Fixed
+- FTS5 BM25 search fails on punctuation (#56) — phrase quoting for special chars
+- Unicode month names fallback in temporal extraction (#60)
+- Temporal extraction batching for scale (#62)
+
+### Testing
+- 679 tests passing (up from ~550 in v0.3.0)
+- Session edge case tests: pagination, unicode/CJK, large payloads, timestamps, load testing
+- Session integration tests: HTTP + MCP + concurrent (21 tests)
+- MemoryBench LoCoMo: 100% accuracy on 10-question sample (FastEmbed)
+
+---
+
 ## [0.3.0] - 2026-02-04
 
 ### Added

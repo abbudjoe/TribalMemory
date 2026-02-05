@@ -372,7 +372,7 @@ def _write_instructions_file(instructions_path: Path, label: str) -> None:
     print(f"✅ Auto-capture instructions written for {label}: {instructions_path}")
 
 
-def _setup_claude_code_mcp(is_local: bool) -> None:
+def _setup_claude_code_mcp(no_api_key: bool) -> None:
     """Add Tribal Memory to Claude Code's MCP configuration.
     
     Claude Code CLI reads MCP servers from ~/.claude.json (user scope).
@@ -399,7 +399,7 @@ def _setup_claude_code_mcp(is_local: bool) -> None:
         "env": {},
     }
     
-    if is_local:
+    if no_api_key:
         mcp_entry["env"]["TRIBAL_MEMORY_EMBEDDING_API_BASE"] = "http://localhost:11434/v1"
 
     # Always update Claude Code CLI config (~/.claude.json)
@@ -485,7 +485,7 @@ def _update_mcp_config(
     config_path.write_text(json.dumps(existing, indent=2) + "\n")
 
 
-def _setup_codex_mcp(is_local: bool) -> None:
+def _setup_codex_mcp(no_api_key: bool) -> None:
     """Add Tribal Memory to Codex CLI's MCP configuration (~/.codex/config.toml)."""
     codex_config_path = Path.home() / ".codex" / "config.toml"
     codex_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -505,7 +505,7 @@ def _setup_codex_mcp(is_local: bool) -> None:
         f'command = "{mcp_command}"',
     ]
     
-    if is_local:
+    if no_api_key:
         mcp_lines.append("")
         mcp_lines.append("[mcp_servers.tribal-memory.env]")
         mcp_lines.append('TRIBAL_MEMORY_EMBEDDING_API_BASE = "http://localhost:11434/v1"')

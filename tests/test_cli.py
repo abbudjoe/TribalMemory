@@ -4,14 +4,15 @@ TDD: RED → GREEN → REFACTOR
 """
 
 import json
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch
 
 from tribalmemory.cli import (
-    cmd_init, main, _resolve_mcp_command,
+    cmd_init, main, _resolve_mcp_command, load_env_file,
     AUTO_CAPTURE_INSTRUCTIONS, CLAUDE_INSTRUCTIONS_FILE,
-    CODEX_INSTRUCTIONS_FILE,
+    CODEX_INSTRUCTIONS_FILE, ENV_FILE,
 )
 
 
@@ -34,8 +35,10 @@ def cli_env(tmp_path, monkeypatch):
     """Set up isolated CLI environment using tmp_path as home."""
     tribal_dir = tmp_path / ".tribal-memory"
     config_file = tribal_dir / "config.yaml"
+    env_file = tribal_dir / ".env"
     monkeypatch.setattr("tribalmemory.cli.TRIBAL_DIR", tribal_dir)
     monkeypatch.setattr("tribalmemory.cli.CONFIG_FILE", config_file)
+    monkeypatch.setattr("tribalmemory.cli.ENV_FILE", env_file)
     # Patch Path.home() so _setup_claude_code_mcp and
     # _setup_codex_mcp write into tmp_path
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
@@ -68,17 +71,23 @@ class TestInitCommand:
         assert "BAAI/bge-small-en-v1.5" in content
 
     def test_init_openai_prompts_for_key(self, cli_env, monkeypatch):
-        """init --openai should prompt for API key and write it to config."""
+        """init --openai should prompt for key and write to .env, not config."""
         monkeypatch.setattr("builtins.input", lambda _: "sk-test-key-123")
         monkeypatch.setattr("sys.stdin", type("FakeTTY", (), {"isatty": lambda s: True})())
 
         result = cmd_init(FakeArgs(openai=True))
 
         assert result == 0
-        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
-        assert "provider: openai" in content
-        assert "text-embedding-3-small" in content
-        assert "sk-test-key-123" in content
+        # Config should NOT contain the API key
+        config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "provider: openai" in config
+        assert "text-embedding-3-small" in config
+        assert "sk-test-key-123" not in config
+        # .env should contain the key with 600 permissions
+        env_path = cli_env / ".tribal-memory" / ".env"
+        assert env_path.exists()
+        assert "sk-test-key-123" in env_path.read_text()
+        assert (env_path.stat().st_mode & 0o777) == 0o600
 
     def test_init_openai_uses_env_key_non_interactive(self, cli_env, monkeypatch):
         """init --openai should use OPENAI_API_KEY env var in non-interactive mode."""
@@ -88,8 +97,32 @@ class TestInitCommand:
         result = cmd_init(FakeArgs(openai=True))
 
         assert result == 0
-        content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
-        assert "sk-env-key-456" in content
+        env_path = cli_env / ".tribal-memory" / ".env"
+        assert "sk-env-key-456" in env_path.read_text()
+
+    def test_init_openai_fails_without_key_non_interactive(
+        self, cli_env, monkeypatch
+    ):
+        """init --openai should fail when no key and no TTY."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr("sys.stdin", type("FakeNonTTY", (), {"isatty": lambda s: False})())
+
+        with pytest.raises(SystemExit):
+            cmd_init(FakeArgs(openai=True))
+
+    def test_init_fastembed_checks_import(self, cli_env, monkeypatch):
+        """init should fail with helpful message if fastembed not installed."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise ImportError("No module named 'fastembed'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        result = cmd_init(FakeArgs())
+        assert result == 1
 
     def test_init_ollama(self, cli_env):
         """init --ollama should generate Ollama config."""
@@ -453,6 +486,43 @@ class TestAutoCapture:
         assert result == 0
         config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
         assert "auto_capture: true" not in config
+
+
+class TestEnvFile:
+    """Tests for .env file handling."""
+
+    def test_load_env_file(self, cli_env, monkeypatch):
+        """load_env_file should set env vars from .env."""
+        env_path = cli_env / ".tribal-memory" / ".env"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text("OPENAI_API_KEY=sk-from-env-file\n")
+        monkeypatch.setattr("tribalmemory.cli.ENV_FILE", env_path)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        load_env_file()
+
+        assert os.environ.get("OPENAI_API_KEY") == "sk-from-env-file"
+        # Cleanup
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def test_load_env_file_does_not_overwrite(self, cli_env, monkeypatch):
+        """load_env_file should not overwrite existing env vars."""
+        env_path = cli_env / ".tribal-memory" / ".env"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text("OPENAI_API_KEY=sk-from-file\n")
+        monkeypatch.setattr("tribalmemory.cli.ENV_FILE", env_path)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-shell")
+
+        load_env_file()
+
+        assert os.environ.get("OPENAI_API_KEY") == "sk-from-shell"
+
+    def test_load_env_file_missing(self, cli_env, monkeypatch):
+        """load_env_file should be a no-op if .env doesn't exist."""
+        env_path = cli_env / ".tribal-memory" / ".env"
+        monkeypatch.setattr("tribalmemory.cli.ENV_FILE", env_path)
+        # Should not raise
+        load_env_file()
 
 
 class TestMainEntrypoint:

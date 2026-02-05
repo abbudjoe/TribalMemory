@@ -260,15 +260,20 @@ class TestInitCommand:
 
         result = cmd_init(FakeArgs())
         assert result == 0
-        # Should have used uv pip install
-        assert any("uv" in str(cmd[0]) for cmd in install_cmds), (
-            f"Expected uv install command, got: {install_cmds}"
+        # Should have used uv pip install with correct command structure
+        assert len(install_cmds) == 1, (
+            f"Expected exactly 1 install command, got: {install_cmds}"
         )
+        uv_cmd = install_cmds[0]
+        assert uv_cmd[0] == "/usr/bin/uv"
+        assert uv_cmd[1:3] == ["pip", "install"]
+        assert "--python" in uv_cmd
+        assert "fastembed" in uv_cmd
 
-    def test_init_fastembed_uv_fallback_to_pip(
+    def test_init_fastembed_uv_install_fails_no_pip_fallback(
         self, cli_env, monkeypatch
     ):
-        """init should fall back to pip if uv install fails."""
+        """init should NOT fall back to pip when uv install fails in uv env."""
         import builtins
         real_import = builtins.__import__
 
@@ -293,20 +298,41 @@ class TestInitCommand:
 
         def mock_check_call(cmd, **kw):
             call_count[0] += 1
-            if call_count[0] == 1:
-                # First call (uv) fails
-                raise sp.CalledProcessError(1, "uv")
-            # Second call (pip) succeeds
+            raise sp.CalledProcessError(1, "uv")
 
         monkeypatch.setattr(sp, "check_call", mock_check_call)
-        monkeypatch.setattr(
-            sp, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 0})(),
-        )
 
         result = cmd_init(FakeArgs())
-        assert result == 0
-        assert call_count[0] == 2  # uv failed, pip succeeded
+        assert result == 1
+        # Should only have tried uv, NOT pip
+        assert call_count[0] == 1
+
+    def test_init_fastembed_uv_env_no_uv_binary(
+        self, cli_env, monkeypatch
+    ):
+        """init should fail gracefully when in uv env but uv not on PATH."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise ImportError("No module named 'fastembed'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        monkeypatch.setattr(
+            "sys.stdin",
+            type("FakeTTY", (), {"isatty": lambda s: True})(),
+        )
+        monkeypatch.setattr(
+            "tribalmemory.cli._is_uv_environment", lambda: True
+        )
+        # uv not found on PATH
+        monkeypatch.setattr("shutil.which", lambda cmd: None)
+
+        result = cmd_init(FakeArgs())
+        assert result == 1
 
     def test_init_ollama(self, cli_env):
         """init --ollama should generate Ollama config."""

@@ -183,9 +183,10 @@ def load_env_file() -> None:
 
 def _is_uv_environment() -> bool:
     """Detect if we're running inside a uv-managed tool environment."""
-    # uv tool environments have uv-specific paths and lack pip
-    venv_path = str(Path(sys.executable).resolve())
-    if "/uv/tools/" in venv_path or "\\uv\\tools\\" in venv_path:
+    # uv tool environments have uv-specific paths and lack pip.
+    # Normalize to forward slashes for cross-platform consistency.
+    venv_path = str(Path(sys.executable).resolve()).replace("\\", "/")
+    if "/uv/tools/" in venv_path:
         return True
     # Also check: pip module missing + uv available on PATH
     pip_check = subprocess.run(
@@ -202,31 +203,34 @@ def _is_uv_environment() -> bool:
 def _install_fastembed(interactive: bool) -> bool:
     """Try to install fastembed using the best available installer.
 
-    Tries pip first, falls back to uv for uv-managed environments.
+    Uses ``uv pip install`` in uv-managed environments (which lack pip),
+    standard ``pip install`` otherwise.
 
     Returns True if installation succeeded.
     """
     suppress = not interactive
     out = subprocess.DEVNULL if suppress else None
 
-    # In uv environments, use uv pip install directly
+    # In uv environments, pip doesn't exist — use uv exclusively.
     if _is_uv_environment():
         uv_bin = shutil.which("uv")
-        if uv_bin:
-            print(f"   Installing fastembed via uv (detected uv environment)...")
-            cmd = [
-                uv_bin, "pip", "install",
-                "--python", sys.executable,
-                "fastembed",
-            ]
-            try:
-                subprocess.check_call(cmd, stdout=out, stderr=out)
-                return True
-            except subprocess.CalledProcessError:
-                pass  # Fall through to pip attempt
+        if not uv_bin:
+            print("   Warning: uv environment detected but uv not found on PATH.")
+            return False
+        print("   Installing fastembed via uv (detected uv environment)...")
+        cmd = [
+            uv_bin, "pip", "install",
+            "--python", sys.executable,
+            "fastembed",
+        ]
+        try:
+            subprocess.check_call(cmd, stdout=out, stderr=out)
+            return True
+        except subprocess.CalledProcessError:
+            return False
 
-    # Standard pip install
-    print(f"   Installing fastembed via pip...")
+    # Standard pip install (non-uv environments)
+    print("   Installing fastembed via pip...")
     cmd = [sys.executable, "-m", "pip", "install", "--quiet", "fastembed"]
     try:
         subprocess.check_call(cmd, stdout=out, stderr=out)
@@ -235,11 +239,24 @@ def _install_fastembed(interactive: bool) -> bool:
         return False
 
 
+def _print_manual_install_hint() -> None:
+    """Print the correct manual install command for the current environment."""
+    if _is_uv_environment():
+        uv_bin = shutil.which("uv")
+        if uv_bin:
+            print(f"   Try: uv pip install --python {sys.executable} fastembed")
+        else:
+            print("   uv environment detected but uv not found on PATH.")
+            print("   Install uv: https://docs.astral.sh/uv/")
+    else:
+        print(f"   Try: {sys.executable} -m pip install fastembed")
+
+
 def _auto_install_fastembed() -> bool:
     """Prompt to install fastembed, then install via pip or uv.
 
     Detects uv tool environments (which lack pip) and uses
-    ``uv pip install`` as fallback. Works in uv tool environments,
+    ``uv pip install`` instead. Works in uv tool environments,
     regular venvs, and system Python alike.
 
     Returns:
@@ -254,21 +271,15 @@ def _auto_install_fastembed() -> bool:
         if answer and answer not in ("y", "yes"):
             print()
             print("   To install manually:")
-            if _is_uv_environment():
-                print(f"   uv pip install --python {sys.executable} fastembed")
-            else:
-                print(f"   {sys.executable} -m pip install fastembed")
+            _print_manual_install_hint()
             print("   Or use --openai or --ollama instead.")
             return False
     else:
         print("   Auto-installing (non-interactive)...")
 
     if not _install_fastembed(interactive):
-        print("❌ Installation failed. Try manually:")
-        if _is_uv_environment():
-            print(f"   uv pip install --python {sys.executable} fastembed")
-        else:
-            print(f"   {sys.executable} -m pip install fastembed")
+        print("❌ Installation failed.")
+        _print_manual_install_hint()
         return False
 
     # Verify in a clean subprocess — the current process may have
@@ -282,10 +293,7 @@ def _auto_install_fastembed() -> bool:
         return True
 
     print("❌ Install completed but import still fails.")
-    if _is_uv_environment():
-        print(f"   Try: uv pip install --python {sys.executable} fastembed")
-    else:
-        print(f"   Try: {sys.executable} -m pip install fastembed")
+    _print_manual_install_hint()
     return False
 
 

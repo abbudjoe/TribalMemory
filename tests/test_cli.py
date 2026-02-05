@@ -110,10 +110,10 @@ class TestInitCommand:
         with pytest.raises(SystemExit):
             cmd_init(FakeArgs(openai=True))
 
-    def test_init_fastembed_offers_install_on_missing(
+    def test_init_fastembed_install_declined(
         self, cli_env, monkeypatch
     ):
-        """init should offer to install fastembed if missing, fail on decline."""
+        """init should fail when user declines fastembed install."""
         import builtins
         real_import = builtins.__import__
 
@@ -123,11 +123,98 @@ class TestInitCommand:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
-        # User declines install
         monkeypatch.setattr("builtins.input", lambda _: "n")
         monkeypatch.setattr(
             "sys.stdin",
             type("FakeTTY", (), {"isatty": lambda s: True})(),
+        )
+        result = cmd_init(FakeArgs())
+        assert result == 1
+
+    def test_init_fastembed_install_accepted(
+        self, cli_env, monkeypatch
+    ):
+        """init should install fastembed when user accepts."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise ImportError("No module named 'fastembed'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        monkeypatch.setattr(
+            "sys.stdin",
+            type("FakeTTY", (), {"isatty": lambda s: True})(),
+        )
+        # Mock subprocess: install succeeds, verify succeeds
+        import subprocess as sp
+        monkeypatch.setattr(
+            sp, "check_call", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(
+            sp, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 0})(),
+        )
+        result = cmd_init(FakeArgs())
+        assert result == 0
+        config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
+        assert "provider: fastembed" in config
+
+    def test_init_fastembed_install_non_interactive(
+        self, cli_env, monkeypatch
+    ):
+        """init should auto-install fastembed in non-interactive mode."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise ImportError("No module named 'fastembed'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        monkeypatch.setattr(
+            "sys.stdin",
+            type("FakeNonTTY", (), {"isatty": lambda s: False})(),
+        )
+        import subprocess as sp
+        monkeypatch.setattr(
+            sp, "check_call", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(
+            sp, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 0})(),
+        )
+        result = cmd_init(FakeArgs())
+        assert result == 0
+
+    def test_init_fastembed_install_fails(
+        self, cli_env, monkeypatch
+    ):
+        """init should handle installation failure gracefully."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise ImportError("No module named 'fastembed'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        monkeypatch.setattr(
+            "sys.stdin",
+            type("FakeTTY", (), {"isatty": lambda s: True})(),
+        )
+        import subprocess as sp
+        monkeypatch.setattr(
+            sp, "check_call",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                sp.CalledProcessError(1, "pip")
+            ),
         )
         result = cmd_init(FakeArgs())
         assert result == 1

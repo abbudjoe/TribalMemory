@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -183,16 +184,17 @@ def load_env_file() -> None:
 def _auto_install_fastembed() -> bool:
     """Prompt to install fastembed, then install via the running Python.
 
-    Uses ``sys.executable -m pip install fastembed`` so it works inside
-    uv tool environments, regular venvs, and system Python alike.
+    Uses ``sys.executable -m pip install --quiet fastembed`` so it works
+    inside uv tool environments, regular venvs, and system Python alike.
 
-    Returns True if fastembed is available after the attempt.
+    Returns:
+        True if fastembed is available after the attempt (import succeeds).
+        False if installation was declined, failed, or import still fails.
     """
-    import subprocess
-
     print("📦 FastEmbed is not installed (needed for local embeddings).")
 
-    if sys.stdin.isatty():
+    interactive = sys.stdin.isatty()
+    if interactive:
         answer = input("   Install it now? [Y/n] ").strip().lower()
         if answer and answer not in ("y", "yes"):
             print()
@@ -205,24 +207,31 @@ def _auto_install_fastembed() -> bool:
 
     print(f"   Installing fastembed via {sys.executable}...")
     try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "fastembed"],
-            stdout=subprocess.DEVNULL if not sys.stdin.isatty() else None,
-        )
+        cmd = [sys.executable, "-m", "pip", "install", "--quiet", "fastembed"]
+        if interactive:
+            subprocess.check_call(cmd)
+        else:
+            subprocess.check_call(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
     except subprocess.CalledProcessError:
         print("❌ Installation failed. Try manually:")
         print(f"   {sys.executable} -m pip install fastembed")
         return False
 
-    # Verify it actually worked
-    try:
-        import fastembed as _  # noqa: F401
+    # Verify in a clean subprocess — the current process may have
+    # cached the failed import in sys.modules.
+    result = subprocess.run(
+        [sys.executable, "-c", "import fastembed"],
+        capture_output=True,
+    )
+    if result.returncode == 0:
         print("✅ FastEmbed installed successfully.")
         return True
-    except ImportError:
-        print("❌ Install completed but import still fails.")
-        print(f"   Try: {sys.executable} -m pip install fastembed")
-        return False
+
+    print("❌ Install completed but import still fails.")
+    print(f"   Try: {sys.executable} -m pip install fastembed")
+    return False
 
 
 def _detect_provider(args: argparse.Namespace) -> str:

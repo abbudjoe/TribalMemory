@@ -5,6 +5,13 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.4.1/))
+
+### Fixed
+
+- **Auto-install FastEmbed during init** — `tribalmemory init` now detects missing FastEmbed and offers to install it automatically via `pip install fastembed`. Works in uv tool environments, regular venvs, and system Python. Non-interactive mode auto-installs without prompting.
+- **Accurate percentile calculation** — Benchmark stats now use `statistics.quantiles` with linear interpolation instead of nearest-rank. More accurate p50/p95/p99 for small sample sizes (50–100 queries). Includes 7 unit tests for edge cases.
+
 ## [0.4.0] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.4.0/))
 
 ### Migrating from 0.3.0

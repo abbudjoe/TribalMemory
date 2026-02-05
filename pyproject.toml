@@ -7,7 +7,7 @@ where = ["src"]
 
 [project]
 name = "tribalmemory"
-version = "0.4.0"
+version = "0.4.1"
 description = "Shared memory infrastructure for multi-instance AI agents"
 readme = "README.md"
 license = {text = "Apache-2.0"}

@@ -16,6 +16,7 @@ from tribalmemory.performance.corpus_generator import (
     CorpusConfig,
 )
 from tribalmemory.performance.benchmarks import (
+    _percentile,
     BenchmarkResult,
     benchmark_retrieval_latency,
     benchmark_batch_embedding_throughput,
@@ -29,6 +30,42 @@ from tribalmemory.performance.benchmarks import (
     GraphQueryResult,
     LatencyStats,
 )
+
+
+# --- Percentile Unit Tests ---
+
+
+class TestPercentileCalculation:
+    """Unit tests for the _percentile helper."""
+
+    def test_empty_list(self):
+        assert _percentile([], 50) == 0.0
+
+    def test_single_element(self):
+        assert _percentile([5.0], 50) == 5.0
+        assert _percentile([5.0], 99) == 5.0
+
+    def test_two_elements(self):
+        result = _percentile([1.0, 3.0], 50)
+        assert 1.0 <= result <= 3.0
+
+    def test_median_odd_count(self):
+        assert _percentile([1.0, 2.0, 3.0, 4.0, 5.0], 50) == 3.0
+
+    def test_unsorted_input(self):
+        """Should handle unsorted data (sorts internally)."""
+        result = _percentile([5.0, 1.0, 3.0, 2.0, 4.0], 50)
+        assert result == 3.0
+
+    def test_p99_high_end(self):
+        data = list(range(1, 101))
+        result = _percentile([float(x) for x in data], 99)
+        assert result >= 99.0
+
+    def test_p1_low_end(self):
+        data = [float(x) for x in range(1, 101)]
+        result = _percentile(data, 1)
+        assert result <= 2.0
 
 
 # --- Performance Target Constants (Issue #53) ---

@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TribalMemory — Your AI agents don't share a brain. Now they do.</title>
+<meta name="description" content="Shared memory for AI agents. One memory store, every agent connected, zero repetition. Local-first, MCP-native.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #000000;
+  --fg: #FFFFFF;
+  --muted: #666666;
+  --accent: #00FF00;
+  --hover: #333333;
+  --code-bg: #111111;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', -apple-system, sans-serif;
+  --max-w: 960px;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--bg);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(0deg,transparent,transparent 1px,rgba(255,255,255,0.015) 1px,rgba(255,255,255,0.015) 2px);
+}
+
+#scroll-progress {
+  position: fixed; top: 0; left: 0; height: 1px;
+  background: var(--fg); z-index: 10000; width: 0%;
+  transition: width 0.05s linear;
+}
+
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  padding: 20px 32px; display: flex; justify-content: space-between; align-items: center;
+  background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.nav-logo { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--fg); text-decoration: none; letter-spacing: 0.05em; }
+.nav-links { display: flex; gap: 28px; }
+.nav-links a { font-family: var(--mono); font-size: 13px; color: var(--muted); text-decoration: none; transition: color 0.2s; position: relative; }
+.nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--fg); transition: width 0.3s ease; }
+.nav-links a:hover { color: var(--fg); }
+.nav-links a:hover::after { width: 100%; }
+
+.container { max-width: var(--max-w); margin: 0 auto; padding: 0 32px; }
+section { padding: 120px 0; position: relative; }
+.section-rule { width: 0; height: 1px; background: var(--hover); margin: 0 auto 60px; max-width: 480px; transition: width 1s ease; }
+.section-rule.visible { width: 100%; }
+
+/* ========================================
+   HERO — PARTICLE MORPH
+   ======================================== */
+#hero {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  padding: 0;
+}
+
+#hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hero-overlay {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 100vh;
+  padding-bottom: 100px;
+  pointer-events: none;
+}
+
+.hero-overlay * { pointer-events: auto; }
+
+#hero-tagline {
+  font-family: var(--sans);
+  font-size: clamp(16px, 2.2vw, 20px);
+  color: var(--fg);
+}
+
+#hero-ctas {
+  display: flex; gap: 20px; margin-top: 24px; flex-wrap: wrap; justify-content: center;
+}
+
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+.cta-primary {
+  font-family: var(--mono); font-size: 14px; padding: 12px 28px;
+  border: 1px solid var(--fg); background: transparent; color: var(--fg);
+  text-decoration: none; cursor: pointer; transition: background 0.2s, color 0.2s; display: inline-block;
+}
+.cta-primary:hover { background: var(--fg); color: var(--bg); }
+.cta-secondary {
+  font-family: var(--mono); font-size: 14px; padding: 12px 28px;
+  border: none; background: transparent; color: var(--muted);
+  text-decoration: none; cursor: pointer; transition: color 0.2s; display: inline-block;
+}
+.cta-secondary:hover { color: var(--fg); }
+
+/* ========================================
+   ARCHITECTURE
+   ======================================== */
+#architecture { text-align: center; }
+#arch-diagram { font-family: var(--mono); font-size: clamp(10px, 1.4vw, 14px); line-height: 1.5; white-space: pre; display: inline-block; text-align: left; color: var(--fg); }
+.arch-caption { font-family: var(--sans); font-size: 16px; color: var(--muted); margin-top: 40px; opacity: 0; transition: opacity 0.6s ease; }
+.arch-caption.visible { opacity: 1; color: #999; }
+
+/* ========================================
+   DEMO
+   ======================================== */
+#demo { text-align: center; }
+.demo-windows { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 840px; margin: 0 auto; }
+.terminal-window { background: var(--code-bg); border: 1px solid #222; border-radius: 6px; overflow: hidden; text-align: left; }
+.terminal-titlebar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #222; background: #0a0a0a; }
+.terminal-dots { display: flex; gap: 6px; }
+.terminal-dots span { width: 10px; height: 10px; border-radius: 50%; background: #333; }
+.terminal-title { font-family: var(--mono); font-size: 12px; color: var(--muted); flex: 1; text-align: center; }
+.terminal-body { padding: 20px; font-family: var(--mono); font-size: 13px; line-height: 1.7; min-height: 160px; color: var(--fg); }
+.terminal-body .prompt { color: var(--accent); }
+.terminal-body .output { color: #ccc; }
+.terminal-body .success { color: var(--accent); }
+.terminal-body .typed-line { opacity: 0; transition: opacity 0.3s; }
+.terminal-body .typed-line.visible { opacity: 1; }
+.demo-caption { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 40px; }
+.demo-caption code { color: var(--accent); }
+
+/* ========================================
+   FEATURES
+   ======================================== */
+#features { text-align: left; }
+.features-header { font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--fg); margin-bottom: 8px; }
+.features-rule { width: 100%; height: 1px; background: var(--hover); margin-bottom: 28px; }
+.feature-line { font-family: var(--mono); font-size: clamp(12px, 1.3vw, 14px); line-height: 2.2; display: flex; gap: 16px; opacity: 0; transform: translateX(-8px); transition: opacity 0.4s ease, transform 0.4s ease, color 0.2s; cursor: default; }
+.feature-line.visible { opacity: 1; transform: translateX(0); }
+.feature-flag { color: var(--accent); white-space: nowrap; min-width: 200px; transition: transform 0.2s; }
+.feature-desc { color: var(--muted); transition: color 0.2s; }
+.feature-line:hover .feature-flag { transform: translateX(4px); }
+.feature-line:hover .feature-desc { color: var(--fg); }
+
+/* ========================================
+   INSTALL
+   ======================================== */
+#install { text-align: left; }
+.install-header { font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--fg); margin-bottom: 8px; }
+.install-rule { width: 100%; height: 1px; background: var(--hover); margin-bottom: 36px; }
+.install-line { font-family: var(--mono); font-size: clamp(14px, 1.6vw, 18px); line-height: 2.4; opacity: 0; transition: opacity 0.4s ease; }
+.install-line.visible { opacity: 1; }
+.install-line .dollar { color: var(--accent); user-select: none; }
+.install-note { font-family: var(--sans); font-size: 15px; color: var(--muted); margin-top: 32px; opacity: 0; transition: opacity 0.6s ease; }
+.install-note.visible { opacity: 1; }
+.provider-toggle { font-family: var(--mono); font-size: 13px; color: var(--muted); background: none; border: 1px solid #222; padding: 8px 16px; margin-top: 28px; cursor: pointer; transition: border-color 0.2s, color 0.2s; }
+.provider-toggle:hover { border-color: var(--hover); color: var(--fg); }
+.provider-content { max-height: 0; overflow: hidden; transition: max-height 0.4s ease, margin-top 0.4s ease; margin-top: 0; }
+.provider-content.open { max-height: 200px; margin-top: 20px; }
+.provider-content pre { font-family: var(--mono); font-size: 13px; line-height: 1.8; color: var(--muted); background: var(--code-bg); padding: 16px 20px; border-radius: 4px; }
+.provider-content pre .comment { color: #555; }
+.provider-content pre .dollar { color: var(--accent); }
+
+/* ========================================
+   TRUST
+   ======================================== */
+#trust { text-align: center; }
+.trust-top-rule, .trust-bottom-rule { width: 0; height: 1px; background: var(--hover); margin: 0 auto; max-width: 520px; transition: width 0.8s ease; }
+.trust-top-rule.visible, .trust-bottom-rule.visible { width: 100%; }
+.trust-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; padding: 48px 0; max-width: 600px; margin: 0 auto; }
+.trust-item { text-align: center; }
+.trust-number { font-family: var(--mono); font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: var(--fg); display: block; }
+.trust-label { font-family: var(--sans); font-size: 13px; color: var(--muted); display: block; margin-top: 4px; }
+
+/* ========================================
+   INTEGRATIONS
+   ======================================== */
+#integrations { text-align: left; }
+.integrations-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.integration-card { background: var(--code-bg); border: 1px solid #1a1a1a; border-radius: 4px; overflow: hidden; }
+.integration-header { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; padding: 12px 16px; border-bottom: 1px solid #1a1a1a; color: var(--muted); }
+.integration-code { font-family: var(--mono); font-size: 11px; line-height: 1.7; padding: 16px; color: #999; white-space: pre; overflow-x: auto; position: relative; }
+.integration-code .blink-cursor { animation: blink 0.8s step-end infinite; color: var(--accent); }
+
+/* ========================================
+   PRIVACY
+   ======================================== */
+#privacy { text-align: center; }
+.privacy-box { font-family: var(--mono); font-size: clamp(12px, 1.3vw, 14px); line-height: 2; text-align: left; display: inline-block; padding: 32px 40px; position: relative; max-width: 600px; width: 100%; }
+.privacy-box::before { content: ''; position: absolute; inset: 0; border: 1px solid var(--hover); border-radius: 2px; clip-path: inset(0 100% 0 0); transition: clip-path 1.2s ease; }
+.privacy-box.visible::before { clip-path: inset(0 0 0 0); }
+.privacy-title { font-weight: 700; color: var(--fg); margin-bottom: 16px; letter-spacing: 0.05em; }
+.privacy-line { color: var(--muted); }
+.privacy-line .bullet { color: var(--accent); }
+
+/* ========================================
+   CLOSER
+   ======================================== */
+#closer { text-align: center; padding-bottom: 80px; }
+.closer-headline { font-family: var(--mono); font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: var(--fg); line-height: 1.4; }
+.closer-punch { font-family: var(--mono); font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: var(--fg); margin-top: 8px; opacity: 0; transition: opacity 0.5s ease; }
+.closer-punch.visible { opacity: 1; }
+.closer-command { font-family: var(--mono); font-size: clamp(14px, 1.6vw, 18px); color: var(--fg); margin-top: 40px; }
+.closer-command .dollar { color: var(--accent); }
+.closer-command .blink-cursor { color: var(--accent); animation: blink 0.6s step-end infinite; }
+.closer-links { display: flex; gap: 40px; justify-content: center; margin-top: 56px; flex-wrap: wrap; }
+.closer-links a { font-family: var(--mono); font-size: 14px; color: var(--muted); text-decoration: none; transition: color 0.2s; position: relative; }
+.closer-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--fg); transition: width 0.3s ease; }
+.closer-links a:hover { color: var(--fg); }
+.closer-links a:hover::after { width: 100%; }
+
+/* ========================================
+   CODE COPY
+   ======================================== */
+.code-copyable { position: relative; cursor: pointer; }
+.copy-btn { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.6); border: 1px solid #333; padding: 4px 10px; cursor: pointer; opacity: 0; transition: opacity 0.2s, color 0.2s, border-color 0.2s; }
+.code-copyable:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { color: var(--fg); border-color: var(--muted); }
+.copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 768px) {
+  section { padding: 80px 0; }
+  .container { padding: 0 20px; }
+  nav { padding: 16px 20px; }
+  .demo-windows { grid-template-columns: 1fr; }
+  .integrations-grid { grid-template-columns: 1fr; }
+  .trust-grid { grid-template-columns: repeat(2, 1fr); }
+  .feature-line { flex-direction: column; gap: 2px; }
+  .feature-flag { min-width: unset; }
+  .closer-links { gap: 24px; }
+}
+@media (max-width: 480px) {
+  .trust-grid { grid-template-columns: 1fr 1fr; gap: 32px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<div id="scroll-progress"></div>
+
+<nav>
+  <a href="/" class="nav-logo">TRIBALMEMORY</a>
+  <div class="nav-links">
+    <a href="https://github.com/abbudjoe/TribalMemory" target="_blank">GitHub</a>
+    <a href="https://github.com/abbudjoe/TribalMemory#readme" target="_blank">Docs</a>
+  </div>
+</nav>
+
+<!-- ===== HERO: PARTICLE MORPH ===== -->
+<section id="hero">
+  <canvas id="hero-canvas"></canvas>
+  <div class="hero-overlay">
+    <p id="hero-tagline">Your AI agents don't share a brain. Now they do.</p>
+    <div id="hero-ctas">
+      <a href="https://pypi.org/project/tribalmemory/" class="cta-primary" target="_blank">pip install tribalmemory</a>
+      <a href="https://github.com/abbudjoe/TribalMemory" class="cta-secondary" target="_blank">View on GitHub &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ARCHITECTURE ===== -->
+<section id="architecture">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div id="arch-diagram"></div>
+    <p class="arch-caption">One memory store. Every agent connected. Zero repetition.</p>
+  </div>
+</section>
+
+<!-- ===== DEMO ===== -->
+<section id="demo">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="demo-windows">
+      <div class="terminal-window">
+        <div class="terminal-titlebar"><div class="terminal-dots"><span></span><span></span><span></span></div><div class="terminal-title">Claude Code</div></div>
+        <div class="terminal-body" id="demo-left">
+          <div class="typed-line"><span class="prompt">&gt; </span>"Remember: auth uses JWT RS256"</div>
+          <div class="typed-line"><span class="success">&#10003;</span> <span class="output">Stored in tribal memory</span></div>
+        </div>
+      </div>
+      <div class="terminal-window">
+        <div class="terminal-titlebar"><div class="terminal-dots"><span></span><span></span><span></span></div><div class="terminal-title">Codex CLI</div></div>
+        <div class="terminal-body" id="demo-right">
+          <div class="typed-line"><span class="prompt">&gt; </span>"How does auth work?"</div>
+          <div class="typed-line"><span class="output">Based on tribal memory:</span></div>
+          <div class="typed-line"><span class="output">Auth service uses JWT with RS256 signing...</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="demo-caption"><code>tribal_store</code> &rarr; one agent learns &nbsp;&nbsp;&middot;&nbsp;&nbsp; <code>tribal_recall</code> &rarr; every agent knows</p>
+  </div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section id="features">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="features-header">FEATURES</div>
+    <div class="features-rule"></div>
+    <div id="feature-list">
+      <div class="feature-line"><span class="feature-flag">--semantic-search</span><span class="feature-desc">Find memories by meaning, not keywords</span></div>
+      <div class="feature-line"><span class="feature-flag">--cross-agent</span><span class="feature-desc">Memories from one agent &rarr; all agents</span></div>
+      <div class="feature-line"><span class="feature-flag">--graph-search</span><span class="feature-desc">Entity extraction + relationship traversal</span></div>
+      <div class="feature-line"><span class="feature-flag">--hybrid-retrieval</span><span class="feature-desc">Vector + BM25 keyword search combined</span></div>
+      <div class="feature-line"><span class="feature-flag">--local-first</span><span class="feature-desc">FastEmbed ONNX: zero cloud, zero API keys</span></div>
+      <div class="feature-line"><span class="feature-flag">--session-indexing</span><span class="feature-desc">Index conversation transcripts for search</span></div>
+      <div class="feature-line"><span class="feature-flag">--deduplication</span><span class="feature-desc">Won't store the same thing twice</span></div>
+      <div class="feature-line"><span class="feature-flag">--temporal-reasoning</span><span class="feature-desc">Date extraction and time-based filtering</span></div>
+      <div class="feature-line"><span class="feature-flag">--import-export</span><span class="feature-desc">Portable JSON bundles across instances</span></div>
+      <div class="feature-line"><span class="feature-flag">--mcp-native</span><span class="feature-desc">Works with Claude Code, Codex, and more</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== INSTALL ===== -->
+<section id="install">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="install-header">GET STARTED</div>
+    <div class="install-rule"></div>
+    <div id="install-lines" class="code-copyable">
+      <div class="install-line"><span class="dollar">$ </span>pip install tribalmemory</div>
+      <div class="install-line"><span class="dollar">$ </span>tribalmemory init</div>
+      <div class="install-line"><span class="dollar">$ </span>tribalmemory serve</div>
+      <button class="copy-btn" data-copy="pip install tribalmemory&#10;tribalmemory init&#10;tribalmemory serve">[ copy ]</button>
+    </div>
+    <p class="install-note">That's it. Server running. Memory shared. No config needed.</p>
+    <button class="provider-toggle" id="provider-toggle">&#9656; Other providers</button>
+    <div class="provider-content" id="provider-content">
+      <pre><span class="comment"># Want OpenAI embeddings instead?</span>
+<span class="dollar">$</span> tribalmemory init --openai
+
+<span class="comment"># Already running Ollama?</span>
+<span class="dollar">$</span> tribalmemory init --ollama</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ===== TRUST ===== -->
+<section id="trust">
+  <div class="container">
+    <div class="trust-top-rule"></div>
+    <div class="trust-grid">
+      <div class="trust-item"><span class="trust-number" data-target="735">0</span><span class="trust-label">tests passing</span></div>
+      <div class="trust-item"><span class="trust-number" data-target="0.4.2" data-text="true">v0.4.2</span><span class="trust-label">on PyPI</span></div>
+      <div class="trust-item"><span class="trust-number" data-text="true">Apache 2.0</span><span class="trust-label">license</span></div>
+      <div class="trust-item"><span class="trust-number" data-target="100" data-suffix="%">0</span><span class="trust-label">LoCoMo recall</span></div>
+      <div class="trust-item"><span class="trust-number" data-target="3">0</span><span class="trust-label">providers</span></div>
+      <div class="trust-item"><span class="trust-number" data-target="10" data-suffix="+">0</span><span class="trust-label">MCP tools</span></div>
+    </div>
+    <div class="trust-bottom-rule"></div>
+  </div>
+</section>
+
+<!-- ===== INTEGRATIONS ===== -->
+<section id="integrations">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="integrations-grid">
+      <div class="integration-card">
+        <div class="integration-header">CLAUDE CODE</div>
+        <div class="integration-code code-copyable">{
+  "mcpServers": {
+    "tribal-memory": {
+      "command":
+        "tribalmemory-mcp"
+    }
+  }
+}<span class="blink-cursor">&#9612;</span>
+<button class="copy-btn" data-copy='{"mcpServers":{"tribal-memory":{"command":"tribalmemory-mcp"}}}'>[ copy ]</button></div>
+      </div>
+      <div class="integration-card">
+        <div class="integration-header">CODEX CLI</div>
+        <div class="integration-code code-copyable">[mcp_servers.
+  tribal-memory]
+command =
+  "tribalmemory-mcp"
+
+# ~/.codex/config.toml<span class="blink-cursor">&#9612;</span>
+<button class="copy-btn" data-copy='[mcp_servers.tribal-memory]&#10;command = "tribalmemory-mcp"'>[ copy ]</button></div>
+      </div>
+      <div class="integration-card">
+        <div class="integration-header">OPENCLAW</div>
+        <div class="integration-code code-copyable"><span class="dollar">$</span> openclaw
+  plugins install
+  ./extensions/
+    memory-tribal<span class="blink-cursor">&#9612;</span>
+<button class="copy-btn" data-copy="openclaw plugins install ./extensions/memory-tribal">[ copy ]</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PRIVACY ===== -->
+<section id="privacy">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="privacy-box">
+      <div class="privacy-title">LOCAL MODE = ZERO DATA LEAVES YOUR MACHINE</div>
+      <div class="privacy-line"><span class="bullet">&#9656;</span> Embeddings computed locally (ONNX runtime)</div>
+      <div class="privacy-line"><span class="bullet">&#9656;</span> Memories stored locally (LanceDB)</div>
+      <div class="privacy-line"><span class="bullet">&#9656;</span> No API keys. No cloud. No telemetry.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CLOSER ===== -->
+<section id="closer">
+  <div class="container">
+    <div class="section-rule"></div>
+    <div class="closer-headline">Your agents are forgetting everything.</div>
+    <div class="closer-punch">Fix that.</div>
+    <div class="closer-command"><span class="dollar">$ </span>pip install tribalmemory<span class="blink-cursor">&#9612;</span></div>
+    <div class="closer-links">
+      <a href="https://github.com/abbudjoe/TribalMemory" target="_blank">&#9733; Star on GitHub</a>
+      <a href="https://github.com/abbudjoe/TribalMemory#readme" target="_blank">&#128214; Read the Docs</a>
+      <a href="https://github.com/abbudjoe/TribalMemory/discussions" target="_blank">&#128172; Community</a>
+    </div>
+  </div>
+</section>
+
+<script>
+// ================================
+// UTILITIES
+// ================================
+function onVisible(el, cb, opts = {}) {
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { cb(e.target); if (!opts.repeat) obs.unobserve(e.target); } });
+  }, { threshold: opts.threshold || 0.15 });
+  if (el) obs.observe(el);
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIO(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+function easeOut(t) { return 1 - Math.pow(1-t, 3); }
+
+// ================================
+// SCROLL PROGRESS
+// ================================
+const progressBar = document.getElementById('scroll-progress');
+window.addEventListener('scroll', () => {
+  const h = document.documentElement.scrollHeight - window.innerHeight;
+  progressBar.style.width = (h > 0 ? (window.scrollY / h) * 100 : 0) + '%';
+}, { passive: true });
+
+// ================================
+// HERO: PARTICLE SYSTEM
+// ================================
+const canvas = document.getElementById('hero-canvas');
+const ctx = canvas.getContext('2d');
+let dpr = window.devicePixelRatio || 1;
+let CW, CH; // CSS pixel dimensions
+
+const FONT_SIZE = 13;
+const FONT = FONT_SIZE + "px 'JetBrains Mono', monospace";
+let CHAR_W = 7.8;
+let CHAR_H = FONT_SIZE * 1.35;
+
+function sizeCanvas() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  CW = rect.width;
+  CH = rect.height;
+  canvas.width = CW * dpr;
+  canvas.height = CH * dpr;
+  canvas.style.width = CW + 'px';
+  canvas.style.height = CH + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = FONT;
+  CHAR_W = ctx.measureText('\u2588').width;
+}
+sizeCanvas();
+window.addEventListener('resize', () => { sizeCanvas(); buildParticles(); });
+
+// ASCII Arts
+const BRAIN_RAW =
+  '               \u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\n' +
+  '          \u2584\u2588\u2588\u2580\u2580              \u2580\u2580\u2588\u2588\u2584\n' +
+  '       \u2584\u2588\u2580   \u2584\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2584   \u2580\u2588\u2584\n' +
+  '     \u2584\u2588\u2580  \u2584\u2588\u2580\u2580   \u2584\u2588\u2588\u2588\u2588\u2584   \u2580\u2580\u2588\u2584  \u2580\u2588\u2584\n' +
+  '    \u2588\u2580  \u2584\u2588\u2580   \u2584\u2588\u2580      \u2580\u2588\u2584   \u2580\u2588\u2584  \u2580\u2588\n' +
+  '   \u2588\u2580  \u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2588\u2588\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588  \u2580\u2588\n' +
+  '   \u2588  \u2588\u2580  \u2584\u2588  \u2584\u2588\u2580    \u2580\u2588\u2584  \u2588\u2584  \u2580\u2588  \u2588\n' +
+  '   \u2588  \u2588  \u2584\u2588  \u2588\u2580   \u2588\u2588   \u2580\u2588  \u2588\u2584  \u2588  \u2588\n' +
+  '   \u2588  \u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2584    \u2584\u2588\u2580  \u2584\u2588  \u2584\u2588  \u2588\n' +
+  '   \u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2588\u2588\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\n' +
+  '    \u2580\u2588\u2584  \u2580\u2588\u2584  \u2580\u2588\u2588\u2584      \u2584\u2588\u2588\u2580  \u2584\u2588\u2580  \u2584\u2588\u2580\n' +
+  '      \u2580\u2588\u2584  \u2580\u2588\u2584\u2584  \u2580\u2580\u2588\u2588\u2588\u2588\u2580\u2580  \u2584\u2584\u2588\u2580  \u2584\u2588\u2580\n' +
+  '        \u2580\u2588\u2588\u2584  \u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2580\u2580  \u2584\u2588\u2588\u2580\n' +
+  '           \u2580\u2580\u2588\u2588\u2584\u2584            \u2584\u2584\u2588\u2588\u2580\u2580\n' +
+  '               \u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580';
+
+const WORD_RAW =
+  '\u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588  \u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588   \u2588\u2588\u2588  \u2588    \n' +
+  '  \u2588   \u2588   \u2588   \u2588   \u2588   \u2588 \u2588   \u2588 \u2588    \n' +
+  '  \u2588   \u2588\u2588\u2588\u2588    \u2588   \u2588\u2588\u2588\u2588  \u2588\u2588\u2588\u2588\u2588 \u2588    \n' +
+  '  \u2588   \u2588  \u2588    \u2588   \u2588   \u2588 \u2588   \u2588 \u2588    \n' +
+  '  \u2588   \u2588   \u2588 \u2588\u2588\u2588\u2588\u2588 \u2588\u2588\u2588\u2588  \u2588   \u2588 \u2588\u2588\u2588\u2588\u2588\n' +
+  '\n' +
+  '\u2588   \u2588 \u2588\u2588\u2588\u2588\u2588 \u2588   \u2588  \u2588\u2588\u2588  \u2588\u2588\u2588\u2588  \u2588   \u2588\n' +
+  '\u2588\u2588 \u2588\u2588 \u2588     \u2588\u2588 \u2588\u2588 \u2588   \u2588 \u2588   \u2588  \u2588 \u2588 \n' +
+  '\u2588 \u2588 \u2588 \u2588\u2588\u2588\u2588  \u2588 \u2588 \u2588 \u2588   \u2588 \u2588\u2588\u2588\u2588    \u2588  \n' +
+  '\u2588   \u2588 \u2588     \u2588   \u2588 \u2588   \u2588 \u2588  \u2588    \u2588  \n' +
+  '\u2588   \u2588 \u2588\u2588\u2588\u2588\u2588 \u2588   \u2588  \u2588\u2588\u2588  \u2588   \u2588   \u2588  ';
+
+// Parse art into point list
+function parseArt(raw) {
+  const lines = raw.split('\n');
+  const pts = [];
+  for (let y = 0; y < lines.length; y++)
+    for (let x = 0; x < lines[y].length; x++)
+      if (lines[y][x] !== ' ') pts.push({ gx: x, gy: y, ch: lines[y][x] });
+  const w = Math.max(...lines.map(l => l.length));
+  const h = lines.length;
+  return { pts, cw: w, ch_: h };
+}
+
+// Convert grid coords to pixel coords centered on screen
+function toPixel(pts, gridW, gridH, centerY) {
+  const ox = CW / 2 - (gridW * CHAR_W) / 2;
+  const oy = centerY - (gridH * CHAR_H) / 2;
+  return pts.map(p => ({ ...p, px: ox + p.gx * CHAR_W + CHAR_W / 2, py: oy + p.gy * CHAR_H + CHAR_H / 2 }));
+}
+
+// Greedy nearest-neighbor matching
+function matchPoints(srcPts, tgtPts) {
+  const used = new Set();
+  const pairs = [];
+  const unSrc = [];
+
+  for (const s of srcPts) {
+    let bestD = Infinity, bestI = -1;
+    for (let i = 0; i < tgtPts.length; i++) {
+      if (used.has(i)) continue;
+      const dx = s.px - tgtPts[i].px, dy = s.py - tgtPts[i].py;
+      const d = dx*dx + dy*dy;
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    if (bestI >= 0 && bestD < (CW * CW)) {
+      used.add(bestI);
+      pairs.push({ src: s, tgt: tgtPts[bestI] });
+    } else {
+      unSrc.push(s);
+    }
+  }
+
+  const unTgt = tgtPts.filter((_, i) => !used.has(i));
+  return { pairs, unSrc, unTgt };
+}
+
+// Atom cloud characters
+const CLOUD_CHARS = '\u00B7\u2022\u2218\u25E6\u25CB\u2219\u2591\u25AA\u25AB';
+const GLITCH = '\u2591\u2592\u2593\u2588\u2580\u2584\u2571\u2572\u2502\u2500\u250C\u2510\u00B7:;*~\u2573';
+
+// Particles array
+let particles = [];
+
+function buildParticles() {
+  const artCenterY = CH * 0.43;
+  const brainArt = parseArt(BRAIN_RAW);
+  const wordArt = parseArt(WORD_RAW);
+  const brainPx = toPixel(brainArt.pts, brainArt.cw, brainArt.ch_, artCenterY);
+  const wordPx = toPixel(wordArt.pts, wordArt.cw, wordArt.ch_, artCenterY);
+
+  // Match brain to word
+  const { pairs, unSrc: brainOnly, unTgt: wordOnly } = matchPoints(brainPx, wordPx);
+
+  particles = [];
+
+  // Matched particles (exist in both shapes)
+  for (const { src, tgt } of pairs) {
+    particles.push({
+      cloudX: Math.random() * CW, cloudY: Math.random() * CH,
+      brainX: src.px, brainY: src.py, brainCh: src.ch,
+      wordX: tgt.px, wordY: tgt.py, wordCh: tgt.ch,
+      type: 'both',
+      phase: Math.random() * Math.PI * 2,
+      driftVx: (Math.random() - 0.5) * 0.15,
+      driftVy: (Math.random() - 0.5) * 0.1,
+      cloudCh: CLOUD_CHARS[Math.floor(Math.random() * CLOUD_CHARS.length)],
+      isAccent: Math.random() < 0.06,
+    });
+  }
+
+  // Brain-only particles
+  for (const p of brainOnly) {
+    particles.push({
+      cloudX: Math.random() * CW, cloudY: Math.random() * CH,
+      brainX: p.px, brainY: p.py, brainCh: p.ch,
+      wordX: null, wordY: null, wordCh: '',
+      type: 'brainOnly',
+      phase: Math.random() * Math.PI * 2,
+      driftVx: (Math.random() - 0.5) * 0.15,
+      driftVy: (Math.random() - 0.5) * 0.1,
+      cloudCh: CLOUD_CHARS[Math.floor(Math.random() * CLOUD_CHARS.length)],
+      isAccent: Math.random() < 0.06,
+    });
+  }
+
+  // Word-only particles
+  for (const p of wordOnly) {
+    particles.push({
+      cloudX: Math.random() * CW, cloudY: Math.random() * CH,
+      brainX: null, brainY: null, brainCh: '',
+      wordX: p.px, wordY: p.py, wordCh: p.ch,
+      type: 'wordOnly',
+      phase: Math.random() * Math.PI * 2,
+      driftVx: (Math.random() - 0.5) * 0.15,
+      driftVy: (Math.random() - 0.5) * 0.1,
+      cloudCh: CLOUD_CHARS[Math.floor(Math.random() * CLOUD_CHARS.length)],
+      isAccent: Math.random() < 0.06,
+    });
+  }
+
+  // Cloud-only decorative particles
+  const CLOUD_EXTRAS = 350;
+  for (let i = 0; i < CLOUD_EXTRAS; i++) {
+    particles.push({
+      cloudX: Math.random() * CW, cloudY: Math.random() * CH,
+      brainX: null, brainY: null, brainCh: '',
+      wordX: null, wordY: null, wordCh: '',
+      type: 'cloud',
+      phase: Math.random() * Math.PI * 2,
+      driftVx: (Math.random() - 0.5) * 0.2,
+      driftVy: (Math.random() - 0.5) * 0.15,
+      cloudCh: CLOUD_CHARS[Math.floor(Math.random() * CLOUD_CHARS.length)],
+      isAccent: Math.random() < 0.08,
+    });
+  }
+}
+buildParticles();
+
+// State machine (0.25x speed = 4x longer)
+const STATES = ['cloud', 'cloudToBrain', 'brain', 'brainToWord', 'word', 'wordToCloud'];
+const DURS = {
+  cloud:        2500,
+  cloudToBrain: 2500,
+  brain:        2000,
+  brainToWord:  2500,
+  word:         2000,
+  wordToCloud:  2500,
+};
+
+let stateIdx = 0;
+let stateStart = 0;
+
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function render(ts) {
+  if (!stateStart) stateStart = ts;
+  const state = STATES[stateIdx];
+  const elapsed = ts - stateStart;
+  const dur = DURS[state];
+  const rawT = Math.min(elapsed / dur, 1);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, CW, CH);
+  ctx.font = FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    let x, y, ch, alpha;
+    const sin = Math.sin(ts * 0.0006 + p.phase);
+
+    switch (state) {
+
+      case 'cloud': {
+        // Gentle drift
+        p.cloudX += p.driftVx + sin * 0.02;
+        p.cloudY += p.driftVy + Math.cos(ts * 0.0005 + p.phase) * 0.015;
+        if (p.cloudX < -20) p.cloudX += CW + 40;
+        if (p.cloudX > CW + 20) p.cloudX -= CW + 40;
+        if (p.cloudY < -20) p.cloudY += CH + 40;
+        if (p.cloudY > CH + 20) p.cloudY -= CH + 40;
+        x = p.cloudX; y = p.cloudY;
+        ch = p.cloudCh;
+        alpha = 0.12 + 0.12 * sin;
+        break;
+      }
+
+      case 'cloudToBrain': {
+        const et = easeIO(rawT);
+        if (p.brainX != null) {
+          x = lerp(p.cloudX, p.brainX, et);
+          y = lerp(p.cloudY, p.brainY, et);
+          ch = et > 0.75 ? p.brainCh : p.cloudCh;
+          alpha = lerp(0.15, 1, et);
+        } else if (p.type === 'cloud') {
+          // Fade away toward edges
+          const drift = et * 0.4;
+          x = lerp(p.cloudX, p.cloudX + (p.cloudX - CW/2) * drift, et);
+          y = lerp(p.cloudY, p.cloudY + (p.cloudY - CH/2) * drift, et);
+          ch = p.cloudCh;
+          alpha = 0.15 * (1 - easeOut(rawT));
+        } else {
+          // wordOnly: gentle fade
+          x = p.cloudX; y = p.cloudY;
+          ch = p.cloudCh;
+          alpha = 0.15 * (1 - et * 0.6);
+        }
+        break;
+      }
+
+      case 'brain': {
+        if (p.brainX != null) {
+          x = p.brainX + sin * 0.3;
+          y = p.brainY + Math.cos(ts * 0.0005 + p.phase) * 0.2;
+          ch = p.brainCh;
+          alpha = 1;
+        } else { alpha = 0; x = 0; y = 0; ch = ''; }
+        break;
+      }
+
+      case 'brainToWord': {
+        const et = easeIO(rawT);
+        if (p.type === 'both') {
+          x = lerp(p.brainX, p.wordX, et);
+          y = lerp(p.brainY, p.wordY, et);
+          if (et > 0.25 && et < 0.75) {
+            ch = GLITCH[Math.floor(Math.random() * GLITCH.length)];
+          } else {
+            ch = et <= 0.25 ? p.brainCh : p.wordCh;
+          }
+          alpha = 1;
+        } else if (p.type === 'brainOnly') {
+          const scatter = easeOut(rawT);
+          x = p.brainX + (p.cloudX - p.brainX) * scatter * 0.3;
+          y = p.brainY + (p.cloudY - p.brainY) * scatter * 0.3;
+          ch = rawT > 0.3 ? p.cloudCh : p.brainCh;
+          alpha = 1 - easeOut(rawT);
+        } else if (p.type === 'wordOnly') {
+          const arrive = easeIO(rawT);
+          x = lerp(p.cloudX + (p.wordX - p.cloudX) * 0.3, p.wordX, arrive);
+          y = lerp(p.cloudY + (p.wordY - p.cloudY) * 0.3, p.wordY, arrive);
+          ch = rawT > 0.7 ? p.wordCh : GLITCH[Math.floor(Math.random() * GLITCH.length)];
+          alpha = easeIO(rawT);
+        } else { alpha = 0; x = 0; y = 0; ch = ''; }
+        break;
+      }
+
+      case 'word': {
+        if (p.wordX != null) {
+          x = p.wordX + sin * 0.3;
+          y = p.wordY + Math.cos(ts * 0.0005 + p.phase) * 0.2;
+          ch = p.wordCh;
+          alpha = 1;
+        } else { alpha = 0; x = 0; y = 0; ch = ''; }
+        break;
+      }
+
+      case 'wordToCloud': {
+        const et = easeIO(rawT);
+        if (p.wordX != null) {
+          x = lerp(p.wordX, p.cloudX, et);
+          y = lerp(p.wordY, p.cloudY, et);
+          ch = et > 0.25 ? p.cloudCh : p.wordCh;
+          alpha = lerp(1, 0.15, et);
+        } else if (p.brainX != null) {
+          x = lerp(p.brainX, p.cloudX, et);
+          y = lerp(p.brainY, p.cloudY, et);
+          ch = p.cloudCh;
+          alpha = et * 0.15;
+        } else {
+          // Cloud-only: fade back in
+          x = p.cloudX; y = p.cloudY;
+          ch = p.cloudCh;
+          alpha = et * 0.15;
+        }
+        break;
+      }
+    }
+
+    if (alpha > 0.01) {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.isAccent ? '#00ff00' : '#ffffff';
+      ctx.fillText(ch, x, y);
+    }
+  }
+
+  ctx.globalAlpha = 1;
+
+  // Advance state
+  if (rawT >= 1) {
+    stateIdx = (stateIdx + 1) % STATES.length;
+    stateStart = ts;
+  }
+
+  requestAnimationFrame(render);
+}
+
+if (reducedMotion) {
+  // Static: show word art
+  const wordArt = parseArt(WORD_RAW);
+  const wordPx = toPixel(wordArt.pts, wordArt.cw, wordArt.ch_, CH * 0.43);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  for (const p of wordPx) ctx.fillText(p.ch, p.px, p.py);
+} else {
+  requestAnimationFrame(render);
+}
+
+// ================================
+// ARCHITECTURE
+// ================================
+const archDiagram = document.getElementById('arch-diagram');
+archDiagram.textContent = [
+  '  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
+  '  \u2502  Claude Code \u2502\u2500\u2500\u2500\u2500 MCP \u2500\u2500\u2500\u2500\u2510',
+  '  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518              \u2502',
+  '  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510              \u25BC',
+  '  \u2502  Codex CLI   \u2502\u2500\u2500\u2500\u2500 MCP \u2500\u2500\u25B6 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588',
+  '  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518              \u25B2 Tribal Memory Server',
+  '  \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510              \u2502   localhost:18790',
+  '  \u2502  OpenClaw    \u2502\u2500\u2500 plugin \u2500\u2500\u2500\u2518',
+  '  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518'
+].join('\n');
+onVisible(archDiagram, () => {
+  document.querySelector('.arch-caption').classList.add('visible');
+});
+
+// ================================
+// DEMO
+// ================================
+const demoLeft = document.querySelectorAll('#demo-left .typed-line');
+const demoRight = document.querySelectorAll('#demo-right .typed-line');
+let demoPlayed = false;
+function playDemo() {
+  if (demoPlayed) return; demoPlayed = true;
+  demoLeft.forEach((l,i) => setTimeout(() => l.classList.add('visible'), i*600));
+  const ld = demoLeft.length * 600 + 400;
+  demoRight.forEach((l,i) => setTimeout(() => l.classList.add('visible'), ld + i*500));
+  setTimeout(() => { demoLeft.forEach(l=>l.classList.remove('visible')); demoRight.forEach(l=>l.classList.remove('visible')); demoPlayed=false; playDemo(); }, ld + demoRight.length*500 + 3000);
+}
+onVisible(document.getElementById('demo'), playDemo);
+
+// ================================
+// FEATURES
+// ================================
+onVisible(document.getElementById('feature-list'), () => {
+  document.querySelectorAll('.feature-line').forEach((l,i) => setTimeout(()=>l.classList.add('visible'), i*60));
+});
+
+// ================================
+// INSTALL
+// ================================
+onVisible(document.getElementById('install-lines'), () => {
+  document.querySelectorAll('.install-line').forEach((l,i) => setTimeout(()=>l.classList.add('visible'), i*250));
+  setTimeout(() => document.querySelector('.install-note').classList.add('visible'), 3*250+300);
+});
+document.getElementById('provider-toggle').addEventListener('click', function() {
+  const c = document.getElementById('provider-content');
+  const o = c.classList.toggle('open');
+  this.textContent = o ? '\u25BE Other providers' : '\u25B8 Other providers';
+});
+
+// ================================
+// TRUST
+// ================================
+let trustDone = false;
+onVisible(document.getElementById('trust'), () => {
+  document.querySelector('.trust-top-rule').classList.add('visible');
+  document.querySelector('.trust-bottom-rule').classList.add('visible');
+  if (trustDone) return; trustDone = true;
+  document.querySelectorAll('.trust-number[data-target]').forEach(el => {
+    if (el.dataset.text === 'true') return;
+    const tgt = parseInt(el.dataset.target), sfx = el.dataset.suffix||'', st = performance.now();
+    (function tick(now) {
+      const p = Math.min((now-st)/1200,1);
+      el.textContent = Math.round(tgt*(1-Math.pow(1-p,3)))+sfx;
+      if (p<1) requestAnimationFrame(tick);
+    })(st);
+  });
+});
+
+// ================================
+// PRIVACY, CLOSER, RULES, COPY
+// ================================
+onVisible(document.querySelector('.privacy-box'), el => el.classList.add('visible'));
+onVisible(document.querySelector('.closer-headline'), () => setTimeout(()=>document.querySelector('.closer-punch').classList.add('visible'),500));
+document.querySelectorAll('.section-rule').forEach(r => onVisible(r, el=>el.classList.add('visible')));
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(btn.dataset.copy).then(() => {
+      btn.textContent='[ copied \u2713 ]'; btn.classList.add('copied');
+      setTimeout(()=>{btn.textContent='[ copy ]';btn.classList.remove('copied');},1500);
+    });
+  });
+});
+</script>
+</body>
+</html>

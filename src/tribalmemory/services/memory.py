@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -196,10 +197,8 @@ class TribalMemoryService(IMemoryService):
         min_relevance: float = 0.7,
         tags: Optional[list[str]] = None,
         graph_expansion: bool = True,
-        # TODO(#57 Phase 3): Add temporal filtering params:
-        #   after: Optional[str] = None,
-        #   before: Optional[str] = None,
-        # to filter/boost results by resolved temporal facts.
+        after: Optional[str] = None,
+        before: Optional[str] = None,
     ) -> list[RecallResult]:
         """Recall relevant memories using hybrid search with optional graph expansion.
         
@@ -216,6 +215,14 @@ class TribalMemoryService(IMemoryService):
             min_relevance: Minimum similarity score
             tags: Filter by tags (e.g., ["work", "preferences"])
             graph_expansion: Expand candidates via entity graph (default True)
+            after: Only include memories with temporal facts on or after this
+                date. Accepts ISO format (YYYY-MM-DD) or natural language
+                (parsed via TemporalExtractor). Memories **without** any
+                temporal facts pass through unfiltered — they have no dates
+                that could violate the range. Invalid/unparseable dates are
+                logged and silently ignored.
+            before: Only include memories with temporal facts on or before this
+                date. Same format and passthrough rules as ``after``.
         
         Returns:
             List of RecallResult objects with retrieval_method indicating source:
@@ -258,6 +265,10 @@ class TribalMemoryService(IMemoryService):
             results = await self._expand_via_graph(
                 query, results, limit, min_relevance
             )
+        
+        # Temporal filtering: restrict results to date range
+        if (after is not None or before is not None) and self.graph_enabled:
+            results = self._filter_by_temporal_range(results, after, before)
         
         return self._filter_superseded(results)
 
@@ -509,6 +520,111 @@ class TribalMemoryService(IMemoryService):
         stores).
         """
         return await self.vector_store.get_stats()
+
+    def _resolve_date_param(self, date_str: str) -> Optional[str]:
+        """Resolve a date parameter string to an ISO date.
+
+        Accepts ISO dates directly (YYYY-MM-DD, YYYY-MM, YYYY) or
+        natural language expressions via TemporalExtractor.
+
+        Args:
+            date_str: Date string to resolve. Can be ISO format
+                (``"2024-06-01"``, ``"2024-06"``, ``"2024"``) or natural
+                language (``"last week"``, ``"yesterday"``).
+
+        Returns:
+            ISO date string on success. Returns ``None`` when the input
+            cannot be parsed — callers should treat ``None`` as "skip
+            this filter boundary" and log a warning.
+        """
+        if not date_str or not date_str.strip():
+            return None
+
+        date_str = date_str.strip()
+
+        # Fast path: ISO format YYYY, YYYY-MM, or YYYY-MM-DD
+        if re.match(r'^\d{4}(-\d{2}(-\d{2})?)?$', date_str):
+            return date_str
+
+        # Try TemporalExtractor for natural language
+        if self.temporal_extractor:
+            entities = self.temporal_extractor.extract(date_str)
+            if entities and entities[0].resolved_date:
+                return entities[0].resolved_date
+
+        logger.warning("Could not resolve date parameter: '%s'", date_str)
+        return None
+
+    def _filter_by_temporal_range(
+        self,
+        results: list[RecallResult],
+        after: Optional[str],
+        before: Optional[str],
+    ) -> list[RecallResult]:
+        """Filter recall results to only include memories in a temporal range.
+
+        Memories without any temporal facts pass through unfiltered —
+        they have no dates that could violate the range constraint.
+
+        Args:
+            results: Recall results to filter.
+            after: Minimum date (inclusive), raw string.
+            before: Maximum date (inclusive), raw string.
+
+        Returns:
+            Filtered list of RecallResult.
+        """
+        resolved_after = self._resolve_date_param(after) if after else None
+        resolved_before = self._resolve_date_param(before) if before else None
+
+        # If both params failed to resolve, skip filtering
+        if resolved_after is None and resolved_before is None:
+            return results
+
+        # Validate date range order
+        if (
+            resolved_after is not None
+            and resolved_before is not None
+            and resolved_after > resolved_before
+        ):
+            logger.warning(
+                "after date '%s' is later than before date '%s'; "
+                "returning empty results",
+                resolved_after,
+                resolved_before,
+            )
+            return []
+
+        if not self.graph_store:
+            return results
+
+        # These sets are bounded by the number of memories with temporal
+        # facts in the graph store — typically a fraction of total memories.
+        # We need both to distinguish "no temporal facts" (passthrough)
+        # from "temporal facts outside range" (exclude).
+        temporal_memory_ids = set(
+            self.graph_store.get_memories_in_date_range(
+                start_date=resolved_after,
+                end_date=resolved_before,
+            )
+        )
+
+        all_temporal_ids = set(
+            self.graph_store.get_memories_in_date_range()
+        )
+
+        filtered: list[RecallResult] = []
+        for r in results:
+            mid = r.memory.id
+            if mid in temporal_memory_ids:
+                # Has temporal facts and they're in range → keep
+                filtered.append(r)
+            elif mid not in all_temporal_ids:
+                # No temporal facts at all → pass through
+                filtered.append(r)
+            # else: has temporal facts but outside range → exclude
+
+        return filtered
 
     @staticmethod
     def _filter_superseded(results: list[RecallResult]) -> list[RecallResult]:

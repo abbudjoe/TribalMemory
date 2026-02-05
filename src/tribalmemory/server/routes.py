@@ -123,6 +123,8 @@ async def recall(
             limit=request.limit,
             min_relevance=request.min_relevance,
             tags=request.tags,
+            after=request.after,
+            before=request.before,
         )
 
         total_time_ms = (time.time() - start_time) * 1000

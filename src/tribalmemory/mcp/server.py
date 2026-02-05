@@ -156,6 +156,8 @@ def create_server() -> FastMCP:
         min_relevance: float = 0.3,
         tags: Optional[list[str]] = None,
         sources: str = "memories",
+        after: Optional[str] = None,
+        before: Optional[str] = None,
     ) -> str:
         """Search memories and/or session transcripts by semantic similarity.
 
@@ -165,6 +167,8 @@ def create_server() -> FastMCP:
             min_relevance: Minimum similarity score (0.0-1.0, default 0.3)
             tags: Filter results to only memories with these tags
             sources: What to search - "memories" (default), "sessions", or "all"
+            after: Only include memories with events on/after this date (ISO or natural language)
+            before: Only include memories with events on/before this date (ISO or natural language)
 
         Returns:
             JSON with: results (list of memories/chunks with similarity scores), query, count
@@ -201,6 +205,8 @@ def create_server() -> FastMCP:
                 limit=limit,
                 min_relevance=min_relevance,
                 tags=tags,
+                after=after,
+                before=before,
             )
             all_results.extend([
                 {

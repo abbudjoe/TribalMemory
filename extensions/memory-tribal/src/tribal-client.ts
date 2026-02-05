@@ -20,6 +20,8 @@ interface SearchOptions {
   maxResults?: number;
   minScore?: number;
   tags?: string[];
+  after?: string;
+  before?: string;
 }
 
 interface SearchResult {
@@ -67,7 +69,13 @@ export class TribalClient {
    * Returns results even if some variants fail (partial success)
    */
   async search(queries: string[], options: SearchOptions = {}): Promise<SearchResult[]> {
-    const { maxResults = DEFAULT_MAX_RESULTS, minScore = DEFAULT_MIN_SCORE } = options;
+    const {
+      maxResults = DEFAULT_MAX_RESULTS,
+      minScore = DEFAULT_MIN_SCORE,
+      tags,
+      after,
+      before,
+    } = options;
 
     // Search with each query variant and merge results
     const allResults: SearchResult[] = [];
@@ -75,7 +83,9 @@ export class TribalClient {
 
     for (const query of queries) {
       try {
-        const results = await this.recall(query, { maxResults, minScore });
+        const results = await this.recall(
+          query, { maxResults, minScore, tags, after, before },
+        );
         
         for (const result of results) {
           // Validate id exists (should always be present from recall)
@@ -111,17 +121,21 @@ export class TribalClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
+      const body: Record<string, unknown> = {
+        query,
+        limit: options.maxResults ?? DEFAULT_MAX_RESULTS,
+        min_relevance: options.minScore ?? DEFAULT_MIN_SCORE,
+      };
+      if (options.tags) body.tags = options.tags;
+      if (options.after) body.after = options.after;
+      if (options.before) body.before = options.before;
+
       const response = await fetch(`${this.baseUrl}/v1/recall`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          query,
-          limit: options.maxResults ?? DEFAULT_MAX_RESULTS,
-          min_relevance: options.minScore ?? DEFAULT_MIN_SCORE,
-          tags: options.tags,
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 

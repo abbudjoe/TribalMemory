@@ -564,6 +564,185 @@ const memoryTribalPlugin = {
     );
 
     // ========================================================================
+    // Explicit store/recall tools (direct TribalMemory server access)
+    // ========================================================================
+
+    api.registerTool({
+      name: "tribal_store",
+      description:
+        "Deliberately store a memory in TribalMemory. Use for " +
+        "high-signal information: architecture decisions, lessons " +
+        "learned, user preferences, key facts. More intentional " +
+        "than auto-capture.",
+      parameters: Type.Object({
+        content: Type.String({
+          description: "The memory content to store",
+        }),
+        tags: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Categorization tags (e.g. 'decision', 'preference', " +
+              "'lesson', 'architecture')",
+          }),
+        ),
+        context: Type.Optional(
+          Type.String({
+            description:
+              "Additional context about when/why this was stored",
+          }),
+        ),
+      }),
+      async execute(
+        toolCallId: string,
+        params: { content: string; tags?: string[]; context?: string },
+        context: ToolContext,
+      ) {
+        try {
+          const sessionId = context?.sessionId ?? "unknown";
+          const result = await tribalClient.remember(params.content, {
+            sourceType: "deliberate",
+            context:
+              params.context ??
+              `Deliberately stored (session: ${sessionId})`,
+            tags: params.tags,
+          });
+
+          if (result.duplicateOf) {
+            return {
+              content: [{
+                type: "text",
+                text:
+                  `Memory already exists (duplicate of ` +
+                  `${result.duplicateOf}). Not stored again.`,
+              }],
+            };
+          }
+
+          const tagStr = params.tags?.length
+            ? ` [tags: ${params.tags.join(", ")}]`
+            : "";
+          return {
+            content: [{
+              type: "text",
+              text:
+                `✅ Stored memory ${result.memoryId}${tagStr}: ` +
+                `"${params.content.slice(0, 80)}..."`,
+            }],
+          };
+        } catch (err: any) {
+          return {
+            content: [{
+              type: "text",
+              text: `Failed to store memory: ${err.message}`,
+            }],
+            isError: true,
+          };
+        }
+      },
+    });
+
+    api.registerTool({
+      name: "tribal_recall",
+      description:
+        "Query TribalMemory with full control over retrieval " +
+        "parameters. Use for targeted recall with specific tags, " +
+        "temporal filters, or custom relevance thresholds.",
+      parameters: Type.Object({
+        query: Type.String({ description: "Search query" }),
+        limit: Type.Optional(
+          Type.Number({
+            description: "Maximum results (1-50, default 5)",
+          }),
+        ),
+        min_relevance: Type.Optional(
+          Type.Number({
+            description:
+              "Minimum similarity score (0.0-1.0, default 0.3)",
+          }),
+        ),
+        tags: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "Filter by tags",
+          }),
+        ),
+        after: Type.Optional(
+          Type.String({
+            description:
+              "Only memories with events on/after this date " +
+              "(ISO or natural language, e.g. 'last week')",
+          }),
+        ),
+        before: Type.Optional(
+          Type.String({
+            description:
+              "Only memories with events on/before this date " +
+              "(ISO or natural language)",
+          }),
+        ),
+      }),
+      async execute(
+        toolCallId: string,
+        params: {
+          query: string;
+          limit?: number;
+          min_relevance?: number;
+          tags?: string[];
+          after?: string;
+          before?: string;
+        },
+        context: ToolContext,
+      ) {
+        try {
+          const results = await tribalClient.search(
+            [params.query],
+            {
+              maxResults: params.limit ?? 5,
+              minScore: params.min_relevance ?? 0.3,
+              tags: params.tags,
+              after: params.after,
+              before: params.before,
+            },
+          );
+
+          if (results.length === 0) {
+            return {
+              content: [{
+                type: "text",
+                text: "No memories found matching query.",
+              }],
+            };
+          }
+
+          const formatted = results.map((r, i) => {
+            const score = r.score?.toFixed(3) ?? "N/A";
+            const tags = r.tags?.length
+              ? ` [${r.tags.join(", ")}]`
+              : "";
+            return (
+              `### ${i + 1}. [${score}]${tags}\n${r.snippet}`
+            );
+          }).join("\n\n");
+
+          return {
+            content: [{
+              type: "text",
+              text:
+                `Found ${results.length} memories:\n\n${formatted}`,
+            }],
+          };
+        } catch (err: any) {
+          return {
+            content: [{
+              type: "text",
+              text: `Recall failed: ${err.message}`,
+            }],
+            isError: true,
+          };
+        }
+      },
+    });
+
+    // ========================================================================
     // CLI Commands
     // ========================================================================
 

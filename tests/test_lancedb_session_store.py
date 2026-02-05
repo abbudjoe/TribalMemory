@@ -74,7 +74,7 @@ class TestLanceDBSessionStorePersistence:
         )
 
         # Search should find the persisted chunks
-        results = await store2.search("Docker")
+        results = (await store2.search("Docker"))["items"]
         assert len(results) > 0
         assert "Docker" in results[0]["content"]
 
@@ -145,7 +145,7 @@ class TestLanceDBSessionStoreVectorSearch:
             SessionMessage("user", "Kubernetes pod configuration", datetime(2024, 1, 2, 12, 0, 0)),
         ])
 
-        results = await store.search("container", limit=10)
+        results = (await store.search("container", limit=10))["items"]
 
         # Should find Docker mention
         assert len(results) >= 1
@@ -162,7 +162,7 @@ class TestLanceDBSessionStoreVectorSearch:
             SessionMessage("user", "Docker troubleshooting", datetime(2024, 1, 2, 12, 0, 0)),
         ])
 
-        results = await store.search("Docker", session_id="session-1")
+        results = (await store.search("Docker", session_id="session-1"))["items"]
 
         assert len(results) >= 1
         for result in results:
@@ -211,11 +211,11 @@ class TestLanceDBSessionStoreCleanup:
         assert deleted > 0
 
         # Recent session should still be searchable
-        results = await store.search("Kubernetes")
+        results = (await store.search("Kubernetes"))["items"]
         assert len(results) > 0
 
         # Old session should be gone
-        results = await store.search("Old Docker", session_id="old-session")
+        results = (await store.search("Old Docker", session_id="old-session"))["items"]
         assert len(results) == 0
 
 
@@ -249,7 +249,7 @@ class TestInMemorySessionStoreFallback:
         assert result["success"] is True
         assert result["chunks_created"] > 0
 
-        results = await store.search("Docker")
+        results = (await store.search("Docker"))["items"]
         assert len(results) > 0
 
     @pytest.mark.asyncio
@@ -277,7 +277,7 @@ class TestInMemorySessionStoreFallback:
         )
 
         # Data should not be shared
-        results = await store2.search("Test message")
+        results = (await store2.search("Test message"))["items"]
         assert len(results) == 0
 
 
@@ -344,7 +344,7 @@ class TestLanceDBSessionStoreEdgeCases:
         )
 
         # Search empty store
-        results = await store.search("Docker")
+        results = (await store.search("Docker"))["items"]
         assert results == []
 
     @pytest.mark.asyncio
@@ -411,7 +411,7 @@ class TestLanceDBSessionStoreEdgeCases:
         ])
 
         # Search for a valid UUID format session ID that doesn't exist
-        results = await store.search("Docker", session_id="session-nonexistent-123")
+        results = (await store.search("Docker", session_id="session-nonexistent-123"))["items"]
 
         # Should return empty results, not raise an error
         assert results == []
@@ -475,5 +475,5 @@ class TestLanceDBSessionStoreEdgeCases:
         ])
 
         # Search with a different, non-existent session ID
-        results = await store.search("Hello", session_id="session-does-not-exist")
+        results = (await store.search("Hello", session_id="session-does-not-exist"))["items"]
         assert results == []

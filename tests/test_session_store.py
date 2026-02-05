@@ -209,7 +209,7 @@ class TestSessionStoreIngest:
         await store.ingest("session-1", messages, instance_id="custom-instance")
         
         # Search to verify
-        results = await store.search("Hello", session_id="session-1")
+        results = (await store.search("Hello", session_id="session-1"))["items"]
         assert len(results) > 0
         assert results[0]["instance_id"] == "custom-instance"
 
@@ -241,7 +241,7 @@ class TestSessionStoreSearch:
             SessionMessage("assistant", "Kubernetes orchestrates containers", datetime(2024, 1, 2, 12, 0, 30)),
         ])
 
-        results = await store.search("container", limit=10)
+        results = (await store.search("container", limit=10))["items"]
         
         # Should find results from both sessions
         assert len(results) >= 2
@@ -262,7 +262,7 @@ class TestSessionStoreSearch:
             SessionMessage("assistant", "Kubernetes orchestrates containers", datetime(2024, 1, 2, 12, 0, 30)),
         ])
 
-        results = await store.search("container", session_id="session-1")
+        results = (await store.search("container", session_id="session-1"))["items"]
         
         # Should only find results from session-1
         assert len(results) >= 1
@@ -277,8 +277,8 @@ class TestSessionStoreSearch:
         ])
 
         # High relevance threshold should return fewer results
-        results_strict = await store.search("Docker", min_relevance=0.9)
-        results_loose = await store.search("Docker", min_relevance=0.0)
+        results_strict = (await store.search("Docker", min_relevance=0.9))["items"]
+        results_loose = (await store.search("Docker", min_relevance=0.0))["items"]
         
         assert len(results_loose) >= len(results_strict)
 
@@ -291,7 +291,7 @@ class TestSessionStoreSearch:
                 SessionMessage("user", "What is Docker?", datetime(2024, 1, i + 1, 12, 0, 0)),
             ])
 
-        results = await store.search("Docker", limit=3)
+        results = (await store.search("Docker", limit=3))["items"]
         assert len(results) <= 3
 
     @pytest.mark.asyncio
@@ -302,7 +302,7 @@ class TestSessionStoreSearch:
             SessionMessage("assistant", "Docker is a container platform", datetime(2024, 1, 1, 12, 0, 30)),
         ])
 
-        results = await store.search("Docker")
+        results = (await store.search("Docker"))["items"]
         
         assert len(results) > 0
         result = results[0]
@@ -351,11 +351,11 @@ class TestSessionStoreCleanup:
         assert deleted > 0
 
         # Recent session should still be searchable
-        results = await store.search("Kubernetes setup help")
+        results = (await store.search("Kubernetes setup help"))["items"]
         assert len(results) > 0
 
         # Old session should be gone
-        results = await store.search("Docker troubleshooting", session_id="old-session")
+        results = (await store.search("Docker troubleshooting", session_id="old-session"))["items"]
         assert len(results) == 0
 
     @pytest.mark.asyncio
@@ -375,8 +375,8 @@ class TestSessionStoreCleanup:
         assert deleted == 0
 
         # Both sessions should still be searchable
-        results1 = await store.search("Python programming", session_id="session-1")
-        results2 = await store.search("Rust memory", session_id="session-2")
+        results1 = (await store.search("Python programming", session_id="session-1"))["items"]
+        results2 = (await store.search("Rust memory", session_id="session-2"))["items"]
         assert len(results1) > 0
         assert len(results2) > 0
 

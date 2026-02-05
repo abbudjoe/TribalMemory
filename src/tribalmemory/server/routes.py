@@ -440,15 +440,29 @@ async def search_sessions(
     query: str,
     session_id: Optional[str] = None,
     limit: int = 5,
+    offset: int = 0,
     min_relevance: float = 0.0,
     store: SessionStore = Depends(get_session_store),
 ) -> SessionSearchResponse:
-    """Search session transcripts by semantic similarity."""
+    """Search session transcripts by semantic similarity.
+
+    Supports offset-based pagination via ``offset`` and ``limit``.
+    """
     try:
-        results = await store.search(query, session_id, limit, min_relevance)
+        result = await store.search(
+            query, session_id, limit, offset, min_relevance
+        )
         return SessionSearchResponse(
-            results=[SessionChunkResponse(**r) for r in results],
+            results=[
+                SessionChunkResponse(**r) for r in result["items"]
+            ],
             query=query,
+            total_count=result["total_count"],
+            offset=offset,
+            limit=limit,
+            has_more=result.get("has_more", False),
         )
     except Exception as e:
-        return SessionSearchResponse(results=[], query=query, error=str(e))
+        return SessionSearchResponse(
+            results=[], query=query, error=str(e)
+        )

@@ -85,6 +85,11 @@ class SessionStore:
     TARGET_CHUNK_TOKENS = 400  # Target size for each chunk
     WORDS_PER_TOKEN = 0.75     # Approximate tokens per word
     OVERLAP_TOKENS = 50        # Overlap between chunks for context
+
+    # Maximum candidate pool for paginated search.  Limits memory usage
+    # on large stores.  If more results exist, the ``has_more`` flag in
+    # the response signals truncation.
+    _PAGINATION_POOL_CAP = 1000
     
     def __init__(
         self,
@@ -172,42 +177,70 @@ class SessionStore:
         query: str,
         session_id: Optional[str] = None,
         limit: int = 5,
+        offset: int = 0,
         min_relevance: float = 0.0,
-    ) -> list[dict]:
+    ) -> dict:
         """Search session transcripts by semantic similarity.
         
         Args:
-            query: Natural language search query
-            session_id: Optional filter to specific session
-            limit: Maximum number of results to return
-            min_relevance: Minimum similarity score (0.0 to 1.0)
+            query: Natural language search query.
+            session_id: Optional filter to specific session.
+            limit: Maximum number of results per page.
+            offset: Number of results to skip (for pagination).
+                Negative values are clamped to 0.
+            min_relevance: Minimum similarity score (0.0 to 1.0).
         
         Returns:
-            List of dicts with keys: chunk_id, session_id, instance_id,
-            content, similarity_score, start_time, end_time, chunk_index
+            Dict with:
+                items: List of result dicts (chunk_id, session_id,
+                    instance_id, content, similarity_score,
+                    start_time, end_time, chunk_index).
+                total_count: Total matching results (before
+                    pagination).  Capped at ``_PAGINATION_POOL_CAP``
+                    (default 1000) for performance.
+                has_more: ``True`` when results were truncated by
+                    the pool cap — more results may exist.
+                error: Error message (only on failure).
         """
+        offset = max(0, offset)
+        limit = max(1, min(limit, 50))
+
         try:
             await self._ensure_ready()
 
-            # Generate query embedding
             query_embedding = await self.embedding_service.embed(query)
             
-            # Search chunks
-            results = await self._search_chunks(
+            # Fetch a large pool so total_count reflects all matching
+            # chunks.  Capped at _PAGINATION_POOL_CAP for performance
+            # — if more results exist, ``has_more`` signals truncation.
+            pool_limit = max(offset + limit, self._PAGINATION_POOL_CAP)
+            all_results = await self._search_chunks(
                 query_embedding,
                 session_id,
-                limit,
-                min_relevance,
+                limit=pool_limit,
+                min_relevance=min_relevance,
             )
             
-            return results
+            total_count = len(all_results)
+            has_more = total_count >= pool_limit
+            items = all_results[offset:offset + limit]
+            
+            return {
+                "items": items,
+                "total_count": total_count,
+                "has_more": has_more,
+            }
         
         except ValueError:
-            # Re-raise ValueError (e.g., invalid session_id)
             raise
         except Exception as e:
             logger.exception(f"Failed to search sessions: {e}")
-            return []
+            return {
+                "items": [],
+                "total_count": 0,
+                "has_more": False,
+                "error": str(e),
+            }
     
     async def cleanup(self, retention_days: int = 30) -> int:
         """Delete session chunks older than retention period.
@@ -623,6 +656,8 @@ class LanceDBSessionStore(SessionStore):
         
         # Build query with optional session filter.
         # Use cosine metric for direct similarity scoring.
+        # Request 2× limit because some rows may be discarded
+        # after min_relevance filtering.
         query = (
             self._table.search(query_embedding)
             .metric("cosine")

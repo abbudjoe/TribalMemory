@@ -266,7 +266,7 @@ def create_server() -> FastMCP:
         # Search sessions
         if sources in ("sessions", "all"):
             session_store = await get_session_store()
-            session_results = await session_store.search(
+            session_result = await session_store.search(
                 query=query,
                 limit=limit,
                 min_relevance=min_relevance,
@@ -283,7 +283,7 @@ def create_server() -> FastMCP:
                     "end_time": r["end_time"].isoformat() if hasattr(r["end_time"], "isoformat") else str(r["end_time"]),
                     "chunk_index": r["chunk_index"],
                 }
-                for r in session_results
+                for r in session_result["items"]
             ])
 
         # Sort combined results by score, take top limit

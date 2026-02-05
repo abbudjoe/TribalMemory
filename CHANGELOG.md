@@ -5,6 +5,12 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.4.2/))
+
+### Fixed
+
+- **uv tool environment support** — `tribalmemory init` now detects uv-managed environments (which lack pip) and uses `uv pip install --python <exe> fastembed` instead. Falls back gracefully with context-aware error messages. Cross-platform path detection for Windows compatibility.
+
 ## [0.4.1] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.4.1/))
 
 ### Fixed
@@ -212,6 +218,7 @@ tribalmemory init --openai --force   # prompts for key, saves to .env
 - Session deduplication
 - Embedding portability metadata
 
+[0.4.2]: https://github.com/abbudjoe/TribalMemory/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/abbudjoe/TribalMemory/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/abbudjoe/TribalMemory/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/abbudjoe/TribalMemory/compare/v0.2.0...v0.3.0

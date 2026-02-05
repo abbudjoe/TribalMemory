@@ -104,8 +104,8 @@ This is the signature moment. When the page loads, the user sees a terminal boot
   [ pip install tribalmemory ]     [ View on GitHub → ]
 ```
 
-- Primary CTA: white text, white 1px border, fills white-on-hover (inverts to black text)
-- Secondary CTA: muted gray text, no border, brightens on hover
+- Primary CTA: white text, white 1px border, fills white-on-hover (inverts to black text). Links to [pypi.org/project/tribalmemory](https://pypi.org/project/tribalmemory/)
+- Secondary CTA: muted gray text, no border, brightens on hover. Links to [github.com/abbudjoe/TribalMemory](https://github.com/abbudjoe/TribalMemory)
 
 ### Brain-Chip ASCII Icon (optional flourish)
 
@@ -232,6 +232,7 @@ Each line fades in sequentially (50ms stagger) as the user scrolls into view. On
 
 - The `$` prompts are green (#0f0)
 - Commands are white
+- `pip install tribalmemory` links to [pypi.org/project/tribalmemory](https://pypi.org/project/tribalmemory/) (subtle underline on hover)
 - On scroll-in, each line types out with ~200ms delay between lines
 - The "That's it." line fades in after the commands complete
 
@@ -256,16 +257,18 @@ Minimal. Numbers, not logos (we're early-stage).
 ```
   ────────────────────────────────────────────────────
 
-  679 tests passing    v0.4.1 on PyPI    Apache 2.0
+  735 tests passing    v0.4.2 on PyPI    Apache 2.0
   100% LoCoMo recall   3 providers       10+ MCP tools
 
   ────────────────────────────────────────────────────
 ```
 
+- **LoCoMo recall note:** 100% accuracy across 1986 questions (open-domain, adversarial, temporal, single-hop, multi-hop) on the [LoCoMo benchmark](https://github.com/snap-research/locomo). Update this number once the full run completes — currently tracking 100% at 885/1986.
 - Numbers in white, bold monospace
 - Labels in muted gray below each number
 - Horizontal layout, evenly spaced
-- Numbers animate up (0 → 679) with a satisfying counter tick when scrolled into view
+- Numbers animate up (0 → 735) with a satisfying counter tick when scrolled into view
+- "v0.4.2 on PyPI" links to [pypi.org/project/tribalmemory](https://pypi.org/project/tribalmemory/)
 
 ---
 
@@ -310,7 +313,30 @@ The border draws itself on scroll-in (animated border, like the box is being typ
 
 ---
 
-## 10. Final CTA — "The Closer"
+## 10. Cloud Teaser — "Coming Soon"
+
+A subtle, understated teaser for the upcoming cloud sync feature. Not a full section — more of a whisper between the privacy block and the closer.
+
+```
+  COMING SOON
+  ────────────────────────────────────────────────────
+
+  ☁ Cloud Sync — Share memories across machines.
+    Same privacy-first approach. Your keys, your data.
+    Encrypted at rest. Self-hostable.
+
+  [ Join the waitlist → ]
+```
+
+- Muted gray text, dimmer than other sections — it's a preview, not a pitch
+- "Join the waitlist" CTA is ghost-style (no border, underline on hover)
+- Links to a simple email capture form or GitHub Discussions thread
+- The `☁` icon renders in terminal green (#0f0) — the only accent in this section
+- This section is **optional at launch** — can be added once the cloud spec is further along
+
+---
+
+## 11. Final CTA — "The Closer"
 
 ```
   Your agents are forgetting everything.
@@ -326,6 +352,11 @@ The border draws itself on scroll-in (animated border, like the box is being typ
 - "Fix that." — after 500ms delay, punchy
 - The pip command has a blinking cursor at the end
 - Footer links in muted gray, brighten on hover
+
+**Footer link targets:**
+- ★ Star on GitHub → [github.com/abbudjoe/TribalMemory](https://github.com/abbudjoe/TribalMemory)
+- 📖 Read the Docs → docs site (TBD — `/docs` on the landing page domain, or separate subdomain)
+- 💬 Join Discord → **TBD** (Discord server not yet created — hide or show as "Coming Soon" until live)
 
 ---
 
@@ -396,6 +427,8 @@ These are the details that make designers screenshot the page:
 ```
 ┌──────────────────────────────────────────────┐
 │  Nav: [Logo]              [GitHub] [Docs]    │  ← minimal, fixed
+│  GitHub → github.com/abbudjoe/TribalMemory   │
+│  Docs → docs.tribalmemory.dev (or /docs)     │
 ├──────────────────────────────────────────────┤
 │                                              │
 │           [ASCII BOOT ANIMATION]             │  ← the hero
@@ -428,7 +461,7 @@ These are the details that make designers screenshot the page:
 │                                              │
 ├──────────────────────────────────────────────┤
 │                                              │
-│    679 tests   v0.4.1   Apache 2.0           │  ← trust
+│    735 tests   v0.4.2   Apache 2.0           │  ← trust
 │                                              │
 ├──────────────────────────────────────────────┤
 │                                              │
@@ -439,6 +472,11 @@ These are the details that make designers screenshot the page:
 │                                              │
 │  ┌ LOCAL MODE = ZERO DATA LEAVES ──────────┐ │  ← privacy
 │  └─────────────────────────────────────────┘ │
+│                                              │
+├──────────────────────────────────────────────┤
+│                                              │
+│  ☁ Cloud Sync — coming soon.                 │  ← cloud teaser
+│  [ Join the waitlist → ]                     │
 │                                              │
 ├──────────────────────────────────────────────┤
 │                                              │

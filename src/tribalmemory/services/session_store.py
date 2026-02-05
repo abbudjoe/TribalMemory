@@ -549,11 +549,13 @@ class LanceDBSessionStore(SessionStore):
         the same (or superset) message list.
         """
         try:
-            # head(n) returns the first N rows as a PyArrow Table (no pandas).
-            # Order doesn't matter here — we iterate all rows and keep the
-            # maximum message_count per session_id.  For databases exceeding
-            # _MAX_SCAN_LIMIT rows the state will be approximate, but that
-            # only causes harmless re-chunking on the next ingest.
+            # head(n) returns the first N rows from the table. For very large
+            # databases (>1M chunks), we may not restore complete state, which
+            # only causes harmless re-chunking on next ingest.
+            #
+            # Future optimization: SELECT session_id, MAX(message_count)
+            # FROM ... GROUP BY session_id
+            # This would eliminate the need for Python-side max() logic.
             arrow_table = self._table.head(self._MAX_SCAN_LIMIT)
             
             # Convert to Python dict for easier iteration
@@ -711,6 +713,9 @@ class LanceDBSessionStore(SessionStore):
 
         return len(old_chunks)
     
+    # Maximum rows to scan in full-table operations. Protects against memory
+    # exhaustion on very large session stores. Tune higher for production
+    # workloads with >1M chunks, considering available memory.
     _MAX_SCAN_LIMIT = 1_000_000
 
     async def _get_all_chunks(self) -> list[dict]:

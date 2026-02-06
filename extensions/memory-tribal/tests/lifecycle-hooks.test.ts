@@ -330,7 +330,7 @@ describe("CLI commands", () => {
 // ============================================================================
 
 // Re-implement extractRememberCommand for testing (not exported)
-const REMEMBER_COMMAND_RE = /^(?:\[.*?\]\s*)?\/remember\s+(.+)$/is;
+const REMEMBER_COMMAND_RE = /^(?:\[[^\]]*\]\s*)?\/remember\s+(.+)$/is;
 
 function extractRememberCommand(prompt: string): string | null {
   const match = prompt.match(REMEMBER_COMMAND_RE);

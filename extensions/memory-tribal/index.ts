@@ -107,7 +107,7 @@ const CAPTURE_MAX_LENGTH = 500;
  * Regex to detect /remember command.
  * Handles optional channel prefixes like "[Telegram Joe...] /remember ..."
  */
-const REMEMBER_COMMAND_RE = /^(?:\[.*?\]\s*)?\/remember\s+(.+)$/is;
+const REMEMBER_COMMAND_RE = /^(?:\[[^\]]*\]\s*)?\/remember\s+(.+)$/is;
 
 /**
  * Extract content from /remember command if present.

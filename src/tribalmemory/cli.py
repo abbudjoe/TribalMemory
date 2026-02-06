@@ -263,6 +263,16 @@ def cmd_init(args: argparse.Namespace) -> int:
     instance_id = args.instance_id or DEFAULT_INSTANCE_ID
     db_path = str(TRIBAL_DIR / "lancedb")
 
+    # Early check: warn if binary not found before any file operations
+    # This gives better UX — user knows about the issue before we start
+    if getattr(args, "claude_desktop", False):
+        mcp_command = _resolve_mcp_command()
+        if mcp_command == "tribalmemory-mcp":
+            print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
+            print("   Claude Desktop needs the absolute path to the binary.")
+            print("   The config will be written, but you may need to reinstall.")
+            print()
+
     # Create config directory
     TRIBAL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -426,13 +436,7 @@ def _setup_claude_desktop_mcp() -> None:
     desktop_path = _get_claude_desktop_config_path()
     mcp_command = _resolve_mcp_command()
 
-    if mcp_command == "tribalmemory-mcp":
-        # Couldn't resolve — warn the user early
-        print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
-        print("   Claude Desktop needs the absolute path to the binary.")
-        print("   After installing, run: tribalmemory init --claude-desktop --force")
-        print()
-
+    # Note: binary-not-found warning is shown earlier in cmd_init for better UX
     mcp_entry = _build_mcp_entry(mcp_command)
 
     # Ensure parent directory exists (macOS Application Support/Claude/)

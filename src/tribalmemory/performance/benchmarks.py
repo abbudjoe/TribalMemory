@@ -114,7 +114,6 @@ async def benchmark_retrieval_latency(
         elapsed_ms = (time.perf_counter() - start) * 1000
         latencies.append(elapsed_ms)
 
-    latencies.sort()
     stats = LatencyStats(
         p50=_percentile(latencies, 50),
         p95=_percentile(latencies, 95),
@@ -549,7 +548,6 @@ async def benchmark_graph_store_queries(
             elapsed_ms = (time.perf_counter() - start) * 1000
             latencies.append(elapsed_ms)
         
-        latencies.sort()
         stats = LatencyStats(
             p50=_percentile(latencies, 50),
             p95=_percentile(latencies, 95),
@@ -617,7 +615,6 @@ async def benchmark_get_memories_for_entity(
             elapsed_ms = (time.perf_counter() - start) * 1000
             latencies.append(elapsed_ms)
         
-        latencies.sort()
         stats = LatencyStats(
             p50=_percentile(latencies, 50),
             p95=_percentile(latencies, 95),

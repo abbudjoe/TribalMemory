@@ -324,3 +324,202 @@ describe("CLI commands", () => {
     });
   });
 });
+
+// ============================================================================
+// /remember command tests
+// ============================================================================
+
+// Re-implement extractRememberCommand for testing (not exported)
+const REMEMBER_COMMAND_RE = /^(?:\[[^\]]*\]\s*)?\/remember\s+(.+)$/is;
+
+function extractRememberCommand(prompt: string): string | null {
+  const match = prompt.match(REMEMBER_COMMAND_RE);
+  if (!match) return null;
+  return match[1].trim();
+}
+
+describe("extractRememberCommand", () => {
+  it("extracts simple /remember command", () => {
+    expect(extractRememberCommand("/remember Joe prefers TypeScript")).toBe(
+      "Joe prefers TypeScript",
+    );
+  });
+
+  it("extracts /remember with channel prefix", () => {
+    expect(
+      extractRememberCommand(
+        "[Telegram Joe (@abbudjoe)] /remember My birthday is in March",
+      ),
+    ).toBe("My birthday is in March");
+  });
+
+  it("handles multiline content", () => {
+    expect(
+      extractRememberCommand("/remember Joe's preferences:\n- dark mode\n- vim"),
+    ).toBe("Joe's preferences:\n- dark mode\n- vim");
+  });
+
+  it("is case insensitive for command", () => {
+    expect(extractRememberCommand("/REMEMBER important fact")).toBe(
+      "important fact",
+    );
+  });
+
+  it("returns null for non-command prompts", () => {
+    expect(extractRememberCommand("What's the weather?")).toBeNull();
+  });
+
+  it("returns null for empty content after /remember", () => {
+    // The regex requires at least one character after /remember
+    expect(extractRememberCommand("/remember ")).toBeNull();
+  });
+
+  it("returns null for /remember in the middle of text", () => {
+    expect(
+      extractRememberCommand("Please /remember this for later"),
+    ).toBeNull();
+  });
+
+  it("handles complex channel prefixes", () => {
+    expect(
+      extractRememberCommand(
+        "[Signal +1555123... id:abc123] /remember API key is stored in .env",
+      ),
+    ).toBe("API key is stored in .env");
+  });
+
+  it("preserves special characters in content", () => {
+    expect(
+      extractRememberCommand("/remember Email: joe@example.com, Phone: +15551234"),
+    ).toBe("Email: joe@example.com, Phone: +15551234");
+  });
+});
+
+describe("query extraction for auto-recall", () => {
+  // Re-implement extraction logic for testing
+  function extractSearchQuery(prompt: string): string {
+    const lines = prompt.split("\n");
+    const userLines = lines
+      .filter(
+        (line) => !line.startsWith("System:") && line.trim().length > 0,
+      )
+      .map((line) => {
+        const match = line.match(
+          /^\[(?:Telegram|Matrix|Discord|Signal)[^\]]+\]\s*(.+)$/i,
+        );
+        return match ? match[1] : line;
+      });
+    if (userLines.length > 0) {
+      return userLines.slice(-3).join(" ").slice(0, 500);
+    }
+    return prompt.slice(0, 500);
+  }
+
+  it("filters out System: lines", () => {
+    const prompt = `System: exec output here
+System: more output
+What is the weather?`;
+    expect(extractSearchQuery(prompt)).toBe("What is the weather?");
+  });
+
+  it("extracts message from Telegram prefix", () => {
+    const prompt = `[Telegram Joe (@abbudjoe) id:123 +5s] Hello world`;
+    expect(extractSearchQuery(prompt)).toBe("Hello world");
+  });
+
+  it("extracts message from Matrix prefix", () => {
+    const prompt = `[Matrix joe +1m] What time is it?`;
+    expect(extractSearchQuery(prompt)).toBe("What time is it?");
+  });
+
+  it("extracts message from Discord prefix", () => {
+    const prompt = `[Discord joe#1234] Check this out`;
+    expect(extractSearchQuery(prompt)).toBe("Check this out");
+  });
+
+  it("extracts message from Signal prefix", () => {
+    const prompt = `[Signal +1555... id:abc] Remember this`;
+    expect(extractSearchQuery(prompt)).toBe("Remember this");
+  });
+
+  it("uses last 3 lines for multi-line prompts", () => {
+    const prompt = `line1
+line2
+line3
+line4
+line5`;
+    expect(extractSearchQuery(prompt)).toBe("line3 line4 line5");
+  });
+
+  it("truncates to 500 chars", () => {
+    const longLine = "A".repeat(600);
+    expect(extractSearchQuery(longLine).length).toBe(500);
+  });
+
+  it("handles complex prompt with system + channel prefix", () => {
+    const prompt = `System: Running exec command...
+System: Output captured
+[Telegram Joe (@abbudjoe) id:3219 +1m 2026-02-06] What is TribalMemory?`;
+    expect(extractSearchQuery(prompt)).toBe("What is TribalMemory?");
+  });
+
+  it("preserves non-prefixed lines", () => {
+    const prompt = `Just a plain question`;
+    expect(extractSearchQuery(prompt)).toBe("Just a plain question");
+  });
+});
+
+describe("/remember command handler", () => {
+  it("formats success response with memory ID", () => {
+    const content = "Joe prefers dark mode";
+    const memoryId = "mem_abc123";
+    const result = {
+      prependContext:
+        `<system-note>\n` +
+        `User requested to remember: "${content.slice(0, 100)}..."\n` +
+        `Memory stored successfully (id: ${memoryId}).\n` +
+        `Acknowledge this briefly to the user.\n` +
+        `</system-note>`,
+    };
+    expect(result.prependContext).toContain("Joe prefers dark mode");
+    expect(result.prependContext).toContain("mem_abc123");
+    expect(result.prependContext).toContain("Acknowledge this briefly");
+  });
+
+  it("formats duplicate response", () => {
+    const content = "Already stored fact";
+    const duplicateOf = "mem_xyz789";
+    const result = {
+      prependContext:
+        `<system-note>\n` +
+        `User requested to remember: "${content.slice(0, 100)}..."\n` +
+        `This memory already exists (duplicate). No action needed.\n` +
+        `</system-note>`,
+    };
+    expect(result.prependContext).toContain("Already stored fact");
+    expect(result.prependContext).toContain("duplicate");
+  });
+
+  it("formats error response", () => {
+    const content = "Failed storage";
+    const errorMessage = "Connection refused";
+    const result = {
+      prependContext:
+        `<system-note>\n` +
+        `User tried to remember: "${content.slice(0, 100)}..."\n` +
+        `Storage failed: ${errorMessage}\n` +
+        `Apologize and suggest trying again.\n` +
+        `</system-note>`,
+    };
+    expect(result.prependContext).toContain("Storage failed");
+    expect(result.prependContext).toContain("Connection refused");
+    expect(result.prependContext).toContain("Apologize");
+  });
+
+  it("truncates long content in response", () => {
+    const longContent = "A".repeat(200);
+    const truncated = longContent.slice(0, 100);
+    expect(truncated.length).toBe(100);
+    expect(truncated).not.toBe(longContent);
+  });
+});

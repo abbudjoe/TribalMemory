@@ -60,7 +60,7 @@ interface ToolContext {
 
 // Defaults (used when pluginConfig values are missing)
 const DEFAULTS: PluginConfig = {
-  serverUrl: "http://localhost:18790",
+  serverUrl: "http://127.0.0.1:18790",
   autoRecall: true,
   autoCapture: true,
   queryCacheEnabled: true,
@@ -98,6 +98,26 @@ const MEMORY_TRIGGERS = [
 
 const CAPTURE_MIN_LENGTH = 10;
 const CAPTURE_MAX_LENGTH = 500;
+
+// ============================================================================
+// /remember command detection
+// ============================================================================
+
+/**
+ * Regex to detect /remember command.
+ * Handles optional channel prefixes like "[Telegram Joe...] /remember ..."
+ */
+const REMEMBER_COMMAND_RE = /^(?:\[[^\]]*\]\s*)?\/remember\s+(.+)$/is;
+
+/**
+ * Extract content from /remember command if present.
+ * Returns the text to remember, or null if not a /remember command.
+ */
+function extractRememberCommand(prompt: string): string | null {
+  const match = prompt.match(REMEMBER_COMMAND_RE);
+  if (!match) return null;
+  return match[1].trim();
+}
 
 function shouldCapture(text: string): boolean {
   if (text.length < CAPTURE_MIN_LENGTH || text.length > CAPTURE_MAX_LENGTH) {
@@ -809,8 +829,12 @@ const memoryTribalPlugin = {
     // ========================================================================
 
     /**
-     * Auto-recall: inject relevant memories before agent responds.
+     * Handle /remember command and auto-recall.
      *
+     * /remember command: If the prompt starts with /remember (with optional
+     * channel prefix), store the content immediately and inform the agent.
+     *
+     * Auto-recall: inject relevant memories before agent responds.
      * Triggered on every `before_agent_start` event. Searches tribal
      * memory for context relevant to the user's prompt and injects
      * matching memories via `prependContext`. Gated by smart triggers
@@ -820,76 +844,153 @@ const memoryTribalPlugin = {
      * Returns `{ prependContext }` with XML-wrapped memory snippets,
      * or void if no relevant memories are found.
      */
-    if (config.autoRecall) {
-      api.on("before_agent_start", async (event, ctx) => {
-        if (!event.prompt || event.prompt.length < 5) return;
+    api.on("before_agent_start", async (event, ctx) => {
+      if (!event.prompt || event.prompt.length < 5) return;
 
-        // Use actual session key from context; fall back to a unique
-        // per-invocation ID so circuit breaker and token budgets never
-        // bleed across unrelated calls.
-        const sessionId = ctx?.sessionKey ?? `auto-recall-${Date.now()}`;
+      const sessionId = ctx?.sessionKey ?? `hook-${Date.now()}`;
 
+      // ======================================================================
+      // /remember command handler
+      // ======================================================================
+      const rememberContent = extractRememberCommand(event.prompt);
+      if (rememberContent && rememberContent.length > 0) {
         try {
-          // Smart trigger gate
-          if (config.smartTriggerEnabled) {
-            const classification = smartTrigger.classify(event.prompt);
-            if (classification.skip) return;
+          const result = await tribalClient.remember(rememberContent, {
+            sourceType: "user_explicit",
+            context: `User /remember command (session: ${sessionId})`,
+          });
+
+          if (result.duplicateOf) {
+            api.logger.info(
+              `[memory-tribal] /remember: duplicate of ${result.duplicateOf}`,
+            );
+            return {
+              prependContext:
+                `<system-note>\n` +
+                `User requested to remember: "${rememberContent.slice(0, 100)}..."\n` +
+                `This memory already exists (duplicate). No action needed.\n` +
+                `</system-note>`,
+            };
           }
-
-          // Circuit breaker gate
-          if (circuitBreaker.isTripped(sessionId)) return;
-
-          // Search tribal memory
-          let results: MemoryResult[] = [];
-          if (!useBuiltinFallback) {
-            try {
-              results = await tribalClient.search(
-                [event.prompt],
-                { maxResults: 3, minScore: 0.3 },
-              );
-            } catch {
-              api.logger.warn(
-                "[memory-tribal] Auto-recall: server unavailable",
-              );
-              useBuiltinFallback = true;
-            }
-          }
-
-          if (results.length === 0) {
-            circuitBreaker.recordResult(sessionId, 0);
-            return;
-          }
-          circuitBreaker.recordResult(sessionId, results.length);
-
-          // Apply safeguards
-          const turnId = `auto-recall-${Date.now()}`;
-          results = applySafeguards(results, sessionId, turnId);
-
-          if (results.length === 0) return;
-
-          const memoryContext = results
-            .map(r => `- ${r.snippet ?? r.text ?? ""}`)
-            .join("\n");
 
           api.logger.info(
-            `[memory-tribal] Injecting ${results.length} memories ` +
-            `into context`,
+            `[memory-tribal] /remember: stored ${result.memoryId}: ` +
+            `"${rememberContent.slice(0, 60)}..."`,
           );
-
           return {
             prependContext:
-              `<relevant-memories>\n` +
-              `The following memories may be relevant:\n` +
-              `${memoryContext}\n` +
-              `</relevant-memories>`,
+              `<system-note>\n` +
+              `User requested to remember: "${rememberContent.slice(0, 100)}..."\n` +
+              `Memory stored successfully (id: ${result.memoryId}).\n` +
+              `Acknowledge this briefly to the user.\n` +
+              `</system-note>`,
           };
-        } catch (err) {
+        } catch (err: any) {
           api.logger.warn(
-            `[memory-tribal] Auto-recall failed: ${String(err)}`,
+            `[memory-tribal] /remember failed: ${err.message}`,
           );
+          return {
+            prependContext:
+              `<system-note>\n` +
+              `User tried to remember: "${rememberContent.slice(0, 100)}..."\n` +
+              `Storage failed: ${err.message}\n` +
+              `Apologize and suggest trying again.\n` +
+              `</system-note>`,
+          };
         }
-      });
-    }
+      }
+
+      // ======================================================================
+      // Auto-recall (only if autoRecall is enabled)
+      // ======================================================================
+      if (!config.autoRecall) return;
+
+      // Extract search query from prompt (filter system messages, extract
+      // from channel prefixes)
+      let searchQuery = event.prompt;
+      const lines = event.prompt.split("\n");
+      const userLines = lines
+        .filter(
+          (line) => !line.startsWith("System:") && line.trim().length > 0,
+        )
+        .map((line) => {
+          // Extract message content from channel prefixes like:
+          // [Telegram Joe (@abbudjoe) id:123 ...] actual message
+          const match = line.match(
+            /^\[(?:Telegram|Matrix|Discord|Signal)[^\]]+\]\s*(.+)$/i,
+          );
+          return match ? match[1] : line;
+        });
+      if (userLines.length > 0) {
+        // Use last few non-system lines, max 500 chars
+        searchQuery = userLines.slice(-3).join(" ").slice(0, 500);
+      } else {
+        // Fallback: truncate to 500 chars
+        searchQuery = event.prompt.slice(0, 500);
+      }
+
+      if (searchQuery.length < 5) return;
+
+      try {
+        // Smart trigger gate
+        if (config.smartTriggerEnabled) {
+          const classification = smartTrigger.classify(searchQuery);
+          if (classification.skip) return;
+        }
+
+        // Circuit breaker gate
+        if (circuitBreaker.isTripped(sessionId)) return;
+
+        // Search tribal memory
+        let results: MemoryResult[] = [];
+        if (!useBuiltinFallback) {
+          try {
+            results = await tribalClient.search(
+              [searchQuery],
+              { maxResults: 3, minScore: 0.3 },
+            );
+          } catch {
+            api.logger.warn(
+              "[memory-tribal] Auto-recall: server unavailable",
+            );
+            useBuiltinFallback = true;
+          }
+        }
+
+        if (results.length === 0) {
+          circuitBreaker.recordResult(sessionId, 0);
+          return;
+        }
+        circuitBreaker.recordResult(sessionId, results.length);
+
+        // Apply safeguards
+        const turnId = `auto-recall-${Date.now()}`;
+        results = applySafeguards(results, sessionId, turnId);
+
+        if (results.length === 0) return;
+
+        const memoryContext = results
+          .map(r => `- ${r.snippet ?? r.text ?? ""}`)
+          .join("\n");
+
+        api.logger.info(
+          `[memory-tribal] Injecting ${results.length} memories ` +
+          `into context`,
+        );
+
+        return {
+          prependContext:
+            `<relevant-memories>\n` +
+            `The following memories may be relevant:\n` +
+            `${memoryContext}\n` +
+            `</relevant-memories>`,
+        };
+      } catch (err) {
+        api.logger.warn(
+          `[memory-tribal] Auto-recall failed: ${String(err)}`,
+        );
+      }
+    });
 
     /**
      * Auto-capture: store learnings after agent turns.

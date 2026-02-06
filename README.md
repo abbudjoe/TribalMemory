@@ -212,7 +212,25 @@ db:
 server:
   host: 127.0.0.1
   port: 18790
+
+search:
+  lazy_spacy: true                 # 70x faster ingest (default: true)
 ```
+
+### Entity Extraction (Optional)
+
+For better recall on personal conversations (finding people, places, dates), install spaCy:
+
+```bash
+pip install tribalmemory[spacy]
+python -m spacy download en_core_web_sm
+```
+
+With **lazy spaCy** (default), entity extraction is blazing fast:
+- **Ingest**: Uses fast regex patterns (~2-3 seconds per conversation)
+- **Recall**: Runs spaCy NER once on your query for accurate entity matching
+
+This gives you the best of both worlds — fast ingestion AND accurate retrieval for personal conversations.
 
 ### Environment Variables
 

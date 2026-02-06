@@ -275,6 +275,16 @@ try:
 except ImportError:
     SPACY_AVAILABLE = False
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Common person titles to strip for better entity matching
+PERSON_TITLES = {
+    'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss',
+    'prof', 'prof.', 'professor', 'sir', 'madam', 'rev', 'rev.',
+}
+
 
 class SpacyEntityExtractor:
     """Entity extractor using spaCy NER for personal conversations.
@@ -335,11 +345,25 @@ class SpacyEntityExtractor:
                 f"Download with: python -m spacy download {model_name}"
             )
     
-    def extract(self, text: str) -> list[Entity]:
+    def _normalize_person_name(self, name: str) -> str:
+        """Strip common titles from person names for better matching.
+        
+        Args:
+            name: Raw person name (e.g., "Dr. Thompson").
+            
+        Returns:
+            Normalized name (e.g., "Thompson").
+        """
+        parts = name.split()
+        if len(parts) > 1 and parts[0].lower().rstrip('.') in PERSON_TITLES:
+            return ' '.join(parts[1:])
+        return name
+
+    def extract(self, text: Optional[str]) -> list[Entity]:
         """Extract named entities from text using spaCy NER.
         
         Args:
-            text: Input text to extract entities from.
+            text: Input text to extract entities from (can be None).
             
         Returns:
             List of extracted Entity objects.
@@ -357,6 +381,11 @@ class SpacyEntityExtractor:
             
             # Normalize entity text
             name = ent.text.strip()
+            
+            # Strip titles from person names for better entity matching
+            if ent.label_ == 'PERSON':
+                name = self._normalize_person_name(name)
+            
             if len(name) < MIN_ENTITY_NAME_LENGTH:
                 continue
             
@@ -415,20 +444,23 @@ class HybridEntityExtractor:
         if use_spacy and SPACY_AVAILABLE:
             try:
                 self._spacy_extractor = SpacyEntityExtractor(spacy_model)
-            except (ImportError, OSError):
-                # Fall back to regex-only
-                pass
+            except (ImportError, OSError) as e:
+                # Fall back to regex-only with warning
+                logger.warning(
+                    "spaCy extraction unavailable (%s), falling back to regex-only: %s",
+                    type(e).__name__, e
+                )
     
     @property
     def has_spacy(self) -> bool:
         """Whether spaCy extraction is available."""
         return self._spacy_extractor is not None
     
-    def extract(self, text: str) -> list[Entity]:
+    def extract(self, text: Optional[str]) -> list[Entity]:
         """Extract entities using both regex and spaCy.
         
         Args:
-            text: Input text to extract entities from.
+            text: Input text to extract entities from (can be None).
             
         Returns:
             Combined, deduplicated list of entities from both extractors.

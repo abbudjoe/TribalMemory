@@ -270,7 +270,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         if mcp_command == "tribalmemory-mcp":
             print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
             print("   Claude Desktop needs the absolute path to the binary.")
-            print("   The config will be written, but you may need to reinstall.")
+            print("   After installing with pipx/uv, run: tribalmemory init --claude-desktop --force")
             print()
 
     # Create config directory

@@ -26,7 +26,7 @@ Tribal Memory is a shared memory server that any AI agent can connect to via [MC
 ## Install
 
 ```bash
-pip install tribalmemory[fastembed]    # or: uv tool install tribalmemory[fastembed]
+pip install tribalmemory    # or: uv tool install tribalmemory
 ```
 
 ---
@@ -36,7 +36,7 @@ pip install tribalmemory[fastembed]    # or: uv tool install tribalmemory[fastem
 **Zero cloud. Zero API keys. Everything runs locally.**
 
 ```bash
-pip install tribalmemory[fastembed]
+pip install tribalmemory
 tribalmemory init
 tribalmemory serve
 ```

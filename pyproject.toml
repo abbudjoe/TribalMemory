@@ -7,7 +7,7 @@ where = ["src"]
 
 [project]
 name = "tribalmemory"
-version = "0.6.0"
+version = "0.6.1"
 description = "Shared memory infrastructure for multi-instance AI agents"
 readme = "README.md"
 license = {text = "BSL-1.1"}
@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "openai>=1.0.0",
+    "fastembed>=0.3.0",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
     "httpx>=0.25.0",
@@ -59,9 +59,7 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
-fastembed = [
-    "fastembed>=0.3.0",
-]
+# fastembed is now a core dependency (v0.6.1+)
 spacy = [
     "spacy>=3.7.0",
 ]

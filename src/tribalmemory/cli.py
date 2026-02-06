@@ -3,7 +3,6 @@
 Usage:
     tribalmemory init               # FastEmbed (default, zero cloud)
     tribalmemory init --openai      # OpenAI embeddings (prompts for key)
-    tribalmemory init --ollama      # Ollama local embeddings
     tribalmemory serve              # Start the HTTP server
     tribalmemory mcp                # Start the MCP server (stdio)
 """
@@ -113,29 +112,6 @@ server:
   host: 127.0.0.1
   port: 18790
 {auto_capture_line}"""
-
-OLLAMA_CONFIG_TEMPLATE = """\
-# Tribal Memory Configuration — Ollama (Local Embeddings)
-# Uses Ollama for embeddings — no API keys needed!
-# Docs: https://github.com/abbudjoe/TribalMemory
-
-instance_id: {instance_id}
-
-embedding:
-  provider: openai          # Uses OpenAI-compatible API
-  model: nomic-embed-text   # Run: ollama pull nomic-embed-text
-  api_base: http://localhost:11434/v1
-  dimensions: 768
-
-db:
-  provider: lancedb
-  path: {db_path}
-
-server:
-  host: 127.0.0.1
-  port: 18790
-{auto_capture_line}"""
-
 
 def _write_env_file(key: str, value: str) -> None:
     """Write or update a key in ~/.tribal-memory/.env.
@@ -272,7 +248,7 @@ def _auto_install_fastembed() -> bool:
             print()
             print("   To install manually:")
             _print_manual_install_hint()
-            print("   Or use --openai or --ollama instead.")
+            print("   Or use --openai instead.")
             return False
     else:
         print("   Auto-installing (non-interactive)...")
@@ -301,12 +277,9 @@ def _detect_provider(args: argparse.Namespace) -> str:
     """Determine which embedding provider to use.
 
     Priority: explicit flags > default (fastembed).
-    ``--local`` is a deprecated alias for ``--ollama``.
     """
     if args.openai:
         return "openai"
-    if args.ollama or args.local:
-        return "ollama"
     # --fastembed or no flag → fastembed (default)
     return "fastembed"
 
@@ -352,7 +325,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         auto_capture_line = "\nauto_capture: true\n"
 
     provider = _detect_provider(args)
-    no_api_key = provider in ("fastembed", "ollama")
+    no_api_key = provider == "fastembed"
 
     # Validate FastEmbed is installed — auto-install if missing
     if provider == "fastembed":
@@ -366,12 +339,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     if provider == "openai":
         api_key = _prompt_api_key()
         config_content = OPENAI_CONFIG_TEMPLATE.format(
-            instance_id=instance_id,
-            db_path=db_path,
-            auto_capture_line=auto_capture_line,
-        )
-    elif provider == "ollama":
-        config_content = OLLAMA_CONFIG_TEMPLATE.format(
             instance_id=instance_id,
             db_path=db_path,
             auto_capture_line=auto_capture_line,
@@ -402,12 +369,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         print()
         print("📦 FastEmbed — local ONNX embeddings, zero cloud.")
         print("   First run downloads a ~130MB model, then it's instant.")
-    elif provider == "ollama":
-        print()
-        print("📦 Ollama — make sure Ollama is running:")
-        print("   curl -fsSL https://ollama.com/install.sh | sh")
-        print("   ollama pull nomic-embed-text")
-        print("   ollama serve  # if not already running")
     else:
         print()
         print("🔑 OpenAI — ready to go.")
@@ -458,7 +419,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         print()
         print("📌 Other embedding providers:")
         print("   tribalmemory init --openai --force   # OpenAI embeddings")
-        print("   tribalmemory init --ollama --force   # Ollama local embeddings")
 
     return 0
 
@@ -732,12 +692,6 @@ def main() -> None:
     provider_group.add_argument(
         "--openai", action="store_true",
         help="Use OpenAI embeddings (prompts for API key)")
-    provider_group.add_argument(
-        "--ollama", action="store_true",
-        help="Use Ollama local embeddings (no API key needed)")
-    provider_group.add_argument(
-        "--local", action="store_true",
-        help=argparse.SUPPRESS)  # deprecated alias for --ollama
     init_parser.add_argument("--claude-code", action="store_true",
                              help="Configure Claude Code CLI MCP integration")
     init_parser.add_argument("--claude-desktop", action="store_true",

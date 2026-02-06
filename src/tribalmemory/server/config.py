@@ -19,13 +19,6 @@ class EmbeddingConfig:
         model: text-embedding-3-small
         dimensions: 1536
         api_key: <your-api-key>
-    
-    For local Ollama embeddings:
-        provider: openai  # Ollama exposes OpenAI-compatible API
-        api_base: http://localhost:11434/v1
-        model: nomic-embed-text
-        dimensions: 768
-        # api_key not needed for local models
     """
     provider: str = "fastembed"
     model: str = "BAAI/bge-small-en-v1.5"

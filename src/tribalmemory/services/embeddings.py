@@ -17,25 +17,17 @@ from ..utils import normalize_embedding
 class OpenAIEmbeddingService(IEmbeddingService):
     """OpenAI-compatible embedding service.
     
-    Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
+    Supports OpenAI and any OpenAI-compatible embedding API.
     
     Features:
     - Async HTTP calls with retry logic
     - Batch embedding support
     - Rate limiting awareness
     - Configurable model, dimensions, and API base URL
-    - Local-only mode (Ollama) — no API key needed
     
     Usage:
         # OpenAI
         service = OpenAIEmbeddingService(api_key="sk-...")
-        
-        # Ollama (local)
-        service = OpenAIEmbeddingService(
-            api_base="http://localhost:11434/v1",
-            model="nomic-embed-text",
-            dimensions=768,
-        )
     """
     
     DEFAULT_MODEL = "text-embedding-3-small"
@@ -56,11 +48,8 @@ class OpenAIEmbeddingService(IEmbeddingService):
     ):
         """Initialize OpenAI-compatible embedding service.
         
-        Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
-        
         Args:
             api_key: API key. Falls back to OPENAI_API_KEY env var.
-                     Not required when api_base points to a local service (e.g., Ollama).
             model: Embedding model to use.
             dimensions: Output embedding dimensions.
             max_retries: Max retry attempts on transient failures.
@@ -68,8 +57,6 @@ class OpenAIEmbeddingService(IEmbeddingService):
             backoff_base: Base for exponential backoff (default 2.0).
             backoff_max: Maximum backoff delay in seconds (default 60.0).
             api_base: Base URL for the embedding API. Defaults to OpenAI.
-                      For Ollama: "http://localhost:11434/v1"
-                      For any OpenAI-compatible API: "http://host:port/v1"
         
         Security Note:
             API keys are stored in memory and used in HTTP headers. Never log
@@ -102,7 +89,7 @@ class OpenAIEmbeddingService(IEmbeddingService):
                     "OpenAI API key required. Pass api_key "
                     "or set OPENAI_API_KEY env var."
                 )
-            # Use a placeholder for local services (e.g., Ollama)
+            # Use a placeholder for local services
             self.api_key = self.LOCAL_API_KEY_PLACEHOLDER
         
         self.model = model

@@ -777,7 +777,7 @@ def _create_embedding_service(
     Args:
         provider: "openai" or "fastembed".
         api_key: API key (OpenAI only).
-        api_base: API base URL (OpenAI/Ollama only).
+        api_base: API base URL (OpenAI only).
         model: Model name override.
         dimensions: Embedding dimensions override.
 
@@ -848,8 +848,7 @@ def create_memory_service(
         openai_api_key: API key. Falls back to OPENAI_API_KEY env var.
             Not required for local models (when api_base is set)
             or when using fastembed provider.
-        api_base: Base URL for the embedding API.
-            For Ollama: "http://localhost:11434/v1"
+        api_base: Base URL for the embedding API (OpenAI only).
         embedding_model: Embedding model name.
             OpenAI default: "text-embedding-3-small".
             FastEmbed default: "BAAI/bge-small-en-v1.5".

@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `install.sh` script for one-line installation
 - Clearer error handling for missing dependencies
 
+### Removed
+
+- **Ollama embedding provider** — Use FastEmbed instead (simpler, no extra service needed)
+- `--ollama` and `--local` CLI flags removed from `tribalmemory init`
+
 ## [0.5.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.5.1/))
 
 ### Added

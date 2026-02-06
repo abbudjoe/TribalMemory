@@ -23,8 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **Ollama embedding provider** — Use FastEmbed instead (simpler, no extra service needed)
-- `--ollama` and `--local` CLI flags removed from `tribalmemory init`
+- **OpenAI embedding support** — FastEmbed is now the only embedding provider
+- **Ollama embedding support** — FastEmbed handles local embeddings
+- `--openai`, `--ollama`, `--fastembed`, and `--local` CLI flags removed
+- `OpenAIEmbeddingService` class removed
+- `a21/` experimental directory removed
+- API key parameters removed from `create_memory_service()`
 
 ## [0.5.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.5.1/))
 

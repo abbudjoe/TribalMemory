@@ -766,70 +766,41 @@ class TribalMemoryService(IMemoryService):
 
 
 def _create_embedding_service(
-    provider: str = "openai",
-    api_key: Optional[str] = None,
-    api_base: Optional[str] = None,
     model: Optional[str] = None,
     dimensions: Optional[int] = None,
 ) -> "IEmbeddingService":
-    """Create an embedding service for the given provider.
+    """Create a FastEmbed embedding service.
 
     Args:
-        provider: "openai" or "fastembed".
-        api_key: API key (OpenAI only).
-        api_base: API base URL (OpenAI only).
-        model: Model name override.
-        dimensions: Embedding dimensions override.
+        model: Model name override (default: BAAI/bge-small-en-v1.5).
+        dimensions: Embedding dimensions override (default: 384).
 
     Returns:
-        An IEmbeddingService implementation.
+        A FastEmbedService instance.
 
     Raises:
-        ValueError: If provider is unknown.
         ImportError: If fastembed is not installed.
     """
-    if provider == "fastembed":
-        try:
-            from .fastembed_service import FastEmbedService
-        except ImportError as e:
-            raise ImportError(
-                "FastEmbed provider requires the fastembed package. "
-                "Install with: pip install 'tribalmemory[fastembed]'"
-            ) from e
+    try:
+        from .fastembed_service import FastEmbedService
+    except ImportError as e:
+        raise ImportError(
+            "FastEmbed is required. Install with: pip install tribalmemory[fastembed]"
+        ) from e
 
-        kwargs: dict = {}
-        if model is not None:
-            kwargs["model"] = model
-        if dimensions is not None:
-            kwargs["dimensions"] = dimensions
-        return FastEmbedService(**kwargs)
-
-    if provider == "openai":
-        from .embeddings import OpenAIEmbeddingService
-
-        kwargs = {"api_key": api_key}
-        if api_base is not None:
-            kwargs["api_base"] = api_base
-        if model is not None:
-            kwargs["model"] = model
-        if dimensions is not None:
-            kwargs["dimensions"] = dimensions
-        return OpenAIEmbeddingService(**kwargs)
-
-    raise ValueError(
-        f"Unknown embedding provider: {provider!r}. "
-        f"Valid options: 'openai', 'fastembed'"
-    )
+    kwargs: dict = {}
+    if model is not None:
+        kwargs["model"] = model
+    if dimensions is not None:
+        kwargs["dimensions"] = dimensions
+    return FastEmbedService(**kwargs)
 
 
 def create_memory_service(
     instance_id: Optional[str] = None,
     db_path: Optional[str] = None,
-    openai_api_key: Optional[str] = None,
-    api_base: Optional[str] = None,
     embedding_model: Optional[str] = None,
     embedding_dimensions: Optional[int] = None,
-    embedding_provider: str = "openai",
     hybrid_search: bool = True,
     hybrid_vector_weight: float = 0.7,
     hybrid_text_weight: float = 0.3,
@@ -845,17 +816,8 @@ def create_memory_service(
     Args:
         instance_id: Unique identifier for this agent instance.
         db_path: Path for LanceDB persistent storage. If None, uses in-memory.
-        openai_api_key: API key. Falls back to OPENAI_API_KEY env var.
-            Not required for local models (when api_base is set)
-            or when using fastembed provider.
-        api_base: Base URL for the embedding API (OpenAI only).
-        embedding_model: Embedding model name.
-            OpenAI default: "text-embedding-3-small".
-            FastEmbed default: "BAAI/bge-small-en-v1.5".
-        embedding_dimensions: Embedding output dimensions.
-            OpenAI default: 1536.  FastEmbed default: 384.
-        embedding_provider: Embedding provider: "openai", "fastembed"
-            (default: "openai").
+        embedding_model: Embedding model name (default: BAAI/bge-small-en-v1.5).
+        embedding_dimensions: Embedding output dimensions (default: 384).
         hybrid_search: Enable BM25 hybrid search (default: True).
         hybrid_vector_weight: Weight for vector similarity (default: 0.7).
         hybrid_text_weight: Weight for BM25 text score (default: 0.3).
@@ -882,7 +844,6 @@ def create_memory_service(
     """
     import logging
     
-    from .embeddings import OpenAIEmbeddingService
     from .vector_store import InMemoryVectorStore, LanceDBVectorStore
     
     logger = logging.getLogger(__name__)
@@ -893,9 +854,6 @@ def create_memory_service(
         )
     
     embedding_service = _create_embedding_service(
-        provider=embedding_provider,
-        api_key=openai_api_key,
-        api_base=api_base,
         model=embedding_model,
         dimensions=embedding_dimensions,
     )

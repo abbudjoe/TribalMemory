@@ -12,26 +12,12 @@ import yaml
 class EmbeddingConfig:
     """Embedding service configuration.
     
-    Default: FastEmbed (local, zero cloud, zero cost).
-    
-    For OpenAI embeddings:
-        provider: openai
-        model: text-embedding-3-small
-        dimensions: 1536
-        api_key: <your-api-key>
+    Uses FastEmbed for local, zero-cloud embeddings.
+    Model: BAAI/bge-small-en-v1.5 (384 dimensions).
     """
     provider: str = "fastembed"
     model: str = "BAAI/bge-small-en-v1.5"
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
     dimensions: int = 384
-
-    def __post_init__(self):
-        # Resolve from environment if not set
-        if self.api_key is None:
-            self.api_key = os.environ.get("OPENAI_API_KEY")
-        if self.api_base is None:
-            self.api_base = os.environ.get("TRIBAL_MEMORY_EMBEDDING_API_BASE")
 
 
 @dataclass
@@ -142,20 +128,6 @@ class TribalMemoryConfig:
     def validate(self) -> list[str]:
         """Validate configuration, return list of errors."""
         errors = []
-
-        # FastEmbed doesn't need an API key at all
-        if self.embedding.provider != "fastembed":
-            # api_key is only required for OpenAI (no custom api_base)
-            api_base = (self.embedding.api_base or "").strip()
-            is_local = (
-                api_base != ""
-                and "api.openai.com" not in api_base.lower()
-            )
-            if not self.embedding.api_key and not is_local:
-                errors.append(
-                    "embedding.api_key is required "
-                    "(or set OPENAI_API_KEY)"
-                )
 
         if not self.instance_id:
             errors.append("instance_id is required")

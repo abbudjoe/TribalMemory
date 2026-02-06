@@ -14,7 +14,7 @@ def test_config():
     return TribalMemoryConfig(
         instance_id="test-instance",
         db=DatabaseConfig(path=":memory:"),
-        embedding=EmbeddingConfig(api_key="test-key"),
+        embedding=EmbeddingConfig(),
     )
 
 

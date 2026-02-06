@@ -269,7 +269,7 @@ async def export_memories_route(
                 getattr(emb, "model_name", "unknown"),
             ),
             dimensions=getattr(emb, "dimensions", 1536),
-            provider=getattr(emb, "provider_name", "openai"),
+            provider=getattr(emb, "provider_name", "fastembed"),
         )
 
         flt = None
@@ -339,7 +339,7 @@ async def import_memories_route(
             getattr(emb, "model_name", "unknown"),
         ),
         dimensions=getattr(emb, "dimensions", 1536),
-        provider=getattr(emb, "provider_name", "openai"),
+        provider=getattr(emb, "provider_name", "fastembed"),
     )
 
     cr_map = {

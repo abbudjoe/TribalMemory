@@ -19,8 +19,6 @@ from tribalmemory.cli import (
 class FakeArgs:
     """Fake argparse namespace."""
     def __init__(self, **kwargs):
-        self.fastembed = kwargs.get("fastembed", False)
-        self.openai = kwargs.get("openai", False)
         self.claude_code = kwargs.get("claude_code", False)
         self.claude_desktop = kwargs.get("claude_desktop", False)
         self.codex = kwargs.get("codex", False)
@@ -68,46 +66,6 @@ class TestInitCommand:
         content = (cli_env / ".tribal-memory" / "config.yaml").read_text()
         assert "provider: fastembed" in content
         assert "BAAI/bge-small-en-v1.5" in content
-
-    def test_init_openai_prompts_for_key(self, cli_env, monkeypatch):
-        """init --openai should prompt for key and write to .env, not config."""
-        monkeypatch.setattr("builtins.input", lambda _: "sk-test-key-123")
-        monkeypatch.setattr("sys.stdin", type("FakeTTY", (), {"isatty": lambda s: True})())
-
-        result = cmd_init(FakeArgs(openai=True))
-
-        assert result == 0
-        # Config should NOT contain the API key
-        config = (cli_env / ".tribal-memory" / "config.yaml").read_text()
-        assert "provider: openai" in config
-        assert "text-embedding-3-small" in config
-        assert "sk-test-key-123" not in config
-        # .env should contain the key with 600 permissions
-        env_path = cli_env / ".tribal-memory" / ".env"
-        assert env_path.exists()
-        assert "sk-test-key-123" in env_path.read_text()
-        assert (env_path.stat().st_mode & 0o777) == 0o600
-
-    def test_init_openai_uses_env_key_non_interactive(self, cli_env, monkeypatch):
-        """init --openai should use OPENAI_API_KEY env var in non-interactive mode."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key-456")
-        monkeypatch.setattr("sys.stdin", type("FakeNonTTY", (), {"isatty": lambda s: False})())
-
-        result = cmd_init(FakeArgs(openai=True))
-
-        assert result == 0
-        env_path = cli_env / ".tribal-memory" / ".env"
-        assert "sk-env-key-456" in env_path.read_text()
-
-    def test_init_openai_fails_without_key_non_interactive(
-        self, cli_env, monkeypatch
-    ):
-        """init --openai should fail when no key and no TTY."""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setattr("sys.stdin", type("FakeNonTTY", (), {"isatty": lambda s: False})())
-
-        with pytest.raises(SystemExit):
-            cmd_init(FakeArgs(openai=True))
 
     def test_init_fastembed_install_declined(
         self, cli_env, monkeypatch

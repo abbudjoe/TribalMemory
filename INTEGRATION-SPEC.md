@@ -377,7 +377,6 @@ After=network.target
 Type=simple
 ExecStart=/home/clawdio/clawd/projects/tribal-memory/.venv/bin/python -m tribal_memory.server
 Restart=on-failure
-Environment=OPENAI_API_KEY=${OPENAI_API_KEY}
 
 [Install]
 WantedBy=default.target

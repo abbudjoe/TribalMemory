@@ -6,7 +6,7 @@ Shared memory infrastructure for multi-instance AI agents. Enables accumulated l
 ## Tech Stack
 - Python 3.10+
 - pytest + pytest-asyncio for testing
-- OpenAI embeddings (text-embedding-3-small)
+- FastEmbed embeddings (BAAI/bge-small-en-v1.5, 384 dims)
 - MCP server for Claude Code integration
 - TypeScript extensions for learned retrieval
 
@@ -82,13 +82,13 @@ TribalMemory/
 │   ├── interfaces.py      # Core interfaces
 │   ├── utils.py           # Shared utilities
 │   ├── services/          # Service implementations
-│   │   ├── embeddings.py  # OpenAI embedding service
-│   │   └── memory.py      # Memory service
+│   │   ├── fastembed_service.py  # FastEmbed embedding service
+│   │   ├── memory.py      # Memory service
+│   │   ├── graph_store.py # Entity/relationship graph
+│   │   └── vector_store.py # LanceDB vector store
 │   ├── mcp/               # MCP server
 │   │   └── server.py      # FastMCP server implementation
-│   ├── a21/               # A21 system integration
-│   │   └── providers/     # Embedding providers
-│   └── server/            # Server configuration
+│   └── server/            # HTTP server configuration
 ├── extensions/
 │   └── memory-tribal/     # TypeScript learned retrieval layer
 ├── tests/

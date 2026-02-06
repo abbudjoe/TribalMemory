@@ -1,13 +1,10 @@
 # Tribal Memory — Docker Compose
 #
 # Usage:
-#   With OpenAI:
-#     OPENAI_API_KEY=sk-... docker compose up
-#
-#   With local Ollama:
-#     docker compose --profile local up
+#   docker compose up
 #
 # Data persists in ./tribal-memory-data/
+# FastEmbed downloads models to the container on first run (~130MB)
 
 services:
   tribal-memory:
@@ -18,19 +15,5 @@ services:
       - ./tribal-memory-data:/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TRIBAL_MEMORY_INSTANCE_ID=${TRIBAL_MEMORY_INSTANCE_ID:-docker}
     restart: unless-stopped
-
-  # Optional: local Ollama for zero-cloud embeddings
-  ollama:
-    image: ollama/ollama:latest
-    profiles: ["local"]
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    restart: unless-stopped
-
-volumes:
-  ollama-data:

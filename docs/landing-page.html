@@ -88,6 +88,7 @@ section { padding: 120px 0; position: relative; }
   width: 100%;
   height: 100%;
   display: block;
+  will-change: transform;
 }
 
 .hero-overlay {
@@ -738,6 +739,11 @@ function drawSynapses(now) {
 // Particles array
 let particles = [];
 
+// Sample array to reduce particle count (keep 75%)
+function sampleArray(arr, ratio = 0.75) {
+  return arr.filter(() => Math.random() < ratio);
+}
+
 function buildParticles() {
   const artCenterY = CH * 0.43;
 
@@ -750,7 +756,12 @@ function buildParticles() {
   const wordPx = toPixel(wordArt.pts, wordArt.cw, wordArt.ch_, artCenterY);
 
   // Match brain to word
-  const { pairs, unSrc: brainOnly, unTgt: wordOnly } = matchPoints(brainPx, wordPx);
+  let { pairs, unSrc: brainOnly, unTgt: wordOnly } = matchPoints(brainPx, wordPx);
+  
+  // Reduce particle count by 25% for performance
+  pairs = sampleArray(pairs);
+  brainOnly = sampleArray(brainOnly);
+  wordOnly = sampleArray(wordOnly);
 
   particles = [];
 
@@ -799,8 +810,8 @@ function buildParticles() {
     });
   }
 
-  // Cloud-only decorative particles
-  const CLOUD_EXTRAS = 350;
+  // Cloud-only decorative particles (reduced 25% for performance)
+  const CLOUD_EXTRAS = 263;
   for (let i = 0; i < CLOUD_EXTRAS; i++) {
     particles.push({
       cloudX: Math.random() * CW, cloudY: Math.random() * CH,

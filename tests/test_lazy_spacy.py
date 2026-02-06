@@ -211,12 +211,12 @@ class TestExtractorBehavior:
         )
         
         names = [e.name for e in entities]
-        # Should find personal names via spaCy
-        # and tech patterns via regex
+        # Should find personal names via spaCy and/or tech patterns via regex
         has_person = "Sarah" in names
         has_tech = "user-service" in names or "api-gateway" in names
-        # At least one of each type should be found
-        assert has_person or has_tech  # Hybrid should find something
+        # Lenient assertion: spaCy models may behave differently across versions
+        # Hybrid should find at least one entity type
+        assert has_person or has_tech, f"Hybrid found no entities in: {names}"
 
 
 class TestConfigIntegration:

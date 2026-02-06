@@ -149,6 +149,15 @@ openclaw plugins install ./extensions/memory-tribal
 openclaw config set plugins.slots.memory=memory-tribal
 ```
 
+**How memories are saved:**
+- **Automatically** — Memories are captured when the agent responds (preferences, decisions, key facts)
+- **On demand** — Use `/remember <thing to remember>` for immediate storage
+
+```
+/remember Joe's birthday is March 15
+/remember Always use TypeScript for new projects
+```
+
 ### Cloud Setup (Coming Soon)
 
 A hosted Tribal Memory service for teams — no server management, automatic syncing across machines. [Star the repo](https://github.com/abbudjoe/TribalMemory) for updates.

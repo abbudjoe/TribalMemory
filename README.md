@@ -11,7 +11,7 @@ One memory store, many agents. Teach Claude Code something — Codex already kno
 </p>
 
 [![PyPI](https://img.shields.io/pypi/v/tribalmemory)](https://pypi.org/project/tribalmemory/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE)
 
 ---
 
@@ -394,4 +394,4 @@ black --check .
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE)
+Business Source License 1.1 — see [LICENSE](LICENSE)

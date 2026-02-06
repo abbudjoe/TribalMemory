@@ -391,7 +391,7 @@ Current maintainers:
 
 ## License
 
-By contributing to TribalMemory, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+By contributing to TribalMemory, you agree that your contributions will be licensed under the [Business Source License 1.1](LICENSE).
 
 ---
 

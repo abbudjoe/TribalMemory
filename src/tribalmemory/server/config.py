@@ -66,6 +66,8 @@ class SearchConfig:
     recency_decay_days: float = 30.0  # Half-life for recency boost
     tag_boost_weight: float = 0.1  # Weight for tag match boost
     rerank_pool_multiplier: int = 2  # How many candidates to give reranker (N * limit)
+    # Entity extraction configuration
+    lazy_spacy: bool = True  # Use fast regex on ingest, spaCy only on recall queries
 
     def __post_init__(self):
         if self.vector_weight < 0:

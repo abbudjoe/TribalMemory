@@ -44,7 +44,6 @@ Look for issues labeled [`good first issue`](https://github.com/abbudjoe/TribalM
 
 - Python 3.10 or higher
 - Git
-- An OpenAI API key (for embedding tests)
 
 ### Installation
 
@@ -68,13 +67,7 @@ Look for issues labeled [`good first issue`](https://github.com/abbudjoe/TribalM
    pip install -e ".[dev]"
    ```
 
-4. **Set up environment variables:**
-
-   ```bash
-   export OPENAI_API_KEY="your-api-key"
-   ```
-
-5. **Verify the installation:**
+4. **Verify the installation:**
 
    ```bash
    pytest tests/test_tier1_functional.py -v

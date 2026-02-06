@@ -32,7 +32,7 @@ Current RAG retrieval fails because:
 │  IVectorStore (LanceDB)                                  │
 │    └── Pure cosine similarity on embeddings              │
 │                                                          │
-│  IEmbedding (OpenAI text-embedding-3-small)              │
+│  IEmbedding (FastEmbed BAAI/bge-small-en-v1.5)           │
 │    └── Static embeddings, no feedback                    │
 └─────────────────────────────────────────────────────────┘
 ```

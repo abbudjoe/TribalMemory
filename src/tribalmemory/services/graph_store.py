@@ -14,6 +14,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+import logging
 
 # Constants
 MIN_ENTITY_NAME_LENGTH = 3
@@ -274,8 +275,6 @@ try:
     SPACY_AVAILABLE = True
 except ImportError:
     SPACY_AVAILABLE = False
-
-import logging
 
 logger = logging.getLogger(__name__)
 

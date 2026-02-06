@@ -110,7 +110,7 @@ class TestFailureModes:
         corrupted = MemoryEntry(
             id="corrupted-1",
             content="Memory with bad embedding",
-            embedding=[0.0] * 1536,  # Zero vector
+            embedding=[0.0] * 384,  # Zero vector
             source_instance="test",
             source_type=MemorySource.AUTO_CAPTURE
         )

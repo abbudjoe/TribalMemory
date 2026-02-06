@@ -5,36 +5,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from tribalmemory.interfaces import MemorySource, MemoryEntry, RecallResult
-from tribalmemory.services.embeddings import OpenAIEmbeddingService
 from tribalmemory.utils import normalize_embedding
 from tribalmemory.services.vector_store import InMemoryVectorStore
 from tribalmemory.services.deduplication import SemanticDeduplicationService
 from tribalmemory.services.memory import TribalMemoryService, create_memory_service
 
 
-class TestOpenAIEmbeddingService:
-    """Tests for OpenAI embedding service."""
-    
-    def test_init_requires_api_key(self):
-        """Test that initialization requires API key."""
-        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=True):
-            with pytest.raises(ValueError, match="API key required"):
-                OpenAIEmbeddingService()
-    
-    def test_init_accepts_api_key_param(self):
-        """Test API key can be passed as parameter."""
-        service = OpenAIEmbeddingService(api_key="sk-test-key")
-        assert service.api_key == "sk-test-key"
-    
-    def test_similarity_calculation(self):
-        """Test cosine similarity calculation."""
-        service = OpenAIEmbeddingService(api_key="sk-test")
-        
-        vec = [0.1, 0.2, 0.3, 0.4]
-        assert abs(service.similarity(vec, vec) - 1.0) < 0.0001
-        
-        vec1, vec2 = [1, 0, 0, 0], [0, 1, 0, 0]
-        assert abs(service.similarity(vec1, vec2)) < 0.0001
+class TestNormalizeEmbedding:
+    """Tests for embedding normalization utilities."""
 
     def test_normalize_embedding_unit_length(self):
         """Test embedding normalization to unit length."""
@@ -47,25 +25,6 @@ class TestOpenAIEmbeddingService:
         """Test normalization preserves zero vector."""
         vec = [0.0, 0.0]
         assert normalize_embedding(vec) == vec
-    
-    def test_repr_masks_api_key(self):
-        """Test that repr() doesn't leak API keys."""
-        service = OpenAIEmbeddingService(api_key="sk-secret-key-12345")
-        repr_str = repr(service)
-        assert "sk-secret" not in repr_str
-        assert "***" in repr_str
-        assert "text-embedding-3-small" in repr_str
-    
-    @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
-    @pytest.mark.integration
-    async def test_embed_real_api(self):
-        """Test real embedding generation."""
-        service = OpenAIEmbeddingService()
-        embedding = await service.embed("Hello world")
-        
-        assert len(embedding) == 1536
-        assert all(isinstance(x, float) for x in embedding)
-        await service.close()
 
 
 class TestInMemoryVectorStore:
@@ -74,7 +33,7 @@ class TestInMemoryVectorStore:
     @pytest.fixture
     def mock_embedding_service(self):
         service = MagicMock()
-        service.embed = AsyncMock(return_value=[0.1] * 1536)
+        service.embed = AsyncMock(return_value=[0.1] * 384)
         service.similarity = MagicMock(return_value=0.95)
         return service
     
@@ -83,7 +42,7 @@ class TestInMemoryVectorStore:
         return InMemoryVectorStore(mock_embedding_service)
     
     async def test_store_and_retrieve(self, store):
-        entry = MemoryEntry(id="test-1", content="Test content", embedding=[0.1] * 1536)
+        entry = MemoryEntry(id="test-1", content="Test content", embedding=[0.1] * 384)
         
         result = await store.store(entry)
         assert result.success
@@ -93,7 +52,7 @@ class TestInMemoryVectorStore:
         assert retrieved.content == "Test content"
     
     async def test_delete(self, store):
-        entry = MemoryEntry(id="test-del", content="To delete", embedding=[0.1] * 1536)
+        entry = MemoryEntry(id="test-del", content="To delete", embedding=[0.1] * 384)
         await store.store(entry)
         
         assert await store.delete("test-del")
@@ -119,7 +78,7 @@ class TestSemanticDeduplicationService:
             exact_threshold=0.98
         )
         
-        is_dup, dup_id = await dedup.is_duplicate("Joe prefers TypeScript", [0.1] * 1536)
+        is_dup, dup_id = await dedup.is_duplicate("Joe prefers TypeScript", [0.1] * 384)
         
         assert is_dup is True
         assert dup_id == "existing"
@@ -140,7 +99,7 @@ class TestSemanticDeduplicationService:
             exact_threshold=0.98
         )
         
-        is_dup, dup_id = await dedup.is_duplicate("New content", [0.1] * 1536)
+        is_dup, dup_id = await dedup.is_duplicate("New content", [0.1] * 384)
         
         assert is_dup is False
         assert dup_id is None
@@ -152,7 +111,7 @@ class TestTribalMemoryService:
     @pytest.fixture
     def mock_components(self):
         embedding_service = MagicMock()
-        embedding_service.embed = AsyncMock(return_value=[0.1] * 1536)
+        embedding_service.embed = AsyncMock(return_value=[0.1] * 384)
         embedding_service.similarity = MagicMock(return_value=0.5)
         
         vector_store = MagicMock()
@@ -236,15 +195,10 @@ class TestTribalMemoryService:
 class TestCreateMemoryService:
     """Tests for the factory function."""
     
-    def test_requires_openai_key(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=True):
-            with pytest.raises(ValueError):
-                create_memory_service()
-    
     def test_creates_with_defaults(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test"}):
-            service = create_memory_service(instance_id="test")
-            assert service.instance_id == "test"
+        """Test that create_memory_service creates a service with defaults."""
+        service = create_memory_service(instance_id="test")
+        assert service.instance_id == "test"
 
 
 class TestErrorPaths:
@@ -287,7 +241,7 @@ class TestErrorPaths:
     async def test_correct_missing_original(self):
         """Test correction of non-existent memory."""
         embedding_service = MagicMock()
-        embedding_service.embed = AsyncMock(return_value=[0.1] * 1536)
+        embedding_service.embed = AsyncMock(return_value=[0.1] * 384)
         
         vector_store = MagicMock()
         vector_store.get = AsyncMock(return_value=None)
@@ -319,7 +273,7 @@ class TestErrorPaths:
             exact_threshold=0.90
         )
         
-        is_dup, dup_id = await dedup.is_duplicate("Test", [0.1] * 1536)
+        is_dup, dup_id = await dedup.is_duplicate("Test", [0.1] * 384)
         assert is_dup is True
         assert dup_id == "boundary"
     
@@ -340,35 +294,15 @@ class TestErrorPaths:
             exact_threshold=0.90
         )
         
-        is_dup, dup_id = await dedup.is_duplicate("Test", [0.1] * 1536)
+        is_dup, dup_id = await dedup.is_duplicate("Test", [0.1] * 384)
         assert is_dup is False
-    
-    def test_text_cleaning_with_unicode(self):
-        """Test text cleaning handles unicode correctly."""
-        service = OpenAIEmbeddingService(api_key="sk-test")
-        
-        # Test with emoji and unicode
-        cleaned = service._clean_text("Hello 🦝 world カタカナ")
-        assert "🦝" in cleaned
-        assert "カタカナ" in cleaned
-    
-    def test_text_cleaning_truncation(self):
-        """Test text cleaning truncates long content safely."""
-        service = OpenAIEmbeddingService(api_key="sk-test")
-        
-        # Very long text
-        long_text = "x" * 100000
-        cleaned = service._clean_text(long_text)
-        
-        # Should be truncated
-        assert len(cleaned.encode('utf-8')) <= 8191 * 4
     
     async def test_vector_store_invalid_id(self):
         """Test vector store rejects invalid memory IDs."""
         from tribalmemory.services.vector_store import LanceDBVectorStore
         
         embedding_service = MagicMock()
-        embedding_service.dimensions = 1536
+        embedding_service.dimensions = 384
         
         # Can't fully test without LanceDB, but can test the sanitization
         store = LanceDBVectorStore(

@@ -853,7 +853,7 @@ const memoryTribalPlugin = {
       // /remember command handler
       // ======================================================================
       const rememberContent = extractRememberCommand(event.prompt);
-      if (rememberContent) {
+      if (rememberContent && rememberContent.length > 0) {
         try {
           const result = await tribalClient.remember(rememberContent, {
             sourceType: "user_explicit",

@@ -4,7 +4,18 @@ from tribalmemory.services.graph_store import (
     SpacyEntityExtractor,
     HybridEntityExtractor,
     SPACY_AVAILABLE,
+    MIN_ENTITY_NAME_LENGTH,
 )
+
+
+# Module-scoped fixture for faster test execution
+# spaCy model loading is expensive (~1-2s), so we share it across tests
+@pytest.fixture(scope="module")
+def shared_spacy_extractor():
+    """Shared SpacyEntityExtractor for performance (module-scoped)."""
+    if not SPACY_AVAILABLE:
+        pytest.skip("spaCy not installed")
+    return SpacyEntityExtractor()
 
 
 @pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
@@ -264,8 +275,8 @@ class TestSpacyMetadataPreservation:
     def test_spacy_label_in_metadata(self):
         """Should preserve spaCy label in entity metadata (Issue #93).
         
-        Line 401 in graph_store.py adds metadata={'spacy_label': ent.label_}
-        This test verifies the metadata is preserved and accessible.
+        SpacyEntityExtractor.extract() adds metadata={'spacy_label': ent.label_}
+        to each entity. This test verifies the metadata is preserved and accessible.
         """
         extractor = SpacyEntityExtractor()
         text = "Dr. Thompson visited New York last Tuesday."
@@ -314,10 +325,8 @@ class TestMinEntityNameLength:
     def test_filters_short_entity_names(self):
         """Should filter entities shorter than MIN_ENTITY_NAME_LENGTH (Issue #95).
         
-        Lines 388-389 in graph_store.py filter by MIN_ENTITY_NAME_LENGTH (3).
+        SpacyEntityExtractor.extract() filters entities with len < MIN_ENTITY_NAME_LENGTH.
         """
-        from tribalmemory.services.graph_store import MIN_ENTITY_NAME_LENGTH
-        
         extractor = SpacyEntityExtractor()
         # "Jo" is 2 chars (below threshold), "Bob" is 3 chars (at threshold)
         # Note: spaCy may or may not extract these as PERSON depending on context
@@ -330,10 +339,30 @@ class TestMinEntityNameLength:
                 f"< {MIN_ENTITY_NAME_LENGTH})"
             )
 
+    def test_filters_two_char_names_reliably(self):
+        """Verify 2-char names are filtered even when spaCy extracts them.
+        
+        Uses "Dr. Li" and "Dr. Wu" which spaCy reliably extracts as PERSON,
+        but after title stripping become 2-char names that should be filtered.
+        """
+        extractor = SpacyEntityExtractor()
+        # After title normalization, "Dr. Li" → "Li" (2 chars), "Dr. Wu" → "Wu" (2 chars)
+        text = "I had a meeting with Dr. Li and Dr. Wu yesterday."
+        entities = extractor.extract(text)
+        
+        # All extracted entities must meet minimum length
+        for entity in entities:
+            assert len(entity.name) >= MIN_ENTITY_NAME_LENGTH, (
+                f"Entity '{entity.name}' (len={len(entity.name)}) should be filtered"
+            )
+        
+        # Specifically verify Li and Wu are not in the results
+        names_lower = {e.name.lower() for e in entities}
+        assert "li" not in names_lower, "2-char name 'Li' should be filtered"
+        assert "wu" not in names_lower, "2-char name 'Wu' should be filtered"
+
     def test_accepts_minimum_length_names(self):
         """Should accept names exactly at MIN_ENTITY_NAME_LENGTH."""
-        from tribalmemory.services.graph_store import MIN_ENTITY_NAME_LENGTH
-        
         extractor = SpacyEntityExtractor()
         # "Bob" is exactly 3 characters, "Amy" is also 3 characters
         text = "Bob and Amy visited the zoo."
@@ -355,6 +384,5 @@ class TestMinEntityNameLength:
             )
 
     def test_min_length_constant_value(self):
-        """MIN_ENTITY_NAME_LENGTH should be 3."""
-        from tribalmemory.services.graph_store import MIN_ENTITY_NAME_LENGTH
+        """MIN_ENTITY_NAME_LENGTH should be 3 (hardcoded constant)."""
         assert MIN_ENTITY_NAME_LENGTH == 3

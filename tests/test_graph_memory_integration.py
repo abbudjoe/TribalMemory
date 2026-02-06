@@ -234,6 +234,11 @@ class TestSpacyE2EIntegration:
     4. Recall finds related memories via graph traversal
     """
 
+    # Note: These fixtures are kept local (not in conftest.py) because:
+    # 1. They use specific embedding dimensions (64) for deterministic tests
+    # 2. They use real InMemoryVectorStore, not mocks
+    # 3. They configure lazy_spacy=False for spaCy-specific testing
+    
     @pytest.fixture
     def embedding_service(self):
         return MockEmbeddingService(embedding_dim=64)

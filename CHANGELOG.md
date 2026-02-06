@@ -5,6 +5,31 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.5.1/))
+
+### Added
+
+#### Lazy spaCy — 70x Faster Ingest
+- **`lazy_spacy` config option** (default: `true`) — dramatically improves ingest performance
+- Fast regex entity extraction on ingest (~2-3 seconds per conversation)
+- spaCy NER only runs on recall queries (once per search, not per message)
+- Maintains full accuracy for personal conversation retrieval
+- Config: `search.lazy_spacy: true` in config.yaml
+
+#### spaCy Entity Extraction
+- **spaCy NER integration** for personal conversations (PERSON, GPE, ORG, DATE entities)
+- `HybridEntityExtractor` combines regex patterns with spaCy for best coverage
+- Optional dependency: `pip install tribalmemory[spacy]` + `python -m spacy download en_core_web_sm`
+- Falls back gracefully to regex-only when spaCy unavailable
+
+### Performance
+
+- **Ingest**: ~70x faster with lazy spaCy (50-200s → 2-3s per conversation)
+- **Recall**: Unchanged — spaCy runs once on query text for accurate entity matching
+- **LongMemEval**: Full 500-question benchmark in progress
+
+---
+
 ## [0.5.0] - 2026-02-05 ([PyPI](https://pypi.org/project/tribalmemory/0.5.0/))
 
 ### Added

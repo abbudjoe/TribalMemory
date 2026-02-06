@@ -140,9 +140,9 @@ Every export bundle includes an `embedding_metadata` block in the manifest:
   "manifest": {
     "schema_version": "1.0",
     "embedding": {
-      "model_name": "text-embedding-3-small",
-      "dimensions": 1536,
-      "provider": "openai"
+      "model_name": "BAAI/bge-small-en-v1.5",
+      "dimensions": 384,
+      "provider": "fastembed"
     },
     "memory_count": 42
   },

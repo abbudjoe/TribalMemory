@@ -39,7 +39,7 @@ Integrate tribal-memory as an OpenClaw extension (`memory-tribal`) that replaces
 │  └─ get()          → MemoryEntry                                │
 ├─────────────────────────────────────────────────────────────────┤
 │  Providers:                                                     │
-│  ├─ OpenAI Embeddings                                           │
+│  ├─ FastEmbed Embeddings (BAAI/bge-small-en-v1.5)               │
 │  ├─ LanceDB (local or Cloud)                                    │
 │  ├─ Deduplication                                               │
 │  └─ Timestamp (RFC 3161) [future]                               │
@@ -180,9 +180,9 @@ db:
   path: "~/.tribal-memory/lancedb"        # local
   # uri: "db://..."                        # cloud (future)
 embedding:
-  provider: "openai"
-  model: "text-embedding-3-small"
-  api_key: "${OPENAI_API_KEY}"
+  provider: "fastembed"
+  model: "BAAI/bge-small-en-v1.5"
+  dimensions: 384
 server:
   host: "127.0.0.1"
   port: 18790
@@ -377,7 +377,6 @@ After=network.target
 Type=simple
 ExecStart=/home/clawdio/clawd/projects/tribal-memory/.venv/bin/python -m tribal_memory.server
 Restart=on-failure
-Environment=OPENAI_API_KEY=${OPENAI_API_KEY}
 
 [Install]
 WantedBy=default.target

@@ -19,8 +19,8 @@ Cross-agent long-term memory plugin that connects OpenClaw to a
 
 1. A running Tribal Memory server:
    ```bash
-   pip install tribalmemory
-   tribalmemory init --local  # or with OpenAI key
+   pip install tribalmemory[fastembed]
+   tribalmemory init
    tribalmemory serve
    ```
 

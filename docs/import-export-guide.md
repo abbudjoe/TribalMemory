@@ -15,9 +15,9 @@ from tribalmemory.portability.embedding_metadata import (
 from tribalmemory.services.import_export import export_memories
 
 meta = create_embedding_metadata(
-    model_name="text-embedding-3-small",
-    dimensions=1536,
-    provider="openai",
+    model_name="BAAI/bge-small-en-v1.5",
+    dimensions=384,
+    provider="fastembed",
 )
 
 bundle = await export_memories(
@@ -47,9 +47,9 @@ with open("backup.json") as f:
     bundle = PortableBundle.from_dict(json.load(f))
 
 target_meta = create_embedding_metadata(
-    model_name="text-embedding-3-small",
-    dimensions=1536,
-    provider="openai",
+    model_name="BAAI/bge-small-en-v1.5",
+    dimensions=384,
+    provider="fastembed",
 )
 
 summary = await import_memories(

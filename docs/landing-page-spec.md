@@ -236,18 +236,6 @@ Each line fades in sequentially (50ms stagger) as the user scrolls into view. On
 - On scroll-in, each line types out with ~200ms delay between lines
 - The "That's it." line fades in after the commands complete
 
-### Provider Options (collapsible)
-
-```
-  # Want OpenAI embeddings instead?
-  $ tribalmemory init --openai
-
-  # Already running Ollama?
-  $ tribalmemory init --ollama
-```
-
-Shown in a `<details>` or expanding section, muted by default.
-
 ---
 
 ## 7. Trust / Stats Block

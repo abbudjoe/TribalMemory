@@ -13,8 +13,7 @@ tribalmemory serve
 ./demo.sh
 ```
 
-> **Note:** Similarity scores depend on your embedding model. Local embeddings (Ollama) will produce
-> different scores than OpenAI. The scores below are from a local Ollama setup with `nomic-embed-text`.
+> **Note:** Similarity scores depend on your embedding model and dimensions. The scores below are from FastEmbed with `BAAI/bge-small-en-v1.5` (384 dimensions).
 
 ## Output
 
@@ -57,8 +56,8 @@ Your AI tools don't share a brain. Until now.
 ⚡ Claude Code stored it. Codex recalled it.
    Same server. Shared memory. Zero config.
 
-   pip install tribalmemory
-   tribalmemory init --local
+   pip install tribalmemory[fastembed]
+   tribalmemory init
    tribalmemory serve
 
    https://github.com/abbudjoe/TribalMemory

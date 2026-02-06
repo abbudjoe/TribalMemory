@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
         hybrid_vector_weight=config.search.vector_weight,
         hybrid_text_weight=config.search.text_weight,
         hybrid_candidate_multiplier=config.search.candidate_multiplier,
+        lazy_spacy=config.search.lazy_spacy,
     )
 
     # Create session store (shares embedding service and vector store)

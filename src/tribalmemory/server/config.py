@@ -12,19 +12,26 @@ import yaml
 class EmbeddingConfig:
     """Embedding service configuration.
     
-    Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
+    Default: FastEmbed (local, zero cloud, zero cost).
     
-    For local Ollama embeddings (zero cloud, zero cost):
+    For OpenAI embeddings:
+        provider: openai
+        model: text-embedding-3-small
+        dimensions: 1536
+        api_key: <your-api-key>
+    
+    For local Ollama embeddings:
+        provider: openai  # Ollama exposes OpenAI-compatible API
         api_base: http://localhost:11434/v1
         model: nomic-embed-text
         dimensions: 768
         # api_key not needed for local models
     """
-    provider: str = "openai"
-    model: str = "text-embedding-3-small"
+    provider: str = "fastembed"
+    model: str = "BAAI/bge-small-en-v1.5"
     api_key: Optional[str] = None
     api_base: Optional[str] = None
-    dimensions: int = 1536
+    dimensions: int = 384
 
     def __post_init__(self):
         # Resolve from environment if not set

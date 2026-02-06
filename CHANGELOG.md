@@ -5,6 +5,22 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+#### Default Embeddings: FastEmbed (Zero Cloud)
+- **Default embedding provider changed from OpenAI to FastEmbed**
+- Model: `BAAI/bge-small-en-v1.5` (384 dimensions)
+- Zero cloud dependencies — fully local embeddings out of the box
+- No API key required for default setup
+- OpenAI still supported: use `tribalmemory init --openai`
+
+#### OpenClaw Plugin Installation
+- Improved installation docs with prominent `npm install` warning
+- Added `install.sh` script for one-line installation
+- Clearer error handling for missing dependencies
+
 ## [0.5.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.5.1/))
 
 ### Added

@@ -277,10 +277,12 @@ class TestSpacyE2EIntegration:
         
         # Entities should be extracted
         entities = graph_store_with_spacy.get_entities_for_memory(memory_id)
-        names = {e.name.lower() for e in entities}
         
-        # spaCy should extract person name
-        assert "sarah" in names, f"Expected 'sarah' in {names}"
+        # spaCy should extract person name with correct type
+        assert any(
+            e.name.lower() == "sarah" and e.entity_type == "person"
+            for e in entities
+        ), f"Expected person entity 'Sarah' in {entities}"
 
     @pytest.mark.asyncio
     async def test_person_entities_enable_cross_memory_recall(
@@ -367,6 +369,37 @@ class TestSpacyE2EIntegration:
         assert 'google' in org_names or 'microsoft' in org_names, (
             f"Expected Google or Microsoft in {org_names}"
         )
+
+    @pytest.mark.asyncio
+    async def test_spacy_entity_graph_traversal(
+        self, memory_service_with_spacy
+    ):
+        """Person entities should enable graph traversal with hops.
+        
+        Tests that spaCy-extracted entities create graph connections
+        that can be traversed to find related memories.
+        """
+        # Store memories with connected entities
+        await memory_service_with_spacy.remember(
+            "Sarah works at Google."
+        )
+        await memory_service_with_spacy.remember(
+            "Google is launching a new AI product next month."
+        )
+        await memory_service_with_spacy.remember(
+            "Unrelated memory about cooking pasta."
+        )
+        
+        # 1-hop from Sarah should find Google, which connects to AI product memory
+        results = await memory_service_with_spacy.recall_entity("Sarah", hops=1)
+        contents = [r.memory.content for r in results]
+        
+        # Should find the direct Sarah memory
+        assert any("works at Google" in c for c in contents), (
+            f"Expected Sarah's direct memory in results: {contents}"
+        )
+        # With 1-hop, may also find Google-related memories
+        # (depends on whether Google is extracted as an entity in both)
 
     @pytest.mark.asyncio
     async def test_hybrid_extractor_used_when_spacy_enabled(

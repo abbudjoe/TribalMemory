@@ -169,6 +169,12 @@ class TestSpacyEntityTypes:
         
         PRODUCT is in RELEVANT_TYPES and should be extracted.
         Note: spaCy's PRODUCT detection requires clear context.
+        
+        Important: spaCy's entity recognition varies significantly by:
+        - Model version (en_core_web_sm vs en_core_web_lg)
+        - Sentence context and capitalization
+        - Training data coverage
+        The fallback logic below handles this variability gracefully.
         """
         extractor = SpacyEntityExtractor()
         # spaCy recognizes well-known products
@@ -176,11 +182,11 @@ class TestSpacyEntityTypes:
         entities = extractor.extract(text)
         
         # Get entities that spaCy classified as products
-        product_entities = [e for e in entities if e.metadata.get('spacy_label') == 'PRODUCT']
+        spacy_product_entities = [e for e in entities if e.metadata.get('spacy_label') == 'PRODUCT']
         
         # Should find at least one product (iPhone and Kindle are commonly recognized)
-        # Note: spaCy's product recognition varies by model version
-        if len(product_entities) == 0:
+        # Fallback: spaCy model variability means PRODUCT may be classified differently
+        if len(spacy_product_entities) == 0:
             # Fall back to checking if any entity contains product-like names
             all_names = {e.name.lower() for e in entities}
             assert 'iphone' in all_names or 'kindle' in all_names, (
@@ -191,6 +197,12 @@ class TestSpacyEntityTypes:
         """Should extract EVENT entities (Issue #92).
         
         EVENT is in RELEVANT_TYPES and should be extracted.
+        
+        Important: spaCy's entity recognition varies significantly by:
+        - Model version (en_core_web_sm vs en_core_web_lg)
+        - Sentence context and capitalization
+        - Training data coverage
+        The fallback logic below handles this variability gracefully.
         """
         extractor = SpacyEntityExtractor()
         # Events like conferences, holidays, etc.
@@ -198,11 +210,11 @@ class TestSpacyEntityTypes:
         entities = extractor.extract(text)
         
         # Get entities that spaCy classified as events
-        event_entities = [e for e in entities if e.metadata.get('spacy_label') == 'EVENT']
+        spacy_event_entities = [e for e in entities if e.metadata.get('spacy_label') == 'EVENT']
         
         # Should find at least one event
-        # Note: spaCy's event recognition varies
-        if len(event_entities) == 0:
+        # Fallback: spaCy model variability means EVENT may be classified differently
+        if len(spacy_event_entities) == 0:
             # Fall back to checking all entities for event-like names
             all_names = {e.name.lower() for e in entities}
             # At least one should be detected as some entity type
@@ -219,6 +231,26 @@ class TestSpacyEntityTypes:
             assert spacy_type in extractor.SPACY_TYPE_MAP, (
                 f"Missing type mapping for {spacy_type}"
             )
+
+    def test_type_map_superset_of_relevant_types(self):
+        """SPACY_TYPE_MAP should contain all RELEVANT_TYPES (plus extras).
+        
+        SPACY_TYPE_MAP includes additional types like MONEY, CARDINAL, ORDINAL
+        that are intentionally excluded from RELEVANT_TYPES for personal
+        conversation extraction. This test verifies the relationship.
+        """
+        extractor = SpacyEntityExtractor()
+        
+        # All RELEVANT_TYPES must be in SPACY_TYPE_MAP
+        for relevant_type in extractor.RELEVANT_TYPES:
+            assert relevant_type in extractor.SPACY_TYPE_MAP, (
+                f"RELEVANT_TYPE {relevant_type} missing from SPACY_TYPE_MAP"
+            )
+        
+        # SPACY_TYPE_MAP should be a superset (has extras like MONEY, CARDINAL)
+        assert len(extractor.SPACY_TYPE_MAP) >= len(extractor.RELEVANT_TYPES), (
+            "SPACY_TYPE_MAP should have at least as many entries as RELEVANT_TYPES"
+        )
 
 
 # =============================================================================
@@ -249,8 +281,10 @@ class TestSpacyMetadataPreservation:
             assert 'spacy_label' in entity.metadata, (
                 f"Entity {entity.name} missing spacy_label in metadata"
             )
-            # Label should be a valid spaCy label
-            assert entity.metadata['spacy_label'] in extractor.RELEVANT_TYPES, (
+            # Label should be a valid spaCy label in the type map
+            # Note: We check SPACY_TYPE_MAP (not RELEVANT_TYPES) because the map
+            # includes additional types like MONEY, CARDINAL, ORDINAL
+            assert entity.metadata['spacy_label'] in extractor.SPACY_TYPE_MAP, (
                 f"Unexpected spacy_label: {entity.metadata['spacy_label']}"
             )
 
@@ -301,17 +335,24 @@ class TestMinEntityNameLength:
         from tribalmemory.services.graph_store import MIN_ENTITY_NAME_LENGTH
         
         extractor = SpacyEntityExtractor()
-        # "Bob" is exactly 3 characters
+        # "Bob" is exactly 3 characters, "Amy" is also 3 characters
         text = "Bob and Amy visited the zoo."
         entities = extractor.extract(text)
         
         # Get person entities
         persons = [e for e in entities if e.entity_type == 'person']
         
-        # At least some of these short names should be extracted
-        # (if spaCy recognizes them as PERSON)
+        # Should extract at least one person entity
+        # (spaCy should recognize common names like Bob/Amy in clear context)
+        assert len(persons) >= 1, (
+            f"Expected at least one person entity from '{text}', got: {entities}"
+        )
+        
+        # All extracted persons should meet minimum length
         for person in persons:
-            assert len(person.name) >= MIN_ENTITY_NAME_LENGTH
+            assert len(person.name) >= MIN_ENTITY_NAME_LENGTH, (
+                f"Person '{person.name}' should be >= {MIN_ENTITY_NAME_LENGTH} chars"
+            )
 
     def test_min_length_constant_value(self):
         """MIN_ENTITY_NAME_LENGTH should be 3."""

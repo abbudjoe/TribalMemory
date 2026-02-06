@@ -132,4 +132,18 @@ class TribalMemoryConfig:
         if not self.instance_id:
             errors.append("instance_id is required")
 
+        # Validate FastEmbed is available
+        if self.embedding.provider == "fastembed":
+            try:
+                import fastembed  # noqa: F401
+            except ImportError:
+                errors.append(
+                    "FastEmbed is required but not installed. "
+                    "Install with: pip install tribalmemory[fastembed]"
+                )
+
+        # Validate embedding dimensions
+        if self.embedding.dimensions <= 0:
+            errors.append("embedding.dimensions must be positive")
+
         return errors

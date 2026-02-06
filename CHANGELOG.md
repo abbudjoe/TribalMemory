@@ -5,6 +5,61 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠️ Breaking Changes
+
+**FastEmbed is now the ONLY embedding provider**
+
+This release removes OpenAI and Ollama embedding support entirely. FastEmbed provides
+local, zero-cloud embeddings with no API keys required.
+
+**Migration for existing users:**
+
+1. **New installs**: Automatic — FastEmbed (384 dims) is the default
+2. **Existing installs with OpenAI/Ollama config**: Must migrate:
+   ```bash
+   # 1. Backup your data if needed
+   # 2. Delete old embeddings (incompatible dimensions)
+   rm -rf ~/.tribal-memory/lancedb/
+   
+   # 3. Reinstall with FastEmbed
+   pip install --upgrade tribalmemory[fastembed]
+   
+   # 4. Reinitialize config
+   tribalmemory init --force
+   
+   # 5. Re-ingest your memories
+   ```
+
+**Why this change?**
+- Zero cloud dependencies (fully offline)
+- No API keys required
+- Simpler codebase (~2400 lines removed)
+- Consistent behavior across all deployments
+
+### Changed
+
+#### Default Embeddings: FastEmbed (Zero Cloud)
+- **FastEmbed is now the only embedding provider**
+- Model: `BAAI/bge-small-en-v1.5` (384 dimensions)
+- Zero cloud dependencies — fully local embeddings out of the box
+- No API key required
+
+#### OpenClaw Plugin Installation
+- Improved installation docs with prominent `npm install` warning
+- Added `install.sh` script for one-line installation
+- Clearer error handling for missing dependencies
+
+### Removed
+
+- **OpenAI embedding support** — Use FastEmbed instead
+- **Ollama embedding support** — FastEmbed handles local embeddings
+- `--openai`, `--ollama`, `--fastembed`, and `--local` CLI flags removed
+- `OpenAIEmbeddingService` class removed
+- `a21/` experimental directory removed
+- API key parameters removed from `create_memory_service()`
+
 ## [0.5.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.5.1/))
 
 ### Added

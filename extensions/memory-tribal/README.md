@@ -28,14 +28,31 @@ Cross-agent long-term memory plugin that connects OpenClaw to a
 
 ## Installation
 
-Copy the `extensions/memory-tribal/` directory into your OpenClaw
-extensions folder:
+### Quick Install (recommended)
 
 ```bash
+# Clone and install in one command
+git clone https://github.com/abbudjoe/TribalMemory.git /tmp/tribal-memory
+cp -r /tmp/tribal-memory/extensions/memory-tribal/ ~/.openclaw/extensions/memory-tribal/
+cd ~/.openclaw/extensions/memory-tribal/ && npm install
+rm -rf /tmp/tribal-memory
+```
+
+### Manual Install
+
+```bash
+# 1. Copy extension
 cp -r extensions/memory-tribal/ ~/.openclaw/extensions/memory-tribal/
+
+# 2. IMPORTANT: Install dependencies (required!)
 cd ~/.openclaw/extensions/memory-tribal/
 npm install
+
+# Without npm install, you'll see:
+# "Error: Cannot find module '@sinclair/typebox'"
 ```
+
+**⚠️ The `npm install` step is required.** The extension won't load without it.
 
 ## Configuration
 

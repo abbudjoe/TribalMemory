@@ -28,44 +28,44 @@ class TestEmbeddingMetadata:
     def test_create_metadata_with_model_info(self):
         """Metadata should capture model name, version, and dimensions."""
         meta = create_embedding_metadata(
-            model_name="text-embedding-3-small",
-            dimensions=1536,
-            provider="openai",
+            model_name="BAAI/bge-small-en-v1.5",
+            dimensions=384,
+            provider="fastembed",
         )
-        assert meta.model_name == "text-embedding-3-small"
-        assert meta.dimensions == 1536
-        assert meta.provider == "openai"
+        assert meta.model_name == "BAAI/bge-small-en-v1.5"
+        assert meta.dimensions == 384
+        assert meta.provider == "fastembed"
 
     def test_create_metadata_defaults(self):
         """Should have sensible defaults for optional fields."""
         meta = create_embedding_metadata(
-            model_name="text-embedding-3-small",
-            dimensions=1536,
+            model_name="BAAI/bge-small-en-v1.5",
+            dimensions=384,
         )
         assert meta.provider is None
         assert meta.created_at is not None
 
     def test_metadata_equality(self):
         """Two metadata objects with same model should be compatible."""
-        meta1 = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
-        meta2 = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta1 = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
+        meta2 = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         assert meta1.is_compatible_with(meta2)
 
     def test_metadata_incompatible_model(self):
         """Different models should be incompatible."""
-        meta1 = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta1 = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         meta2 = create_embedding_metadata("all-MiniLM-L6-v2", 384, "sentence-transformers")
         assert not meta1.is_compatible_with(meta2)
 
     def test_metadata_incompatible_dimensions(self):
         """Same model but different dimensions should be incompatible."""
-        meta1 = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
-        meta2 = create_embedding_metadata("text-embedding-3-small", 512, "openai")
+        meta1 = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
+        meta2 = create_embedding_metadata("BAAI/bge-small-en-v1.5", 512, "fastembed")
         assert not meta1.is_compatible_with(meta2)
 
     def test_metadata_serialization(self):
         """Metadata should serialize to/from dict for JSON export."""
-        meta = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         d = meta.to_dict()
         restored = EmbeddingMetadata.from_dict(d)
         assert restored.model_name == meta.model_name
@@ -78,20 +78,20 @@ class TestNeedsReembedding:
 
     def test_same_model_no_reembedding(self):
         """Same model and dimensions should not need re-embedding."""
-        source = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
-        target = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        source = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
+        target = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         assert not needs_reembedding(source, target)
 
     def test_different_model_needs_reembedding(self):
         """Different model should need re-embedding."""
-        source = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        source = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         target = create_embedding_metadata("all-MiniLM-L6-v2", 384, "sentence-transformers")
         assert needs_reembedding(source, target)
 
     def test_different_dimensions_needs_reembedding(self):
         """Different dimensions should need re-embedding."""
-        source = create_embedding_metadata("text-embedding-3-small", 1536)
-        target = create_embedding_metadata("text-embedding-3-small", 512)
+        source = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384)
+        target = create_embedding_metadata("BAAI/bge-small-en-v1.5", 512)
         assert needs_reembedding(source, target)
 
 
@@ -100,18 +100,18 @@ class TestEmbeddingManifest:
 
     def test_manifest_includes_embedding_metadata(self):
         """Manifest should include embedding model info."""
-        meta = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         manifest = EmbeddingManifest(
             schema_version="1.0",
             embedding_metadata=meta,
             memory_count=42,
         )
-        assert manifest.embedding_metadata.model_name == "text-embedding-3-small"
+        assert manifest.embedding_metadata.model_name == "BAAI/bge-small-en-v1.5"
         assert manifest.memory_count == 42
 
     def test_manifest_serialization(self):
         """Manifest should serialize to dict for JSON."""
-        meta = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         manifest = EmbeddingManifest(
             schema_version="1.0",
             embedding_metadata=meta,
@@ -119,7 +119,7 @@ class TestEmbeddingManifest:
         )
         d = manifest.to_dict()
         assert d["schema_version"] == "1.0"
-        assert d["embedding"]["model_name"] == "text-embedding-3-small"
+        assert d["embedding"]["model_name"] == "BAAI/bge-small-en-v1.5"
         assert d["memory_count"] == 10
 
     def test_manifest_deserialization(self):
@@ -127,15 +127,15 @@ class TestEmbeddingManifest:
         d = {
             "schema_version": "1.0",
             "embedding": {
-                "model_name": "text-embedding-3-small",
-                "dimensions": 1536,
-                "provider": "openai",
+                "model_name": "BAAI/bge-small-en-v1.5",
+                "dimensions": 384,
+                "provider": "fastembed",
             },
             "memory_count": 10,
         }
         manifest = EmbeddingManifest.from_dict(d)
         assert manifest.schema_version == "1.0"
-        assert manifest.embedding_metadata.model_name == "text-embedding-3-small"
+        assert manifest.embedding_metadata.model_name == "BAAI/bge-small-en-v1.5"
 
 
 class TestPortableBundle:
@@ -146,14 +146,14 @@ class TestPortableBundle:
         entries = [
             MemoryEntry(
                 content="User likes dark mode",
-                embedding=[0.1] * 1536,
+                embedding=[0.1] * 384,
                 source_type=MemorySource.USER_EXPLICIT,
             ),
         ]
-        meta = create_embedding_metadata("text-embedding-3-small", 1536, "openai")
+        meta = create_embedding_metadata("BAAI/bge-small-en-v1.5", 384, "fastembed")
         bundle = create_portable_bundle(entries, meta)
 
-        assert bundle.manifest.embedding_metadata.model_name == "text-embedding-3-small"
+        assert bundle.manifest.embedding_metadata.model_name == "BAAI/bge-small-en-v1.5"
         assert len(bundle.entries) == 1
 
     def test_bundle_serialization_roundtrip(self):
@@ -242,14 +242,14 @@ class TestValidation:
     def test_dimension_mismatch_raises(self):
         """Creating a bundle with wrong embedding dimensions should raise."""
         entries = [MemoryEntry(content="test", embedding=[1.0, 2.0, 3.0])]
-        meta = create_embedding_metadata("model", 1536)  # Expects 1536, got 3
-        with pytest.raises(ValueError, match="3 dimensions.*expected 1536"):
+        meta = create_embedding_metadata("model", 384)  # Expects 384, got 3
+        with pytest.raises(ValueError, match="3 dimensions.*expected 384"):
             create_portable_bundle(entries, meta)
 
     def test_entries_without_embeddings_pass_validation(self):
         """Entries with no embedding should not trigger dimension check."""
         entries = [MemoryEntry(content="test", embedding=None)]
-        meta = create_embedding_metadata("model", 1536)
+        meta = create_embedding_metadata("model", 384)
         bundle = create_portable_bundle(entries, meta)
         assert len(bundle.entries) == 1
 

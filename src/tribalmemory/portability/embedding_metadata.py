@@ -36,7 +36,7 @@ class EmbeddingMetadata:
     Attributes:
         model_name: Model identifier (e.g. "text-embedding-3-small").
         dimensions: Number of dimensions in the embedding vector.
-        provider: Optional provider name (e.g. "openai", "sentence-transformers").
+        provider: Optional provider name (e.g. "fastembed", "sentence-transformers").
         created_at: When this metadata was created.
     """
     model_name: str

@@ -1,9 +1,7 @@
 """Tribal Memory CLI — init, serve, and MCP entry points.
 
 Usage:
-    tribalmemory init               # FastEmbed (default, zero cloud)
-    tribalmemory init --openai      # OpenAI embeddings (prompts for key)
-    tribalmemory init --ollama      # Ollama local embeddings
+    tribalmemory init               # FastEmbed (local, zero cloud)
     tribalmemory serve              # Start the HTTP server
     tribalmemory mcp                # Start the MCP server (stdio)
 """
@@ -93,50 +91,6 @@ server:
   port: 18790
 {auto_capture_line}"""
 
-OPENAI_CONFIG_TEMPLATE = """\
-# Tribal Memory Configuration — OpenAI Embeddings
-# API key stored in ~/.tribal-memory/.env (not here — keep configs safe to share)
-# Docs: https://github.com/abbudjoe/TribalMemory
-
-instance_id: {instance_id}
-
-embedding:
-  provider: openai
-  model: text-embedding-3-small
-  dimensions: 1536
-
-db:
-  provider: lancedb
-  path: {db_path}
-
-server:
-  host: 127.0.0.1
-  port: 18790
-{auto_capture_line}"""
-
-OLLAMA_CONFIG_TEMPLATE = """\
-# Tribal Memory Configuration — Ollama (Local Embeddings)
-# Uses Ollama for embeddings — no API keys needed!
-# Docs: https://github.com/abbudjoe/TribalMemory
-
-instance_id: {instance_id}
-
-embedding:
-  provider: openai          # Uses OpenAI-compatible API
-  model: nomic-embed-text   # Run: ollama pull nomic-embed-text
-  api_base: http://localhost:11434/v1
-  dimensions: 768
-
-db:
-  provider: lancedb
-  path: {db_path}
-
-server:
-  host: 127.0.0.1
-  port: 18790
-{auto_capture_line}"""
-
-
 def _write_env_file(key: str, value: str) -> None:
     """Write or update a key in ~/.tribal-memory/.env.
 
@@ -166,7 +120,7 @@ def _write_env_file(key: str, value: str) -> None:
 def load_env_file() -> None:
     """Load ~/.tribal-memory/.env into os.environ if it exists.
 
-    Called at server startup so API keys from ``tribalmemory init --openai``
+    Called at server startup so any custom environment variables
     are available without the user manually exporting them.
     """
     if not ENV_FILE.exists():
@@ -272,7 +226,7 @@ def _auto_install_fastembed() -> bool:
             print()
             print("   To install manually:")
             _print_manual_install_hint()
-            print("   Or use --openai or --ollama instead.")
+            print("   FastEmbed is required for embeddings.")
             return False
     else:
         print("   Auto-installing (non-interactive)...")
@@ -300,43 +254,9 @@ def _auto_install_fastembed() -> bool:
 def _detect_provider(args: argparse.Namespace) -> str:
     """Determine which embedding provider to use.
 
-    Priority: explicit flags > default (fastembed).
-    ``--local`` is a deprecated alias for ``--ollama``.
+    FastEmbed is the only supported provider.
     """
-    if args.openai:
-        return "openai"
-    if args.ollama or args.local:
-        return "ollama"
-    # --fastembed or no flag → fastembed (default)
     return "fastembed"
-
-
-def _prompt_api_key() -> str:
-    """Prompt the user for an OpenAI API key interactively.
-
-    Falls back to the ``OPENAI_API_KEY`` environment variable when
-    stdin is not a terminal (e.g. CI pipelines).
-    """
-    env_key = os.environ.get("OPENAI_API_KEY", "")
-    if sys.stdin.isatty():
-        prompt_msg = "Enter your OpenAI API key"
-        if env_key:
-            masked = env_key[:7] + "..." + env_key[-4:]
-            prompt_msg += f" [{masked}]"
-        prompt_msg += ": "
-        user_input = input(prompt_msg).strip()
-        if user_input:
-            return user_input
-        if env_key:
-            return env_key
-        print("❌ No API key provided.")
-        sys.exit(1)
-    # Non-interactive: use env var
-    if env_key:
-        return env_key
-    print("❌ --openai requires OPENAI_API_KEY (no TTY for prompt).")
-    sys.exit(1)
-
 
 def cmd_init(args: argparse.Namespace) -> int:
     """Initialize Tribal Memory config and MCP integration."""
@@ -351,37 +271,19 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.auto_capture:
         auto_capture_line = "\nauto_capture: true\n"
 
-    provider = _detect_provider(args)
-    no_api_key = provider in ("fastembed", "ollama")
-
     # Validate FastEmbed is installed — auto-install if missing
-    if provider == "fastembed":
-        try:
-            import fastembed as _  # noqa: F401
-        except ImportError:
-            if not _auto_install_fastembed():
-                return 1
+    try:
+        import fastembed as _  # noqa: F401
+    except ImportError:
+        if not _auto_install_fastembed():
+            return 1
 
-    # Choose template + build config
-    if provider == "openai":
-        api_key = _prompt_api_key()
-        config_content = OPENAI_CONFIG_TEMPLATE.format(
-            instance_id=instance_id,
-            db_path=db_path,
-            auto_capture_line=auto_capture_line,
-        )
-    elif provider == "ollama":
-        config_content = OLLAMA_CONFIG_TEMPLATE.format(
-            instance_id=instance_id,
-            db_path=db_path,
-            auto_capture_line=auto_capture_line,
-        )
-    else:  # fastembed (default)
-        config_content = FASTEMBED_CONFIG_TEMPLATE.format(
-            instance_id=instance_id,
-            db_path=db_path,
-            auto_capture_line=auto_capture_line,
-        )
+    # Build config
+    config_content = FASTEMBED_CONFIG_TEMPLATE.format(
+        instance_id=instance_id,
+        db_path=db_path,
+        auto_capture_line=auto_capture_line,
+    )
 
     # Write config
     if CONFIG_FILE.exists() and not args.force:
@@ -392,35 +294,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     CONFIG_FILE.write_text(config_content)
     print(f"✅ Config written: {CONFIG_FILE}")
 
-    # Write API key to .env (not config.yaml) for security
-    if provider == "openai":
-        _write_env_file("OPENAI_API_KEY", api_key)
-        print(f"🔑 API key saved to {ENV_FILE} (600 permissions)")
-
-    # Provider-specific post-install guidance
-    if provider == "fastembed":
-        print()
-        print("📦 FastEmbed — local ONNX embeddings, zero cloud.")
-        print("   First run downloads a ~130MB model, then it's instant.")
-    elif provider == "ollama":
-        print()
-        print("📦 Ollama — make sure Ollama is running:")
-        print("   curl -fsSL https://ollama.com/install.sh | sh")
-        print("   ollama pull nomic-embed-text")
-        print("   ollama serve  # if not already running")
-    else:
-        print()
-        print("🔑 OpenAI — ready to go.")
+    # Post-install guidance
+    print()
+    print("📦 FastEmbed — local ONNX embeddings, zero cloud.")
+    print("   First run downloads a ~130MB model, then it's instant.")
 
     # Set up MCP integrations
     if args.claude_code:
-        _setup_claude_code_mcp(no_api_key)
+        _setup_claude_code_mcp()
 
     if getattr(args, "claude_desktop", False):
-        _setup_claude_desktop_mcp(no_api_key)
+        _setup_claude_desktop_mcp()
 
     if args.codex:
-        _setup_codex_mcp(no_api_key)
+        _setup_codex_mcp()
 
     # Set up auto-capture instructions
     if args.auto_capture:
@@ -452,13 +339,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         print()
         print("💡 Want your agents to remember things automatically?")
         print("   tribalmemory init --auto-capture --force")
-
-    # Show other provider options
-    if provider == "fastembed":
-        print()
-        print("📌 Other embedding providers:")
-        print("   tribalmemory init --openai --force   # OpenAI embeddings")
-        print("   tribalmemory init --ollama --force   # Ollama local embeddings")
 
     return 0
 
@@ -509,17 +389,13 @@ def _write_instructions_file(instructions_path: Path, label: str) -> None:
     print(f"✅ Auto-capture instructions written for {label}: {instructions_path}")
 
 
-def _build_mcp_entry(mcp_command: str, no_api_key: bool) -> dict:
-    """Build MCP config entry with optional environment variables."""
+def _build_mcp_entry(mcp_command: str) -> dict:
+    """Build MCP config entry."""
     mcp_entry: dict = {"command": mcp_command}
-    if no_api_key:
-        mcp_entry["env"] = {
-            "TRIBAL_MEMORY_EMBEDDING_API_BASE": "http://localhost:11434/v1",
-        }
     return mcp_entry
 
 
-def _setup_claude_code_mcp(no_api_key: bool) -> None:
+def _setup_claude_code_mcp() -> None:
     """Add Tribal Memory to Claude Code CLI's MCP configuration.
 
     Claude Code CLI reads MCP servers from ``~/.claude.json`` (user scope).
@@ -528,13 +404,13 @@ def _setup_claude_code_mcp(no_api_key: bool) -> None:
     """
     claude_cli_config = Path.home() / ".claude.json"
     mcp_command = _resolve_mcp_command()
-    mcp_entry = _build_mcp_entry(mcp_command, no_api_key)
+    mcp_entry = _build_mcp_entry(mcp_command)
 
     _update_mcp_config(claude_cli_config, mcp_entry, create_if_missing=True)
     print(f"✅ Claude Code CLI config updated: {claude_cli_config}")
 
 
-def _setup_claude_desktop_mcp(no_api_key: bool) -> None:
+def _setup_claude_desktop_mcp() -> None:
     """Add Tribal Memory to Claude Desktop's MCP configuration.
 
     Claude Desktop does NOT inherit the user's shell PATH (e.g.
@@ -557,7 +433,7 @@ def _setup_claude_desktop_mcp(no_api_key: bool) -> None:
         print("   After installing, run: tribalmemory init --claude-desktop --force")
         print()
 
-    mcp_entry = _build_mcp_entry(mcp_command, no_api_key)
+    mcp_entry = _build_mcp_entry(mcp_command)
 
     # Ensure parent directory exists (macOS Application Support/Claude/)
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
@@ -640,7 +516,7 @@ def _update_mcp_config(
     config_path.write_text(json.dumps(existing, indent=2) + "\n")
 
 
-def _setup_codex_mcp(no_api_key: bool) -> None:
+def _setup_codex_mcp() -> None:
     """Add Tribal Memory to Codex CLI's MCP configuration (~/.codex/config.toml)."""
     codex_config_path = Path.home() / ".codex" / "config.toml"
     codex_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -659,11 +535,6 @@ def _setup_codex_mcp(no_api_key: bool) -> None:
         section_marker,
         f'command = "{mcp_command}"',
     ]
-    
-    if no_api_key:
-        mcp_lines.append("")
-        mcp_lines.append("[mcp_servers.tribal-memory.env]")
-        mcp_lines.append('TRIBAL_MEMORY_EMBEDDING_API_BASE = "http://localhost:11434/v1"')
     
     mcp_block = "\n".join(mcp_lines) + "\n"
 
@@ -725,19 +596,6 @@ def main() -> None:
     init_parser = subparsers.add_parser(
         "init", help="Initialize config and MCP integration"
     )
-    provider_group = init_parser.add_mutually_exclusive_group()
-    provider_group.add_argument(
-        "--fastembed", action="store_true",
-        help="Use FastEmbed local embeddings (default, no API key needed)")
-    provider_group.add_argument(
-        "--openai", action="store_true",
-        help="Use OpenAI embeddings (prompts for API key)")
-    provider_group.add_argument(
-        "--ollama", action="store_true",
-        help="Use Ollama local embeddings (no API key needed)")
-    provider_group.add_argument(
-        "--local", action="store_true",
-        help=argparse.SUPPRESS)  # deprecated alias for --ollama
     init_parser.add_argument("--claude-code", action="store_true",
                              help="Configure Claude Code CLI MCP integration")
     init_parser.add_argument("--claude-desktop", action="store_true",

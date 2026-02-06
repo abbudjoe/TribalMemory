@@ -157,7 +157,7 @@ class LanceDBVectorStore(IVectorStore):
         recall_results = []
         for row in results:
             # LanceDB returns L2 distance. Convert to cosine similarity.
-            # For normalized vectors (which OpenAI embeddings are):
+            # For normalized vectors (which FastEmbed embeddings are):
             # L2_distance² = 2 * (1 - cosine_similarity)
             # Therefore: cosine_similarity = 1 - (L2_distance² / 2)
             distance = row.get("_distance", 0)

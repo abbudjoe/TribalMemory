@@ -71,7 +71,7 @@ async def test_get_memory_service_uses_factory(monkeypatch, tmp_path):
         api_key = "sk-test"
         api_base = None
         model = "test"
-        dimensions = 1536
+        dimensions = 384
 
     class DummyConfig:
         db = DummyDb()

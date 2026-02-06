@@ -12,26 +12,12 @@ import yaml
 class EmbeddingConfig:
     """Embedding service configuration.
     
-    Supports OpenAI, Ollama, and any OpenAI-compatible embedding API.
-    
-    For local Ollama embeddings (zero cloud, zero cost):
-        api_base: http://localhost:11434/v1
-        model: nomic-embed-text
-        dimensions: 768
-        # api_key not needed for local models
+    Uses FastEmbed for local, zero-cloud embeddings.
+    Model: BAAI/bge-small-en-v1.5 (384 dimensions).
     """
-    provider: str = "openai"
-    model: str = "text-embedding-3-small"
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
-    dimensions: int = 1536
-
-    def __post_init__(self):
-        # Resolve from environment if not set
-        if self.api_key is None:
-            self.api_key = os.environ.get("OPENAI_API_KEY")
-        if self.api_base is None:
-            self.api_base = os.environ.get("TRIBAL_MEMORY_EMBEDDING_API_BASE")
+    provider: str = "fastembed"
+    model: str = "BAAI/bge-small-en-v1.5"
+    dimensions: int = 384
 
 
 @dataclass
@@ -143,21 +129,21 @@ class TribalMemoryConfig:
         """Validate configuration, return list of errors."""
         errors = []
 
-        # FastEmbed doesn't need an API key at all
-        if self.embedding.provider != "fastembed":
-            # api_key is only required for OpenAI (no custom api_base)
-            api_base = (self.embedding.api_base or "").strip()
-            is_local = (
-                api_base != ""
-                and "api.openai.com" not in api_base.lower()
-            )
-            if not self.embedding.api_key and not is_local:
-                errors.append(
-                    "embedding.api_key is required "
-                    "(or set OPENAI_API_KEY)"
-                )
-
         if not self.instance_id:
             errors.append("instance_id is required")
+
+        # Validate FastEmbed is available
+        if self.embedding.provider == "fastembed":
+            try:
+                import fastembed  # noqa: F401
+            except ImportError:
+                errors.append(
+                    "FastEmbed is required but not installed. "
+                    "Install with: pip install tribalmemory[fastembed]"
+                )
+
+        # Validate embedding dimensions
+        if self.embedding.dimensions <= 0:
+            errors.append("embedding.dimensions must be positive")
 
         return errors

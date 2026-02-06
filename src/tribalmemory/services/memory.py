@@ -20,7 +20,7 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
-from .graph_store import GraphStore, EntityExtractor, HybridEntityExtractor, SpacyEntityExtractor, TemporalFact, SPACY_AVAILABLE
+from .graph_store import GraphStore, EntityExtractor, HybridEntityExtractor, TemporalFact, SPACY_AVAILABLE
 from .reranker import IReranker, NoopReranker, create_reranker
 from .temporal import TemporalExtractor
 

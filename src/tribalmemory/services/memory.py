@@ -20,7 +20,7 @@ from ..interfaces import (
 )
 from .deduplication import SemanticDeduplicationService
 from .fts_store import FTSStore, hybrid_merge
-from .graph_store import GraphStore, EntityExtractor, TemporalFact
+from .graph_store import GraphStore, EntityExtractor, HybridEntityExtractor, TemporalFact, SPACY_AVAILABLE
 from .reranker import IReranker, NoopReranker, create_reranker
 from .temporal import TemporalExtractor
 
@@ -77,7 +77,8 @@ class TribalMemoryService(IMemoryService):
         self.rerank_pool_multiplier = rerank_pool_multiplier
         self.graph_store = graph_store
         self.graph_enabled = graph_enabled and graph_store is not None
-        self.entity_extractor = EntityExtractor() if self.graph_enabled else None
+        # Use HybridEntityExtractor which combines regex + spaCy (if available)
+        self.entity_extractor = HybridEntityExtractor(use_spacy=True) if self.graph_enabled else None
         self.temporal_extractor = TemporalExtractor() if self.graph_enabled else None
         
         self.dedup_service = SemanticDeduplicationService(

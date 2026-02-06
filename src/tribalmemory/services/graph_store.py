@@ -268,6 +268,250 @@ class EntityExtractor:
         return False
 
 
+# Check if spaCy is available
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Common person titles to strip for better entity matching
+PERSON_TITLES = {
+    'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss',
+    'prof', 'prof.', 'professor', 'sir', 'madam', 'rev', 'rev.',
+}
+
+
+class SpacyEntityExtractor:
+    """Entity extractor using spaCy NER for personal conversations.
+    
+    Extracts named entities like people, places, organizations, and dates
+    from natural language text. Designed for personal assistant use cases
+    where users discuss daily activities, appointments, purchases, etc.
+    
+    Requires: pip install tribalmemory[spacy] && python -m spacy download en_core_web_sm
+    
+    Entity types extracted:
+        - PERSON: People's names (Dr. Smith, Sarah)
+        - GPE: Geopolitical entities / places (Brookside, New York)
+        - ORG: Organizations (Google, City Hospital)
+        - DATE: Dates and times (March, last Tuesday, 2024)
+        - EVENT: Events (the meeting, my appointment)
+        - FAC: Facilities (the townhouse, Oak Street)
+        - PRODUCT: Products (iPhone, Toyota Camry)
+        - MONEY: Monetary values ($500,000)
+    """
+    
+    # Map spaCy entity types to our internal types
+    SPACY_TYPE_MAP = {
+        'PERSON': 'person',
+        'GPE': 'place',
+        'LOC': 'place',
+        'FAC': 'place',
+        'ORG': 'organization',
+        'DATE': 'date',
+        'TIME': 'date',
+        'EVENT': 'event',
+        'PRODUCT': 'product',
+        'MONEY': 'money',
+        'CARDINAL': 'number',
+        'ORDINAL': 'number',
+    }
+    
+    # Entity types we care about for personal conversations
+    RELEVANT_TYPES = {'PERSON', 'GPE', 'LOC', 'FAC', 'ORG', 'DATE', 'EVENT', 'PRODUCT'}
+    
+    def __init__(self, model_name: str = "en_core_web_sm"):
+        """Initialize spaCy entity extractor.
+        
+        Args:
+            model_name: Name of spaCy model to load. Default is the small
+                English model which balances speed and accuracy.
+        """
+        if not SPACY_AVAILABLE:
+            raise ImportError(
+                "spaCy is not installed. Install with: pip install tribalmemory[spacy]"
+            )
+        
+        try:
+            self._nlp = spacy.load(model_name)
+        except OSError:
+            raise OSError(
+                f"spaCy model '{model_name}' not found. "
+                f"Download with: python -m spacy download {model_name}"
+            )
+    
+    def _normalize_person_name(self, name: str) -> str:
+        """Strip common titles from person names for better matching.
+        
+        Args:
+            name: Raw person name (e.g., "Dr. Thompson").
+            
+        Returns:
+            Normalized name (e.g., "Thompson").
+        """
+        parts = name.split()
+        if len(parts) > 1 and parts[0].lower().rstrip('.') in PERSON_TITLES:
+            return ' '.join(parts[1:])
+        return name
+
+    def extract(self, text: Optional[str]) -> list[Entity]:
+        """Extract named entities from text using spaCy NER.
+        
+        Args:
+            text: Input text to extract entities from (can be None).
+            
+        Returns:
+            List of extracted Entity objects.
+        """
+        if not text or not text.strip():
+            return []
+        
+        doc = self._nlp(text)
+        entities = []
+        seen_names: set[str] = set()
+        
+        for ent in doc.ents:
+            if ent.label_ not in self.RELEVANT_TYPES:
+                continue
+            
+            # Normalize entity text
+            name = ent.text.strip()
+            
+            # Strip titles from person names for better entity matching
+            if ent.label_ == 'PERSON':
+                name = self._normalize_person_name(name)
+            
+            if len(name) < MIN_ENTITY_NAME_LENGTH:
+                continue
+            
+            # Deduplicate by lowercase name
+            name_lower = name.lower()
+            if name_lower in seen_names:
+                continue
+            seen_names.add(name_lower)
+            
+            entity_type = self.SPACY_TYPE_MAP.get(ent.label_, 'concept')
+            entities.append(Entity(
+                name=name,
+                entity_type=entity_type,
+                metadata={'spacy_label': ent.label_}
+            ))
+        
+        return entities
+    
+    def extract_with_relationships(
+        self, text: str
+    ) -> tuple[list[Entity], list[Relationship]]:
+        """Extract entities from text. Relationships not implemented for spaCy.
+        
+        spaCy doesn't extract relationships directly. For relationship extraction,
+        use the regex-based EntityExtractor patterns or combine both extractors.
+        
+        Args:
+            text: Input text to process.
+            
+        Returns:
+            Tuple of (entities, empty relationships list).
+        """
+        return self.extract(text), []
+
+
+class HybridEntityExtractor:
+    """Combines regex-based and spaCy-based entity extraction.
+    
+    Uses regex patterns for software/technical entities and spaCy NER for
+    named entities (people, places, dates). This provides broad coverage
+    for both code-related and personal conversation use cases.
+    
+    Falls back to regex-only if spaCy is not available.
+    """
+    
+    def __init__(self, use_spacy: bool = True, spacy_model: str = "en_core_web_sm"):
+        """Initialize hybrid extractor.
+        
+        Args:
+            use_spacy: Whether to use spaCy NER. Set False to use regex only.
+            spacy_model: spaCy model name to load.
+        """
+        self._regex_extractor = EntityExtractor()
+        self._spacy_extractor: Optional[SpacyEntityExtractor] = None
+        
+        if use_spacy and SPACY_AVAILABLE:
+            try:
+                self._spacy_extractor = SpacyEntityExtractor(spacy_model)
+            except (ImportError, OSError) as e:
+                # Fall back to regex-only with warning
+                logger.warning(
+                    "spaCy extraction unavailable (%s), falling back to regex-only: %s",
+                    type(e).__name__, e
+                )
+    
+    @property
+    def has_spacy(self) -> bool:
+        """Whether spaCy extraction is available."""
+        return self._spacy_extractor is not None
+    
+    def extract(self, text: Optional[str]) -> list[Entity]:
+        """Extract entities using both regex and spaCy.
+        
+        Args:
+            text: Input text to extract entities from (can be None).
+            
+        Returns:
+            Combined, deduplicated list of entities from both extractors.
+        """
+        if not text or not text.strip():
+            return []
+        
+        # Get regex entities first
+        entities = self._regex_extractor.extract(text)
+        seen_names = {e.name.lower() for e in entities}
+        
+        # Add spaCy entities if available
+        if self._spacy_extractor:
+            spacy_entities = self._spacy_extractor.extract(text)
+            for ent in spacy_entities:
+                if ent.name.lower() not in seen_names:
+                    seen_names.add(ent.name.lower())
+                    entities.append(ent)
+        
+        return entities
+    
+    def extract_with_relationships(
+        self, text: str
+    ) -> tuple[list[Entity], list[Relationship]]:
+        """Extract entities and relationships.
+        
+        Uses regex extractor for relationships (spaCy doesn't extract these).
+        Combines entities from both extractors.
+        
+        Args:
+            text: Input text to process.
+            
+        Returns:
+            Tuple of (combined entities, regex-based relationships).
+        """
+        # Get regex entities + relationships
+        regex_entities, relationships = self._regex_extractor.extract_with_relationships(text)
+        seen_names = {e.name.lower() for e in regex_entities}
+        
+        # Combine with spaCy entities
+        entities = list(regex_entities)
+        if self._spacy_extractor:
+            spacy_entities = self._spacy_extractor.extract(text)
+            for ent in spacy_entities:
+                if ent.name.lower() not in seen_names:
+                    seen_names.add(ent.name.lower())
+                    entities.append(ent)
+        
+        return entities, relationships
+
+
 class GraphStore:
     """SQLite-backed graph storage for entities and relationships.
     

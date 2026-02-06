@@ -257,7 +257,7 @@ Minimal. Numbers, not logos (we're early-stage).
 ```
   ────────────────────────────────────────────────────
 
-  735 tests passing    v0.4.2 on PyPI    Apache 2.0
+  735 tests passing    v0.4.2 on PyPI    BSL 1.1
   100% LoCoMo recall   3 providers       10+ MCP tools
 
   ────────────────────────────────────────────────────
@@ -461,7 +461,7 @@ These are the details that make designers screenshot the page:
 │                                              │
 ├──────────────────────────────────────────────┤
 │                                              │
-│    735 tests   v0.4.2   Apache 2.0           │  ← trust
+│    735 tests   v0.4.2   BSL 1.1              │  ← trust
 │                                              │
 ├──────────────────────────────────────────────┤
 │                                              │

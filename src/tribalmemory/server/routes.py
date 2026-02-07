@@ -10,9 +10,11 @@ from ..services import TribalMemoryService
 from ..services.session_store import SessionStore, SessionMessage
 from .models import (
     RememberRequest,
+    BatchRememberRequest,
     RecallRequest,
     CorrectRequest,
     StoreResponse,
+    BatchStoreResponse,
     RecallResponse,
     RecallResultResponse,
     MemoryEntryResponse,
@@ -107,6 +109,44 @@ async def remember(
         )
     except Exception as e:
         return StoreResponse(success=False, error=str(e))
+
+
+@router.post("/remember/batch", response_model=BatchStoreResponse)
+async def remember_batch(
+    request: BatchRememberRequest,
+    service: TribalMemoryService = Depends(get_memory_service),
+) -> BatchStoreResponse:
+    """Store multiple memories in a single request.
+
+    Processes memories sequentially but reduces HTTP overhead for bulk ingestion.
+    Each memory is processed independently; failures don't affect other memories.
+    """
+    results = []
+    for mem in request.memories:
+        try:
+            result = await service.remember(
+                content=mem.content,
+                source_type=_convert_source_type(mem.source_type),
+                context=mem.context,
+                tags=mem.tags,
+                skip_dedup=mem.skip_dedup,
+            )
+            results.append(StoreResponse(
+                success=result.success,
+                memory_id=result.memory_id,
+                duplicate_of=result.duplicate_of,
+                error=result.error,
+            ))
+        except Exception as e:
+            results.append(StoreResponse(success=False, error=str(e)))
+
+    successful = sum(1 for r in results if r.success)
+    return BatchStoreResponse(
+        results=results,
+        total=len(results),
+        successful=successful,
+        failed=len(results) - successful,
+    )
 
 
 @router.post("/recall", response_model=RecallResponse)

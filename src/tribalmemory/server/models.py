@@ -104,6 +104,24 @@ class StoreResponse(BaseModel):
     error: Optional[str] = None
 
 
+class BatchRememberRequest(BaseModel):
+    """Request to store multiple memories at once."""
+    memories: list[RememberRequest] = Field(
+        ...,
+        description="List of memories to store",
+        min_length=1,
+        max_length=100,
+    )
+
+
+class BatchStoreResponse(BaseModel):
+    """Response from batch memory storage."""
+    results: list[StoreResponse]
+    total: int
+    successful: int
+    failed: int
+
+
 class RecallResultResponse(BaseModel):
     """A single recall result with score."""
     memory: MemoryEntryResponse

@@ -23,6 +23,8 @@ class SourceType(str, Enum):
 
 class RememberRequest(BaseModel):
     """Request to store a new memory."""
+    # min_length=1 catches empty strings at the Pydantic schema level (fast).
+    # The field_validator below also catches whitespace-only strings like "   ".
     content: str = Field(
         ...,
         description="The memory content to store",
@@ -81,11 +83,23 @@ class RecallRequest(BaseModel):
 class CorrectRequest(BaseModel):
     """Request to correct an existing memory."""
     original_id: str = Field(..., description="ID of memory to correct")
-    corrected_content: str = Field(..., description="Corrected information")
+    corrected_content: str = Field(
+        ...,
+        description="Corrected information",
+        min_length=1,
+    )
     context: Optional[str] = Field(
         default=None,
         description="Context about the correction"
     )
+
+    @field_validator("corrected_content")
+    @classmethod
+    def corrected_content_not_blank(cls, v: str) -> str:
+        """Reject empty or whitespace-only corrected content."""
+        if not v.strip():
+            raise ValueError("corrected_content must not be blank")
+        return v
 
 
 # =============================================================================

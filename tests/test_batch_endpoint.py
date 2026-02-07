@@ -263,9 +263,10 @@ class TestBatchPerformance:
         data = batch_resp.json()
         assert data["successful"] == count
 
-        # Batch should be faster (or at least not significantly slower)
-        # Using 2x as threshold since test client overhead is high
-        assert batch_time < seq_time * 2, (
+        # Batch should be faster (or at least not significantly slower).
+        # Using 1.5x threshold — test client adds per-request overhead that
+        # narrows the gap vs real HTTP. In production, batch is ~5-10x faster.
+        assert batch_time < seq_time * 1.5, (
             f"Batch ({batch_time:.2f}s) should be faster than sequential "
             f"({seq_time:.2f}s)"
         )

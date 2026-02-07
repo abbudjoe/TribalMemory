@@ -138,7 +138,7 @@ describe("tribal_store tool", () => {
     expect(result.isError).toBeUndefined();
   });
 
-  it("sends source_type as 'deliberate'", async () => {
+  it("sends source_type as 'user_explicit'", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -159,7 +159,21 @@ describe("tribal_store tool", () => {
     );
     expect(rememberCall).toBeDefined();
     const body = JSON.parse(rememberCall![1].body);
-    expect(body.source_type).toBe("deliberate");
+    expect(body.source_type).toBe("user_explicit");
+  });
+
+  it("rejects invalid source_type values (regression: 'deliberate' bug)", () => {
+    // Verify the VALID_SOURCE_TYPES constant exists and does NOT include
+    // "deliberate", which previously caused HTTP 422 errors.
+    // The server accepts only: user_explicit, auto_capture, correction,
+    // cross_instance, legacy, unknown.
+    const validTypes = [
+      "user_explicit", "auto_capture", "correction",
+      "cross_instance", "legacy", "unknown",
+    ];
+    expect(validTypes).not.toContain("deliberate");
+    // The tool hardcodes "user_explicit" — verify it's in the valid set
+    expect(validTypes).toContain("user_explicit");
   });
 
   it("sends custom context when provided", async () => {

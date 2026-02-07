@@ -1316,8 +1316,9 @@ class DependencyRelationshipExtractor:
         """Match text span to a known entity name.
         
         Uses case-insensitive matching. Prefers exact matches, then checks
-        if text is contained within a multi-word entity name. Returns the
-        canonical entity name in original case.
+        if text appears as a complete word within a multi-word entity name
+        using word boundary matching to prevent false positives (e.g.,
+        "can" should NOT match "Glen Canyon Dam").
         
         Args:
             text: Text span from dependency parse.
@@ -1332,13 +1333,15 @@ class DependencyRelationshipExtractor:
         if text_lower in entity_map:
             return entity_map[text_lower]
         
-        # Check if text is a substring of a multi-word entity
-        # (e.g., "Dam" matches "glen canyon dam" → "Glen Canyon Dam")
+        # Check if text appears as a complete word within a multi-word entity.
+        # Uses word boundary regex to prevent false positives like
+        # "can" matching "Glen Canyon Dam" or "go" matching "Chicago".
         # Only match if text is shorter (avoid matching "New York City" to "New York")
+        pattern = re.compile(r'\b' + re.escape(text_lower) + r'\b')
         candidates = [
             (entity_lower, entity_original)
             for entity_lower, entity_original in entity_map.items()
-            if text_lower in entity_lower and len(text_lower) < len(entity_lower)
+            if len(text_lower) < len(entity_lower) and pattern.search(entity_lower)
         ]
         
         if len(candidates) == 1:

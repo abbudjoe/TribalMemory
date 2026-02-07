@@ -668,3 +668,47 @@ class TestEdgeCases:
             if rel.relation_type == "uses":
                 # Should match the full entity name
                 assert "JavaScript" in {rel.source, rel.target}
+
+    def test_no_false_positive_substring_matching(self):
+        """Should NOT match 'can' to 'Glen Canyon Dam' or 'go' to 'Chicago'.
+        
+        Regression test for word boundary matching bug where simple substring
+        checks caused false positive entity matches.
+        """
+        extractor = DependencyRelationshipExtractor()
+        
+        import spacy
+        nlp = spacy.load("en_core_web_sm")
+        
+        # "can" should not match "Glen Canyon Dam"
+        doc = nlp("I can visit the park")
+        entities = [
+            Entity(name="Glen Canyon Dam", entity_type="place"),
+            Entity(name="Central Park", entity_type="place"),
+        ]
+        relationships = extractor.extract(doc, entities)
+        # Should not create a relationship with Glen Canyon Dam via "can"
+        for rel in relationships:
+            assert rel.source != "Glen Canyon Dam" or rel.target != "Glen Canyon Dam", \
+                f"False positive: 'can' matched 'Glen Canyon Dam' in relationship: {rel}"
+        
+        # "go" should not match "Chicago"
+        doc2 = nlp("I go to the store")
+        entities2 = [
+            Entity(name="Chicago", entity_type="place"),
+            Entity(name="The Store", entity_type="organization"),
+        ]
+        relationships2 = extractor.extract(doc2, entities2)
+        for rel in relationships2:
+            assert rel.source != "Chicago" and rel.target != "Chicago", \
+                f"False positive: 'go' matched 'Chicago' in relationship: {rel}"
+        
+        # "dam" should not match "Amsterdam"
+        doc3 = nlp("The dam was built last year")
+        entities3 = [
+            Entity(name="Amsterdam", entity_type="place"),
+        ]
+        relationships3 = extractor.extract(doc3, entities3)
+        for rel in relationships3:
+            assert rel.source != "Amsterdam" and rel.target != "Amsterdam", \
+                f"False positive: 'dam' matched 'Amsterdam' in relationship: {rel}"

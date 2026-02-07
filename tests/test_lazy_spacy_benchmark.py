@@ -17,6 +17,10 @@ from tribalmemory.services.memory import TribalMemoryService
 from tribalmemory.testing.mocks import MockEmbeddingService, MockVectorStore
 
 
+# Constants
+MIN_TIME_EPSILON = 0.0001  # Guard against division by zero in speedup calculations
+
+
 # --- Test Data Generation ---
 
 
@@ -83,17 +87,12 @@ def generate_test_memories(count: int, seed: int = 42) -> list[str]:
 
 
 @pytest.fixture
-def mock_embedding_service():
+def mock_embedding_service() -> MockEmbeddingService:
     return MockEmbeddingService(embedding_dim=64)
 
 
 @pytest.fixture
-def mock_vector_store(mock_embedding_service):
-    return MockVectorStore(mock_embedding_service)
-
-
-@pytest.fixture
-def mock_graph_store(tmp_path):
+def mock_graph_store(tmp_path) -> GraphStore:
     return GraphStore(str(tmp_path / "graph.db"))
 
 
@@ -105,17 +104,21 @@ class TestLazySpacyBenchmark:
 
     @pytest.mark.asyncio
     async def test_ingest_benchmark_small(
-        self, tmp_path, mock_embedding_service, mock_vector_store
+        self, tmp_path, mock_embedding_service
     ):
         """Benchmark ingest with 20 memories (smoke test)."""
         memories = generate_test_memories(20, seed=97)
         
+        # Create separate vector stores for isolation
+        lazy_vector_store = MockVectorStore(mock_embedding_service)
+        eager_vector_store = MockVectorStore(mock_embedding_service)
+        
         # Lazy mode
         lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
         lazy_service = TribalMemoryService(
             instance_id="lazy",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=lazy_vector_store,
             graph_store=lazy_graph_store,
             graph_enabled=True,
             lazy_spacy=True,
@@ -126,16 +129,12 @@ class TestLazySpacyBenchmark:
             await lazy_service.remember(content)
         lazy_time = time.perf_counter() - start
         
-        # Clear and create new stores for eager mode
-        mock_vector_store._store.clear()
-        mock_vector_store._deleted.clear()
-        
         # Eager mode
         eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
         eager_service = TribalMemoryService(
             instance_id="eager",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=eager_vector_store,
             graph_store=eager_graph_store,
             graph_enabled=True,
             lazy_spacy=False,
@@ -146,32 +145,41 @@ class TestLazySpacyBenchmark:
             await eager_service.remember(content)
         eager_time = time.perf_counter() - start
         
-        speedup = eager_time / max(lazy_time, 0.0001)
+        speedup = eager_time / max(lazy_time, MIN_TIME_EPSILON)
+        lazy_ms_per = (lazy_time * 1000) / len(memories)
+        eager_ms_per = (eager_time * 1000) / len(memories)
         
         print(f"\n=== Small Benchmark (20 memories) ===")
-        print(f"Lazy:  {lazy_time:.3f}s ({lazy_time*50:.1f}ms/memory)")
-        print(f"Eager: {eager_time:.3f}s ({eager_time*50:.1f}ms/memory)")
+        print(f"Lazy:  {lazy_time:.3f}s ({lazy_ms_per:.2f}ms/memory)")
+        print(f"Eager: {eager_time:.3f}s ({eager_ms_per:.2f}ms/memory)")
         print(f"Speedup: {speedup:.1f}x")
         
-        # Lazy should not be slower
-        assert lazy_time <= eager_time * 1.2, f"Lazy unexpectedly slower: {speedup:.1f}x"
+        # Lazy should not be slower (allow 20% variance)
+        assert lazy_time <= eager_time * 1.2, (
+            f"Lazy unexpectedly slower: lazy={lazy_time:.3f}s, "
+            f"eager={eager_time:.3f}s (speedup={speedup:.1f}x)"
+        )
 
     @pytest.mark.asyncio
     async def test_ingest_benchmark_100(
-        self, tmp_path, mock_embedding_service, mock_vector_store
+        self, tmp_path, mock_embedding_service
     ):
         """Benchmark ingest with 100 memories.
         
-        Expected: 1.5-2.5x speedup with mocks (70x with real embeddings).
+        Expected: 1.3x speedup with mocks (70x with real embeddings).
         """
         memories = generate_test_memories(100, seed=97)
+        
+        # Create separate vector stores
+        lazy_vector_store = MockVectorStore(mock_embedding_service)
+        eager_vector_store = MockVectorStore(mock_embedding_service)
         
         # Lazy mode
         lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
         lazy_service = TribalMemoryService(
             instance_id="lazy",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=lazy_vector_store,
             graph_store=lazy_graph_store,
             graph_enabled=True,
             lazy_spacy=True,
@@ -182,16 +190,12 @@ class TestLazySpacyBenchmark:
             await lazy_service.remember(content)
         lazy_time = time.perf_counter() - start
         
-        # Clear and create new stores
-        mock_vector_store._store.clear()
-        mock_vector_store._deleted.clear()
-        
         # Eager mode
         eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
         eager_service = TribalMemoryService(
             instance_id="eager",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=eager_vector_store,
             graph_store=eager_graph_store,
             graph_enabled=True,
             lazy_spacy=False,
@@ -202,7 +206,7 @@ class TestLazySpacyBenchmark:
             await eager_service.remember(content)
         eager_time = time.perf_counter() - start
         
-        speedup = eager_time / max(lazy_time, 0.0001)
+        speedup = eager_time / max(lazy_time, MIN_TIME_EPSILON)
         lazy_ms = (lazy_time * 1000) / len(memories)
         eager_ms = (eager_time * 1000) / len(memories)
         
@@ -212,16 +216,16 @@ class TestLazySpacyBenchmark:
         print(f"Speedup: {speedup:.1f}x")
         
         # With mock embeddings, expect at least 1.3x improvement
-        # (Real-world with actual embeddings shows ~70x)
+        # Real-world with actual embeddings shows ~70x
         if SPACY_AVAILABLE:
             assert speedup >= 1.3, (
-                f"Expected ≥1.3x speedup, got {speedup:.1f}x. "
-                f"Note: Real-world (with real embeddings) shows ~70x."
+                f"Expected ≥1.3x speedup with spaCy, got {speedup:.1f}x. "
+                f"Real-world (with real embeddings) shows ~70x."
             )
 
     @pytest.mark.asyncio
     async def test_comprehensive_benchmark(
-        self, tmp_path, mock_embedding_service, mock_vector_store
+        self, tmp_path, mock_embedding_service
     ):
         """Comprehensive benchmark documenting lazy spaCy performance (Issue #97).
         
@@ -239,12 +243,16 @@ class TestLazySpacyBenchmark:
         print(f"Corpus: {len(memories)} memories with entity-rich content")
         print()
         
+        # Create separate vector stores
+        lazy_vector_store = MockVectorStore(mock_embedding_service)
+        eager_vector_store = MockVectorStore(mock_embedding_service)
+        
         # === LAZY MODE ===
         lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
         lazy_service = TribalMemoryService(
             instance_id="lazy",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=lazy_vector_store,
             graph_store=lazy_graph_store,
             graph_enabled=True,
             lazy_spacy=True,
@@ -257,19 +265,17 @@ class TestLazySpacyBenchmark:
         
         # Test vector-only recall (no graph expansion)
         lazy_recall_start = time.perf_counter()
-        lazy_results = await lazy_service.recall("api-gateway", limit=5, graph_expansion=False)
+        lazy_results = await lazy_service.recall(
+            "api-gateway", limit=5, graph_expansion=False
+        )
         lazy_recall_time = time.perf_counter() - lazy_recall_start
-        
-        # Clear and create new stores
-        mock_vector_store._store.clear()
-        mock_vector_store._deleted.clear()
         
         # === EAGER MODE ===
         eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
         eager_service = TribalMemoryService(
             instance_id="eager",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=eager_vector_store,
             graph_store=eager_graph_store,
             graph_enabled=True,
             lazy_spacy=False,
@@ -282,11 +288,13 @@ class TestLazySpacyBenchmark:
         
         # Test vector-only recall
         eager_recall_start = time.perf_counter()
-        eager_results = await eager_service.recall("api-gateway", limit=5, graph_expansion=False)
+        eager_results = await eager_service.recall(
+            "api-gateway", limit=5, graph_expansion=False
+        )
         eager_recall_time = time.perf_counter() - eager_recall_start
         
         # === METRICS ===
-        speedup = eager_ingest_time / max(lazy_ingest_time, 0.0001)
+        speedup = eager_ingest_time / max(lazy_ingest_time, MIN_TIME_EPSILON)
         lazy_ms_per = (lazy_ingest_time * 1000) / len(memories)
         eager_ms_per = (eager_ingest_time * 1000) / len(memories)
         
@@ -298,7 +306,8 @@ class TestLazySpacyBenchmark:
         print()
         print(f"Vector-Only Recall Performance:")
         print(f"  Lazy:  {lazy_recall_time*1000:.2f}ms ({len(lazy_results)} results)")
-        print(f"  Eager: {eager_recall_time*1000:.2f}ms ({len(eager_results)} results)")
+        print(f"  Eager: {eager_recall_time*1000:.2f}ms "
+              f"({len(eager_results)} results)")
         print()
         print(f"Expected vs Actual:")
         print(f"  Target (real-world): ~70x faster ingest with lazy spaCy")
@@ -306,19 +315,22 @@ class TestLazySpacyBenchmark:
         print()
         if SPACY_AVAILABLE:
             print(f"  ✓ spaCy available: Ingest speedup from skipping NER")
-            print(f"  Note: Mock embeddings reduce the gap. Real embeddings (FastEmbed/")
-            print(f"        OpenAI) dominate ingest cost, amplifying the lazy spaCy benefit")
+            print(f"  Note: Mock embeddings reduce the gap. Real embeddings")
+            print(f"        (FastEmbed/OpenAI) dominate ingest cost, amplifying")
+            print(f"        the lazy spaCy benefit")
         else:
             print(f"  ⚠ spaCy not installed: Both modes use regex only")
         print()
         print(f"  Vector recall performance is identical (both use embeddings).")
-        print(f"  Graph expansion may differ (lazy: regex entities, eager: spaCy entities)")
+        print(f"  Graph expansion may differ (lazy: regex entities, "
+              f"eager: spaCy entities)")
         print(f"{'='*70}\n")
         
         # === ASSERTIONS ===
-        # Lazy should be at least as fast (or within 20% for variance)
+        # Lazy should be at least as fast (allow 20% variance)
         assert lazy_ingest_time <= eager_ingest_time * 1.2, (
-            f"Lazy mode slower than expected: {speedup:.1f}x"
+            f"Lazy mode slower than expected: lazy={lazy_ingest_time:.3f}s, "
+            f"eager={eager_ingest_time:.3f}s (speedup={speedup:.1f}x)"
         )
         
         # Vector-only recall should return similar results
@@ -329,16 +341,18 @@ class TestLazySpacyBenchmark:
         )
         
         # If spaCy available, expect measurable improvement (at least 1.2x)
+        # This threshold is conservative to account for variance in mock services
         if SPACY_AVAILABLE:
             assert speedup >= 1.2, (
-                f"Expected ≥1.2x speedup with spaCy, got {speedup:.1f}x"
+                f"Expected ≥1.2x speedup with spaCy, got {speedup:.1f}x. "
+                f"Real-world shows ~70x with actual embeddings."
             )
         
         print(f"✅ Benchmark complete: {speedup:.1f}x faster ingest with lazy spaCy")
 
     @pytest.mark.asyncio
     async def test_recall_vector_only_identical(
-        self, tmp_path, mock_embedding_service, mock_vector_store
+        self, tmp_path, mock_embedding_service
     ):
         """Verify vector-only recall is identical between modes.
         
@@ -354,12 +368,16 @@ class TestLazySpacyBenchmark:
             "The payment-service connects to Stripe API",
         ]
         
+        # Create separate vector stores
+        lazy_vector_store = MockVectorStore(mock_embedding_service)
+        eager_vector_store = MockVectorStore(mock_embedding_service)
+        
         # Lazy mode
         lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
         lazy_service = TribalMemoryService(
             instance_id="lazy",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=lazy_vector_store,
             graph_store=lazy_graph_store,
             graph_enabled=True,
             lazy_spacy=True,
@@ -372,15 +390,12 @@ class TestLazySpacyBenchmark:
             "auth-service", limit=10, graph_expansion=False
         )
         
-        # Clear and switch to eager
-        mock_vector_store._store.clear()
-        mock_vector_store._deleted.clear()
-        
+        # Eager mode
         eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
         eager_service = TribalMemoryService(
             instance_id="eager",
             embedding_service=mock_embedding_service,
-            vector_store=mock_vector_store,
+            vector_store=eager_vector_store,
             graph_store=eager_graph_store,
             graph_enabled=True,
             lazy_spacy=False,
@@ -395,7 +410,8 @@ class TestLazySpacyBenchmark:
         
         # Vector-only results should be identical
         assert len(lazy_results) == len(eager_results), (
-            f"Vector recall differs: lazy={len(lazy_results)}, eager={len(eager_results)}"
+            f"Vector recall differs: lazy={len(lazy_results)}, "
+            f"eager={len(eager_results)}"
         )
         
         lazy_contents = {r.memory.content for r in lazy_results}

@@ -5,6 +5,13 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.7.1/))
+
+### Fixed
+- **`tribal_store` tool was completely broken** — Was sending `sourceType: "deliberate"` (invalid enum value), causing HTTP 422 on every call. Changed to `"user_explicit"`. Added regression test.
+
+---
+
 ## [0.7.0] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.7.0/))
 
 ### Added

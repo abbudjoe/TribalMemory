@@ -68,6 +68,7 @@ tribal_store tests:
 - [ ] Store duplicate → verify dedup response (duplicate_of)
 - [ ] Store empty content → verify graceful error (not crash)
 - [ ] Store with invalid sourceType → verify 422 + error message (regression test for the "deliberate" bug)
+- [ ] Store with `"deliberate"` sourceType explicitly → verify it still fails with 422 (true e2e regression: sends the bad value to a real server, prevents re-introduction of the bug)
 - [ ] Store very long content (10KB+) → verify success
 - [ ] Verify stored memory retrievable via `/v1/recall`
 

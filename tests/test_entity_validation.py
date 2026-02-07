@@ -125,30 +125,30 @@ class TestEntityValidator:
         entity = Entity(name="and", entity_type="concept")
         assert not validator.is_valid(entity), "Common word 'and' as concept should be rejected"
 
-    def test_single_word_common_concept_rejected_useful(self, validator):
-        """Single-word common English 'useful' as concept should be rejected."""
-        entity = Entity(name="useful", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'useful' as concept should be rejected"
+    def test_single_word_common_concept_rejected_really(self, validator):
+        """Single-word common English 'really' as concept should be rejected."""
+        entity = Entity(name="really", entity_type="concept")
+        assert not validator.is_valid(entity), "Common word 'really' as concept should be rejected"
 
-    def test_single_word_common_concept_rejected_check(self, validator):
-        """Single-word common English 'check' as concept should be rejected."""
-        entity = Entity(name="check", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'check' as concept should be rejected"
+    def test_single_word_common_concept_rejected_very(self, validator):
+        """Single-word common English 'very' as concept should be rejected."""
+        entity = Entity(name="very", entity_type="concept")
+        assert not validator.is_valid(entity), "Common word 'very' as concept should be rejected"
 
-    def test_single_word_common_concept_rejected_good(self, validator):
-        """Single-word common English 'good' as concept should be rejected."""
-        entity = Entity(name="good", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'good' as concept should be rejected"
+    def test_single_word_common_concept_rejected_just(self, validator):
+        """Single-word common English 'just' as concept should be rejected."""
+        entity = Entity(name="just", entity_type="concept")
+        assert not validator.is_valid(entity), "Common word 'just' as concept should be rejected"
 
-    def test_single_word_common_concept_rejected_nice(self, validator):
-        """Single-word common English 'nice' as concept should be rejected."""
-        entity = Entity(name="nice", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'nice' as concept should be rejected"
+    def test_single_word_common_concept_rejected_also(self, validator):
+        """Single-word common English 'also' as concept should be rejected."""
+        entity = Entity(name="also", entity_type="concept")
+        assert not validator.is_valid(entity), "Common word 'also' as concept should be rejected"
 
-    def test_single_word_common_concept_rejected_great(self, validator):
-        """Single-word common English 'great' as concept should be rejected."""
-        entity = Entity(name="great", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'great' as concept should be rejected"
+    def test_single_word_common_concept_rejected_even(self, validator):
+        """Single-word common English 'even' as concept should be rejected."""
+        entity = Entity(name="even", entity_type="concept")
+        assert not validator.is_valid(entity), "Common word 'even' as concept should be rejected"
 
     def test_single_word_uncommon_concept_passes(self, validator):
         """Single-word uncommon concepts should pass."""
@@ -271,6 +271,26 @@ class TestRelationshipValidator:
         rel = Relationship(source="service", target="AND", relation_type="depends_on")
         assert not validator.is_valid(rel), "All-caps stopword target should be rejected"
 
+    def test_relationship_with_common_word_org_name_passes(self, validator):
+        """Relationships with org names that happen to be common words should pass.
+        
+        "Check" could be an organization name (e.g., Check payment company).
+        RelationshipValidator should NOT apply concept-specific word filtering
+        to relationship endpoints.
+        """
+        rel = Relationship(source="Check", target="Stripe", relation_type="uses")
+        assert validator.is_valid(rel), (
+            "Relationship with org name 'Check' should pass — "
+            "concept word filtering should not apply to relationships"
+        )
+
+    def test_relationship_with_another_common_word_org_passes(self, validator):
+        """Another common word as org name in relationship should pass."""
+        rel = Relationship(source="auth-service", target="Well", relation_type="connects_to")
+        assert validator.is_valid(rel), (
+            "Relationship with 'Well' should pass in relationship context"
+        )
+
     def test_both_entities_at_min_length_passes(self, validator):
         """Relationships with both entities at min length should pass."""
         rel = Relationship(source="api", target="db2", relation_type="uses")
@@ -362,8 +382,13 @@ class TestHybridEntityExtractorWithValidation:
         
         entities = extractor.extract(text)
         
-        # Should have 3 valid entities: auth-service, PostgreSQL, Redis
-        assert len(entities) == 3, f"Expected 3 valid entities, got {len(entities)}: {[e.name for e in entities]}"
+        # Should have valid entities: auth-service, PostgreSQL, Redis
+        # (THE, AND, 12345 should be filtered out)
+        expected_valid_count = 3  # auth-service, PostgreSQL, Redis
+        assert len(entities) == expected_valid_count, (
+            f"Expected {expected_valid_count} valid entities, "
+            f"got {len(entities)}: {[e.name for e in entities]}"
+        )
 
     def test_empty_text_yields_no_entities(self, extractor):
         """Empty text should yield no entities."""

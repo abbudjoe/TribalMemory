@@ -85,36 +85,6 @@ class EntityExtractor:
         RELATIONSHIP_PATTERNS: List of (pattern, relation_type) tuples for extraction.
     """
     
-    def __init__(self) -> None:
-        """Initialize entity extractor with lazy-loaded validators.
-        
-        Validators are lazy-loaded to avoid circular dependencies
-        (they're defined later in the file).
-        """
-        # Lazy-initialized validators (Issue #129, PR #133 H1)
-        self._entity_validator: Optional['EntityValidator'] = None
-        self._relationship_validator: Optional['RelationshipValidator'] = None
-    
-    def _get_entity_validator(self) -> 'EntityValidator':
-        """Get or create the entity validator.
-        
-        Returns:
-            EntityValidator instance.
-        """
-        if self._entity_validator is None:
-            self._entity_validator = EntityValidator()
-        return self._entity_validator
-    
-    def _get_relationship_validator(self) -> 'RelationshipValidator':
-        """Get or create the relationship validator.
-        
-        Returns:
-            RelationshipValidator instance.
-        """
-        if self._relationship_validator is None:
-            self._relationship_validator = RelationshipValidator()
-        return self._relationship_validator
-    
     # Patterns for common entity types
     # Matches: kebab-case identifiers that look like service/component names
     # - Must have at least one hyphen (kebab-case)
@@ -576,19 +546,34 @@ class EntityValidator:
     # Single-word common English words to reject when entity_type is 'concept'
     # Conservative list - only obvious generic words that are rarely useful as entities.
     # Be careful not to reject domain-specific terms (e.g., "Docker" is valid).
+    # Common English words that should NOT be stored as 'concept' entities.
+    # Conservative list: only truly meaningless words. Does NOT include
+    # subjective quality words (good, bad, useful, check, nice, great)
+    # which could be legitimate technical terms (e.g., "health check").
     COMMON_CONCEPT_WORDS = {
+        # Articles, conjunctions, prepositions
         'the', 'and', 'a', 'an', 'of', 'to', 'in', 'for', 'is', 'on', 'at',
         'by', 'with', 'from', 'as', 'be', 'it', 'this', 'that', 'which',
+        # Verbs (be/have/do/modal)
         'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had',
         'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
         'might', 'must', 'can', 'shall', 'need', 'dare', 'ought',
-        'useful', 'check', 'good', 'nice', 'great', 'bad', 'ok', 'okay',
-        'yes', 'no', 'well', 'very', 'too', 'so', 'just', 'really',
-        'quite', 'rather', 'pretty', 'enough', 'also', 'only', 'even',
+        # Basic affirmatives/negatives
+        'yes', 'no', 'ok', 'okay',
+        # Common intensifiers/qualifiers
+        'very', 'too', 'so', 'just', 'really', 'quite', 'rather',
+        'pretty', 'enough', 'also', 'only', 'even', 'well',
     }
     
     def is_valid(self, entity: Entity) -> bool:
         """Check if an entity is valid for storage.
+        
+        Validation rules:
+            - Name length must be >= MIN_ENTITY_NAME_LENGTH (3) and <= 100 chars
+            - Name must contain at least one alphabetic character
+            - Rejects all-caps stopwords (THE, AND, FOR, etc.)
+            - Rejects numeric-only names ("12345")
+            - Rejects single-word common English words when entity_type is 'concept'
         
         Args:
             entity: The entity to validate.
@@ -649,6 +634,12 @@ class RelationshipValidator:
     def is_valid(self, relationship: Relationship) -> bool:
         """Check if a relationship is valid for storage.
         
+        Validation rules:
+            - Source and target must not be empty
+            - No self-relationships (source == target, case-insensitive)
+            - Both source and target must pass basic entity validation
+              (length, alphabetic chars) but NOT concept-specific word filtering
+        
         Args:
             relationship: The relationship to validate.
             
@@ -666,13 +657,16 @@ class RelationshipValidator:
         if source.lower() == target.lower():
             return False
         
-        # Validate source as an entity
-        source_entity = Entity(name=source, entity_type='concept')
+        # Validate source and target as entities.
+        # Use entity_type='unknown' (not 'concept') to avoid triggering
+        # concept-specific common word filtering — relationship endpoints
+        # may be organization names like "Check" or "Stripe" that happen
+        # to be common English words.
+        source_entity = Entity(name=source, entity_type='unknown')
         if not self._entity_validator.is_valid(source_entity):
             return False
         
-        # Validate target as an entity
-        target_entity = Entity(name=target, entity_type='concept')
+        target_entity = Entity(name=target, entity_type='unknown')
         if not self._entity_validator.is_valid(target_entity):
             return False
         

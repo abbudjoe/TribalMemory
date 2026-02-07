@@ -21,7 +21,8 @@ from tribalmemory.testing.mocks import MockEmbeddingService, MockVectorStore
 MIN_TIME_EPSILON = 0.0001  # Guard against division by zero in speedup calculations
 
 # Speedup thresholds for assertions (conservative due to mock service variance)
-SPEEDUP_THRESHOLD_SMOKE = 1.2    # Small benchmarks: lazy should not be slower (20% variance allowed)
+# Small benchmarks: lazy should not be slower (20% variance allowed)
+SPEEDUP_THRESHOLD_SMOKE = 1.2
 SPEEDUP_THRESHOLD_MEDIUM = 1.3   # 100-memory benchmark: expect measurable improvement with spaCy
 SPEEDUP_THRESHOLD_COMPREHENSIVE = 1.2  # 200-memory benchmark: conservative minimum with spaCy
 
@@ -355,6 +356,8 @@ class TestLazySpacyBenchmark:
             )
         
         print(f"✅ Benchmark complete: {speedup:.1f}x faster ingest with lazy spaCy")
+
+    # --- Recall tests ---
 
     @pytest.mark.asyncio
     async def test_recall_vector_only_identical(

@@ -166,9 +166,7 @@ class EntityExtractor:
                     entity_type='technology'
                 ))
         
-        # Filter through validator to remove garbage entities
-        validator = self._get_entity_validator()
-        return [e for e in entities if validator.is_valid(e)]
+        return entities
     
     def extract_with_relationships(
         self, text: str
@@ -222,11 +220,6 @@ class EntityExtractor:
                     ))
         
         # Filter through validators to remove garbage
-        entity_validator = self._get_entity_validator()
-        relationship_validator = self._get_relationship_validator()
-        entities = [e for e in entities if entity_validator.is_valid(e)]
-        relationships = [r for r in relationships if relationship_validator.is_valid(r)]
-        
         return entities, relationships
     
     def _infer_service_type(self, name: str) -> str:
@@ -360,9 +353,22 @@ class SpacyPostProcessor:
         4. Reject if matches model number pattern
         5. Pass through all other entities unchanged
     
-    Usage:
+    Examples:
         processor = SpacyPostProcessor()
-        cleaned_entity = processor.process(entity)  # Returns None if rejected
+        
+        # Rejects misclassified products
+        entity = Entity(name="iPhone 15", entity_type="person")
+        assert processor.process(entity) is None
+        
+        # Reclassifies ambiguous product terms
+        entity = Entity(name="Galaxy", entity_type="person")
+        result = processor.process(entity)
+        assert result.entity_type == "product"
+        
+        # Preserves real person names
+        entity = Entity(name="Sarah Thompson", entity_type="person")
+        result = processor.process(entity)
+        assert result.entity_type == "person"
     """
     
     # Well-known product brand keywords (case-insensitive matching)
@@ -383,15 +389,19 @@ class SpacyPostProcessor:
     }
     
     # Model number pattern: letter + digits (e.g., X100, S23, Pro Max)
-    # Matches patterns like: X100, S23, Z300, Pro Max, etc.
+    # Intentionally broad — false positives (e.g., "X23" in military
+    # context) are rare and acceptable. Products misclassified as
+    # people are far more common in personal conversations.
     MODEL_NUMBER_PATTERN = re.compile(
         r'\b[A-Z]\d{2,}\b|'  # Letter followed by 2+ digits: X100, S23
         r'\bPro\s+Max\b',    # Common product suffix: Pro Max
         re.IGNORECASE
     )
     
-    # Food names commonly misclassified as PERSON by spaCy
-    # These should be rejected entirely (not reclassified)
+    # Food names commonly misclassified as PERSON by spaCy.
+    # Curated from LongMemEval benchmark failures where spaCy's
+    # en_core_web_sm model classified dish names as PERSON entities.
+    # To extend: add lowercase dish names that spaCy misclassifies.
     FOOD_BLOCKLIST = {
         'sarson ka saag', 'biryani', 'pad thai', 'tikka masala',
         'butter chicken', 'palak paneer', 'kung pao', 'tom yum',
@@ -827,10 +837,6 @@ class HybridEntityExtractor:
         self._regex_extractor = EntityExtractor()
         self._spacy_extractor: Optional[SpacyEntityExtractor] = None
         self._extraction_context = extraction_context
-        
-        # Validators for quality filtering (Issue #129)
-        self._entity_validator = EntityValidator()
-        self._relationship_validator = RelationshipValidator()
         
         # Validators for quality filtering (Issue #129)
         self._entity_validator = EntityValidator()

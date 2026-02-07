@@ -108,6 +108,17 @@ class TestSpacyPostProcessor:
             result = processor.process(entity)
             assert result is None, f"'{food_name}' should be rejected as person"
 
+    def test_food_rejection_is_case_insensitive(self):
+        """Food blocklist matching should be case-insensitive."""
+        processor = SpacyPostProcessor()
+        variants = ["BUTTER CHICKEN", "butter chicken", "Butter chicken"]
+        for variant in variants:
+            entity = Entity(name=variant, entity_type="person")
+            result = processor.process(entity)
+            assert result is None, (
+                f"Food '{variant}' should be rejected regardless of case"
+            )
+
     # =========================================================================
     # Reclassification tests (person → product)
     # =========================================================================
@@ -258,6 +269,28 @@ class TestSpacyPostProcessor:
             "Metadata should be preserved"
         )
 
+    def test_reclassification_preserves_metadata(self):
+        """Metadata should be preserved when entity is reclassified.
+        
+        When a PERSON entity is reclassified to 'product' (e.g., "Galaxy"),
+        the original metadata (spacy_label, confidence, etc.) must survive.
+        """
+        processor = SpacyPostProcessor()
+        entity = Entity(
+            name="Galaxy",
+            entity_type="person",
+            metadata={"spacy_label": "PERSON", "confidence": 0.88}
+        )
+        result = processor.process(entity)
+
+        assert result is not None, "Galaxy should be reclassified, not rejected"
+        assert result.entity_type == "product", (
+            "Galaxy should be reclassified to product"
+        )
+        assert result.metadata == {"spacy_label": "PERSON", "confidence": 0.88}, (
+            "Metadata should be preserved during reclassification"
+        )
+
     def test_handles_empty_entity_name(self):
         """Should handle empty entity name gracefully."""
         processor = SpacyPostProcessor()
@@ -296,8 +329,15 @@ class TestSpacyPostProcessor:
         catching products over this edge case.
         """
         processor = SpacyPostProcessor()
-        # Uncommon but valid person name with number
+        # "John 3rd" — ordinal suffix, not a model number pattern
         entity = Entity(name="John 3rd", entity_type="person")
         result = processor.process(entity)
-        # Implementation choice: may reject or preserve
-        # This test documents the behavior
+        # Should preserve: "3rd" doesn't match product patterns
+        # (MODEL_NUMBER_PATTERN requires uppercase letter + 2+ digits)
+        assert result is not None, (
+            "Person name 'John 3rd' should be preserved — "
+            "ordinal suffix is not a product pattern"
+        )
+        assert result.entity_type == "person", (
+            "Should remain person type"
+        )

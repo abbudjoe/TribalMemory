@@ -359,6 +359,58 @@ class TestDependencyRelationshipExtractor:
         assert extractor.VERB_RELATIONS["buy"] == "purchased"
         assert extractor.VERB_RELATIONS["bought"] == "purchased"
 
+    def test_coordinated_verbs_with_compound_subjects(self):
+        """Coordinated verbs should inherit compound subjects."""
+        extractor = DependencyRelationshipExtractor()
+        
+        import spacy
+        nlp = spacy.load("en_core_web_sm")
+        # Use a clearer sentence that spaCy will parse correctly
+        doc = nlp("Mike and Sarah visited Paris and bought souvenirs")
+        
+        entities = [
+            Entity(name="Mike", entity_type="person"),
+            Entity(name="Sarah", entity_type="person"),
+            Entity(name="Paris", entity_type="place"),
+            Entity(name="souvenirs", entity_type="product"),
+        ]
+        
+        relationships = extractor.extract(doc, entities)
+        
+        # Should find 4 relationships:
+        # Mike visited Paris, Sarah visited Paris
+        # Mike purchased souvenirs, Sarah purchased souvenirs
+        visited_rels = [r for r in relationships if r.relation_type == "visited"]
+        purchased_rels = [r for r in relationships if r.relation_type == "purchased"]
+        
+        # Each coordinated verb should create relationships with both compound subjects
+        assert len(visited_rels) >= 2
+        assert len(purchased_rels) >= 2
+
+    def test_compound_objects(self):
+        """Should handle compound objects (Paris and London)."""
+        extractor = DependencyRelationshipExtractor()
+        
+        import spacy
+        nlp = spacy.load("en_core_web_sm")
+        doc = nlp("John visited Paris and London")
+        
+        entities = [
+            Entity(name="John", entity_type="person"),
+            Entity(name="Paris", entity_type="place"),
+            Entity(name="London", entity_type="place"),
+        ]
+        
+        relationships = extractor.extract(doc, entities)
+        
+        # Should find two relationships: John --visited--> Paris, John --visited--> London
+        visited_rels = [r for r in relationships if r.relation_type == "visited"]
+        assert len(visited_rels) == 2
+        
+        targets = {r.target for r in visited_rels}
+        assert "Paris" in targets
+        assert "London" in targets
+
 
 @pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
 class TestHybridExtractorWithDependencyParsing:

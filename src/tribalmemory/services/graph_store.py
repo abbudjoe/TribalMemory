@@ -1000,6 +1000,23 @@ class DependencyRelationshipExtractor:
     def extract(self, doc, entities: list[Entity]) -> list[Relationship]:
         """Extract relationships from a spaCy Doc using dependency parsing.
         
+        Examples:
+            >>> import spacy
+            >>> nlp = spacy.load("en_core_web_sm")
+            >>> extractor = DependencyRelationshipExtractor()
+            >>> 
+            >>> # Basic SVO
+            >>> doc = nlp("John uses Python")
+            >>> entities = [Entity("John", "person"), Entity("Python", "technology")]
+            >>> extractor.extract(doc, entities)
+            [Relationship("John", "Python", "uses")]
+            >>> 
+            >>> # Prepositional relationship
+            >>> doc = nlp("Sarah lives in Denver")
+            >>> entities = [Entity("Sarah", "person"), Entity("Denver", "place")]
+            >>> extractor.extract(doc, entities)
+            [Relationship("Sarah", "Denver", "located_in")]
+        
         Args:
             doc: spaCy Doc object (already parsed).
             entities: List of entities extracted from the same text.
@@ -1012,7 +1029,8 @@ class DependencyRelationshipExtractor:
             return []
         
         # Build entity name index for fast lookup (case-insensitive)
-        entity_names_lower = {e.name.lower() for e in entities}
+        # Maps lowercase name -> original case name for case preservation
+        entity_map = {e.name.lower(): e.name for e in entities}
         
         relationships = []
         
@@ -1032,7 +1050,7 @@ class DependencyRelationshipExtractor:
             
             # Extract relationships from this verb
             verb_relationships = self._extract_from_verb(
-                token, entity_names_lower, relation_type
+                token, entity_map, relation_type
             )
             relationships.extend(verb_relationships)
             
@@ -1046,7 +1064,7 @@ class DependencyRelationshipExtractor:
                         conj_relation_type = self.VERB_RELATIONS[conj_verb_lemma]
                         # Extract from coordinated verb, passing parent's subjects
                         conj_relationships = self._extract_from_verb(
-                            child, entity_names_lower, conj_relation_type,
+                            child, entity_map, conj_relation_type,
                             inherited_subjects=self._find_subjects(token)
                         )
                         relationships.extend(conj_relationships)
@@ -1056,7 +1074,7 @@ class DependencyRelationshipExtractor:
     def _extract_from_verb(
         self,
         verb_token,
-        entity_names_lower: set[str],
+        entity_map: dict[str, str],
         relation_type: str,
         inherited_subjects: Optional[list[str]] = None
     ) -> list[Relationship]:
@@ -1070,7 +1088,7 @@ class DependencyRelationshipExtractor:
         
         Args:
             verb_token: spaCy Token for the verb.
-            entity_names_lower: Set of lowercase entity names.
+            entity_map: Dict mapping lowercase entity names to original case names.
             relation_type: Relationship type to create.
             inherited_subjects: Subjects inherited from a parent verb (for coordinated verbs).
         
@@ -1095,8 +1113,8 @@ class DependencyRelationshipExtractor:
                     continue
                 
                 # Match to entity names (fuzzy match for multi-word entities)
-                subj_entity = self._match_entity(subj_text, entity_names_lower)
-                obj_entity = self._match_entity(obj_text, entity_names_lower)
+                subj_entity = self._match_entity(subj_text, entity_map)
+                obj_entity = self._match_entity(obj_text, entity_map)
                 
                 # Only create relationship if both match known entities
                 if subj_entity and obj_entity:
@@ -1108,7 +1126,7 @@ class DependencyRelationshipExtractor:
         
         # Handle passive voice: check for agent phrases (by X)
         passive_rels = self._extract_passive_relationships(
-            verb_token, entity_names_lower, relation_type
+            verb_token, entity_map, relation_type
         )
         relationships.extend(passive_rels)
         
@@ -1191,7 +1209,7 @@ class DependencyRelationshipExtractor:
     def _extract_passive_relationships(
         self,
         verb_token,
-        entity_names_lower: set[str],
+        entity_map: dict[str, str],
         relation_type: str
     ) -> list[Relationship]:
         """Extract relationships from passive voice constructions.
@@ -1201,7 +1219,7 @@ class DependencyRelationshipExtractor:
         
         Args:
             verb_token: spaCy Token for the verb.
-            entity_names_lower: Set of lowercase entity names.
+            entity_map: Dict mapping lowercase entity names to original case names.
             relation_type: Relationship type to create.
         
         Returns:
@@ -1232,8 +1250,8 @@ class DependencyRelationshipExtractor:
                 if self._is_pronoun(agent_text) or self._is_pronoun(psubj_text):
                     continue
                 
-                agent_entity = self._match_entity(agent_text, entity_names_lower)
-                psubj_entity = self._match_entity(psubj_text, entity_names_lower)
+                agent_entity = self._match_entity(agent_text, entity_map)
+                psubj_entity = self._match_entity(psubj_text, entity_map)
                 
                 if agent_entity and psubj_entity:
                     # Agent is the source in passive voice
@@ -1246,9 +1264,14 @@ class DependencyRelationshipExtractor:
         return relationships
     
     def _get_full_noun_phrase(self, token) -> str:
-        """Get the full noun phrase including compounds and modifiers.
+        """Get the full noun phrase including compounds and key modifiers.
         
-        Handles multi-word entities like "New York" or "Glen Canyon Dam".
+        Captures:
+            - Compounds (New York)
+            - Adjectives (Big Apple)
+            - Possessives (Joe's Restaurant)
+            - Numerals (5 stars)
+            - Recursive compounds (San Francisco Bay Area)
         
         Args:
             token: Head token of the noun phrase.
@@ -1259,10 +1282,15 @@ class DependencyRelationshipExtractor:
         # Collect all tokens in the noun phrase
         tokens = [token]
         
-        # Add compound modifiers (New York -> [New, York])
+        # Add relevant modifiers
         for child in token.children:
-            if child.dep_ in {"compound", "amod"}:
+            if child.dep_ in {"compound", "amod", "poss", "nummod"}:
                 tokens.append(child)
+                # Recursively get compounds of the modifier
+                # (e.g., "San Francisco Bay Area" where "San" is compound of "Francisco")
+                for grandchild in child.children:
+                    if grandchild.dep_ in {"compound", "amod"}:
+                        tokens.append(grandchild)
         
         # Sort by position in sentence
         tokens.sort(key=lambda t: t.i)
@@ -1281,15 +1309,16 @@ class DependencyRelationshipExtractor:
         """
         return text.lower().strip() in PRONOUNS
     
-    def _match_entity(self, text: str, entity_names_lower: set[str]) -> Optional[str]:
+    def _match_entity(self, text: str, entity_map: dict[str, str]) -> Optional[str]:
         """Match text span to a known entity name.
         
-        Uses case-insensitive matching. If text is a substring of or
-        contained by an entity name, returns the entity name.
+        Uses case-insensitive matching. Prefers exact matches, then checks
+        if text is contained within a multi-word entity name. Returns the
+        canonical entity name in original case.
         
         Args:
             text: Text span from dependency parse.
-            entity_names_lower: Set of lowercase entity names.
+            entity_map: Dict mapping lowercase entity names to original case names.
         
         Returns:
             Matched entity name (original case), or None if no match.
@@ -1297,18 +1326,26 @@ class DependencyRelationshipExtractor:
         text_lower = text.lower().strip()
         
         # Exact match (most common case)
-        if text_lower in entity_names_lower:
-            return text  # Return original case
+        if text_lower in entity_map:
+            return entity_map[text_lower]
         
-        # Check if text is a substring of any entity name
-        # (e.g., "Dam" matches "Glen Canyon Dam")
-        for entity_name in entity_names_lower:
-            if text_lower in entity_name or entity_name in text_lower:
-                # Return the entity name in original case
-                # (we need to reconstruct it from the set)
-                # Since we only have lowercase in the set, return text for now
-                # The caller should handle case preservation
-                return text
+        # Check if text is a substring of a multi-word entity
+        # (e.g., "Dam" matches "glen canyon dam" → "Glen Canyon Dam")
+        # Only match if text is shorter (avoid matching "New York City" to "New York")
+        candidates = [
+            (entity_lower, entity_original)
+            for entity_lower, entity_original in entity_map.items()
+            if text_lower in entity_lower and len(text_lower) < len(entity_lower)
+        ]
+        
+        if len(candidates) == 1:
+            return candidates[0][1]  # Return original case
+        elif len(candidates) > 1:
+            # Multiple matches - return shortest to prefer more specific match
+            # e.g., if text="York" matches both "New York" and "New York City",
+            # prefer "New York"
+            shortest = min(candidates, key=lambda x: len(x[0]))
+            return shortest[1]
         
         return None
 

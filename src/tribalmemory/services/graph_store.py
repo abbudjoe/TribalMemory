@@ -14,8 +14,11 @@ import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import logging
+
+if TYPE_CHECKING:
+    import spacy.tokens
 
 # Constants
 MIN_ENTITY_NAME_LENGTH = 3
@@ -997,7 +1000,7 @@ class DependencyRelationshipExtractor:
         'eat': 'eats', 'eats': 'eats', 'ate': 'eats',
     }
     
-    def extract(self, doc, entities: list[Entity]) -> list[Relationship]:
+    def extract(self, doc: "spacy.tokens.Doc", entities: list[Entity]) -> list[Relationship]:
         """Extract relationships from a spaCy Doc using dependency parsing.
         
         Examples:
@@ -1073,7 +1076,7 @@ class DependencyRelationshipExtractor:
     
     def _extract_from_verb(
         self,
-        verb_token,
+        verb_token: "spacy.tokens.Token",
         entity_map: dict[str, str],
         relation_type: str,
         inherited_subjects: Optional[list[str]] = None
@@ -1132,7 +1135,7 @@ class DependencyRelationshipExtractor:
         
         return relationships
     
-    def _find_subjects(self, verb_token) -> list[str]:
+    def _find_subjects(self, verb_token: "spacy.tokens.Token") -> list[str]:
         """Find subject spans for a verb token.
         
         Handles:
@@ -1162,7 +1165,7 @@ class DependencyRelationshipExtractor:
         
         return subjects
     
-    def _find_objects(self, verb_token) -> list[str]:
+    def _find_objects(self, verb_token: "spacy.tokens.Token") -> list[str]:
         """Find object spans for a verb token.
         
         Handles:
@@ -1208,7 +1211,7 @@ class DependencyRelationshipExtractor:
     
     def _extract_passive_relationships(
         self,
-        verb_token,
+        verb_token: "spacy.tokens.Token",
         entity_map: dict[str, str],
         relation_type: str
     ) -> list[Relationship]:
@@ -1263,7 +1266,7 @@ class DependencyRelationshipExtractor:
         
         return relationships
     
-    def _get_full_noun_phrase(self, token) -> str:
+    def _get_full_noun_phrase(self, token: "spacy.tokens.Token") -> str:
         """Get the full noun phrase including compounds and key modifiers.
         
         Captures:

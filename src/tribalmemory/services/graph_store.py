@@ -111,6 +111,9 @@ class EntityExtractor:
     }
     
     # Relationship patterns: (pattern, relation_type)
+    # NOTE: Patterns are tightened to require both sides to be known entities
+    # (in TECHNOLOGIES or matching SERVICE_PATTERN). This prevents garbage
+    # relationships from personal conversation text.
     RELATIONSHIP_PATTERNS = [
         (re.compile(r'(\S+)\s+uses\s+(\S+)', re.IGNORECASE), 'uses'),
         (re.compile(r'(\S+)\s+connects?\s+to\s+(\S+)', re.IGNORECASE), 'connects_to'),
@@ -119,7 +122,8 @@ class EntityExtractor:
         (re.compile(r'(\S+)\s+talks?\s+to\s+(\S+)', re.IGNORECASE), 'connects_to'),
         (re.compile(r'(\S+)\s+calls?\s+(\S+)', re.IGNORECASE), 'calls'),
         (re.compile(r'(\S+)\s+handles?\s+(\S+)', re.IGNORECASE), 'handles'),
-        (re.compile(r'(\S+)\s+for\s+(?:the\s+)?(\S+)', re.IGNORECASE), 'serves'),
+        # NOTE: 'serves' pattern removed — too broad, produced garbage relationships
+        # Old pattern: (re.compile(r'(\S+)\s+for\s+(?:the\s+)?(\S+)', re.IGNORECASE), 'serves')
     ]
     
     def extract(self, text: str) -> list[Entity]:
@@ -163,7 +167,18 @@ class EntityExtractor:
     def extract_with_relationships(
         self, text: str
     ) -> tuple[list[Entity], list[Relationship]]:
-        """Extract both entities and relationships from text."""
+        """Extract both entities and relationships from text.
+        
+        Relationships are only extracted when BOTH sides are known entities
+        (in TECHNOLOGIES set or matching SERVICE_PATTERN). This prevents
+        garbage relationships from personal conversation text.
+        
+        Args:
+            text: Input text to extract from.
+            
+        Returns:
+            Tuple of (entities, relationships).
+        """
         entities = self.extract(text)
         entity_names = {e.name.lower() for e in entities}
         relationships = []
@@ -173,37 +188,32 @@ class EntityExtractor:
                 source = match.group(1).strip('.,;:')
                 target = match.group(2).strip('.,;:')
                 
-                # Only create relationship if both entities were extracted
-                # or if they look like valid entity names
-                source_valid = (
-                    source.lower() in entity_names or 
-                    self._looks_like_entity(source)
-                )
-                target_valid = (
-                    target.lower() in entity_names or 
-                    self._looks_like_entity(target)
-                )
+                # TIGHTENED: Only create relationship if BOTH sides are known entities
+                # This prevents garbage like "waiting for the bus" → (waiting, bus, serves)
+                if not self._is_known_entity(source):
+                    continue
+                if not self._is_known_entity(target):
+                    continue
                 
-                if source_valid and target_valid:
-                    relationships.append(Relationship(
-                        source=source,
-                        target=target,
-                        relation_type=rel_type
+                relationships.append(Relationship(
+                    source=source,
+                    target=target,
+                    relation_type=rel_type
+                ))
+                
+                # Add entities if not already present
+                if source.lower() not in entity_names:
+                    entity_names.add(source.lower())
+                    entities.append(Entity(
+                        name=source,
+                        entity_type=self._infer_type(source)
                     ))
-                    
-                    # Add entities if not already present
-                    if source.lower() not in entity_names:
-                        entity_names.add(source.lower())
-                        entities.append(Entity(
-                            name=source,
-                            entity_type=self._infer_type(source)
-                        ))
-                    if target.lower() not in entity_names:
-                        entity_names.add(target.lower())
-                        entities.append(Entity(
-                            name=target,
-                            entity_type=self._infer_type(target)
-                        ))
+                if target.lower() not in entity_names:
+                    entity_names.add(target.lower())
+                    entities.append(Entity(
+                        name=target,
+                        entity_type=self._infer_type(target)
+                    ))
         
         return entities, relationships
     
@@ -266,6 +276,32 @@ class EntityExtractor:
         # Capitalized words (proper nouns)
         if name[0].isupper() and name.isalnum():
             return True
+        return False
+    
+    def _is_known_entity(self, name: str) -> bool:
+        """Check if a name is a known entity (technology or service).
+        
+        Used to validate both sides of relationships before extraction.
+        This prevents garbage relationships from personal conversation text
+        like "waiting for the bus" where neither side is a real entity.
+        
+        Args:
+            name: Entity name to check.
+            
+        Returns:
+            True if the name is a known technology or matches SERVICE_PATTERN.
+        """
+        if not name or len(name) < MIN_ENTITY_NAME_LENGTH:
+            return False
+        
+        # Check if it's a known technology (case-insensitive)
+        if name.lower() in self.TECHNOLOGIES:
+            return True
+        
+        # Check if it matches SERVICE_PATTERN (kebab-case service names)
+        if self.SERVICE_PATTERN.match(name):
+            return True
+        
         return False
 
 
@@ -469,6 +505,138 @@ class SpacyEntityExtractor:
         return self.extract(text), []
 
 
+class EntityValidator:
+    """Validates entities before they enter the graph store (Issue #129).
+    
+    Prevents garbage entities from polluting the knowledge graph by enforcing:
+    - Max name length (100 chars)
+    - Reject all-caps stopwords (THE, AND, FOR, etc.)
+    - Reject numeric-only entities ("12345")
+    - Reject entities with no alphabetic characters ("---", "...")
+    - Reject single-word common English words when entity_type is 'concept'
+    """
+    
+    # Maximum entity name length (prevents extremely long extractions)
+    MAX_ENTITY_NAME_LENGTH = 100
+    
+    # All-caps stopwords to reject (these are almost never useful entities)
+    # These are structural words that appear frequently in text but rarely
+    # represent meaningful entities when extracted in all-caps form.
+    ALL_CAPS_STOPWORDS = {
+        'THE', 'AND', 'FOR', 'BUT', 'OR', 'NOT', 'WITH', 'THIS', 'THAT',
+        'FROM', 'THEY', 'HAVE', 'BEEN', 'WILL', 'WOULD', 'COULD', 'SHOULD',
+        'THEIR', 'THERE', 'ABOUT', 'WHICH', 'WHEN', 'WHAT', 'WHERE',
+        'SOME', 'MUCH', 'MANY', 'ALSO', 'INTO', 'JUST', 'VERY', 'THAN',
+        'THEN', 'ONLY', 'EACH', 'BOTH', 'SUCH', 'LIKE', 'MORE', 'MOST',
+        'OVER', 'AFTER', 'BEFORE'
+    }
+    
+    # Single-word common English words to reject when entity_type is 'concept'
+    # Conservative list - only obvious generic words that are rarely useful as entities.
+    # Be careful not to reject domain-specific terms (e.g., "Docker" is valid).
+    COMMON_CONCEPT_WORDS = {
+        'the', 'and', 'a', 'an', 'of', 'to', 'in', 'for', 'is', 'on', 'at',
+        'by', 'with', 'from', 'as', 'be', 'it', 'this', 'that', 'which',
+        'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had',
+        'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
+        'might', 'must', 'can', 'shall', 'need', 'dare', 'ought',
+        'useful', 'check', 'good', 'nice', 'great', 'bad', 'ok', 'okay',
+        'yes', 'no', 'well', 'very', 'too', 'so', 'just', 'really',
+        'quite', 'rather', 'pretty', 'enough', 'also', 'only', 'even',
+    }
+    
+    def is_valid(self, entity: Entity) -> bool:
+        """Check if an entity is valid for storage.
+        
+        Args:
+            entity: The entity to validate.
+            
+        Returns:
+            True if the entity passes all validation rules, False otherwise.
+        """
+        name = entity.name.strip() if entity.name else ""
+        
+        # Reject empty or whitespace-only names
+        if not name:
+            return False
+        
+        # Reject names below minimum length
+        if len(name) < MIN_ENTITY_NAME_LENGTH:
+            return False
+        
+        # Reject names over maximum length
+        if len(name) > self.MAX_ENTITY_NAME_LENGTH:
+            return False
+        
+        # Reject all-caps stopwords
+        if name in self.ALL_CAPS_STOPWORDS:
+            return False
+        
+        # Reject numeric-only entities
+        if name.isdigit():
+            return False
+        
+        # Reject entities with no alphabetic characters
+        if not any(c.isalpha() for c in name):
+            return False
+        
+        # Reject single-word common English words when entity_type is 'concept'
+        # Only apply this rule for 'concept' type - other types may have legitimate
+        # single-word names (e.g., organization named "Check")
+        if entity.entity_type == 'concept':
+            # Check if it's a single word (no spaces)
+            if ' ' not in name and name.lower() in self.COMMON_CONCEPT_WORDS:
+                return False
+        
+        return True
+
+
+class RelationshipValidator:
+    """Validates relationships before they enter the graph store (Issue #129).
+    
+    Prevents garbage relationships from polluting the knowledge graph by enforcing:
+    - Both source and target must be valid entities
+    - No self-relationships (source == target, case-insensitive)
+    - Source and target must meet minimum length requirements
+    """
+    
+    def __init__(self):
+        """Initialize with an entity validator."""
+        self._entity_validator = EntityValidator()
+    
+    def is_valid(self, relationship: Relationship) -> bool:
+        """Check if a relationship is valid for storage.
+        
+        Args:
+            relationship: The relationship to validate.
+            
+        Returns:
+            True if the relationship passes all validation rules, False otherwise.
+        """
+        source = relationship.source.strip() if relationship.source else ""
+        target = relationship.target.strip() if relationship.target else ""
+        
+        # Reject if source or target is empty
+        if not source or not target:
+            return False
+        
+        # Reject self-relationships (case-insensitive)
+        if source.lower() == target.lower():
+            return False
+        
+        # Validate source as an entity
+        source_entity = Entity(name=source, entity_type='concept')
+        if not self._entity_validator.is_valid(source_entity):
+            return False
+        
+        # Validate target as an entity
+        target_entity = Entity(name=target, entity_type='concept')
+        if not self._entity_validator.is_valid(target_entity):
+            return False
+        
+        return True
+
+
 class HybridEntityExtractor:
     """Combines regex-based and spaCy-based entity extraction.
     
@@ -477,17 +645,35 @@ class HybridEntityExtractor:
     for both code-related and personal conversation use cases.
     
     Falls back to regex-only if spaCy is not available.
+    
+    Extraction context controls relationship extraction behavior:
+        - "personal" (default): Disables regex relationship extraction to avoid
+          garbage relationships from casual conversation.
+        - "software": Enables regex relationship extraction for technical text.
     """
     
-    def __init__(self, use_spacy: bool = True, spacy_model: str = "en_core_web_sm"):
+    def __init__(
+        self,
+        use_spacy: bool = True,
+        spacy_model: str = "en_core_web_sm",
+        extraction_context: str = "personal"
+    ):
         """Initialize hybrid extractor.
         
         Args:
             use_spacy: Whether to use spaCy NER. Set False to use regex only.
             spacy_model: spaCy model name to load.
+            extraction_context: Context for extraction ("personal" or "software").
+                Defaults to "personal" which disables regex relationship extraction
+                to prevent garbage relationships from casual conversation.
         """
         self._regex_extractor = EntityExtractor()
         self._spacy_extractor: Optional[SpacyEntityExtractor] = None
+        self._extraction_context = extraction_context
+        
+        # Validators for quality filtering (Issue #129)
+        self._entity_validator = EntityValidator()
+        self._relationship_validator = RelationshipValidator()
         
         if use_spacy and SPACY_AVAILABLE:
             try:
@@ -511,7 +697,7 @@ class HybridEntityExtractor:
             text: Input text to extract entities from (can be None).
             
         Returns:
-            Combined, deduplicated list of entities from both extractors.
+            Combined, deduplicated list of valid entities from both extractors.
         """
         if not text or not text.strip():
             return []
@@ -528,24 +714,35 @@ class HybridEntityExtractor:
                     seen_names.add(ent.name.lower())
                     entities.append(ent)
         
-        return entities
+        # Filter through validator to remove garbage entities (Issue #129)
+        valid_entities = [e for e in entities if self._entity_validator.is_valid(e)]
+        
+        return valid_entities
     
     def extract_with_relationships(
         self, text: str
     ) -> tuple[list[Entity], list[Relationship]]:
         """Extract entities and relationships.
         
-        Uses regex extractor for relationships (spaCy doesn't extract these).
-        Combines entities from both extractors.
+        Respects extraction_context:
+            - "personal": Extracts entities only (no regex relationships)
+            - "software": Extracts entities + regex relationships
         
         Args:
             text: Input text to process.
             
         Returns:
-            Tuple of (combined entities, regex-based relationships).
+            Tuple of (combined valid entities, valid regex-based relationships).
         """
-        # Get regex entities + relationships
-        regex_entities, relationships = self._regex_extractor.extract_with_relationships(text)
+        # Context-aware extraction: personal context disables regex relationships
+        if self._extraction_context == "personal":
+            # Extract entities only (no relationships from regex patterns)
+            regex_entities = self._regex_extractor.extract(text)
+            relationships = []  # No regex relationships in personal context
+        else:
+            # Software context: extract both entities and relationships
+            regex_entities, relationships = self._regex_extractor.extract_with_relationships(text)
+        
         seen_names = {e.name.lower() for e in regex_entities}
         
         # Combine with spaCy entities
@@ -557,7 +754,13 @@ class HybridEntityExtractor:
                     seen_names.add(ent.name.lower())
                     entities.append(ent)
         
-        return entities, relationships
+        # Filter entities through validator to remove garbage (Issue #129)
+        valid_entities = [e for e in entities if self._entity_validator.is_valid(e)]
+        
+        # Filter relationships through validator to remove garbage (Issue #129)
+        valid_relationships = [r for r in relationships if self._relationship_validator.is_valid(r)]
+        
+        return valid_entities, valid_relationships
 
 
 class GraphStore:

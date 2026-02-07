@@ -10,17 +10,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   startTestServer,
   rawPost,
+  type RecallResult,
   type TestEnvironment,
 } from "./setup";
-
-interface RecallResult {
-  memory: {
-    content: string;
-    tags: string[];
-    memory_id: string;
-  };
-  similarity_score: number;
-}
 
 describe("Error Handling & Edge Cases E2E", () => {
   let env: TestEnvironment;
@@ -41,18 +33,12 @@ describe("Error Handling & Edge Cases E2E", () => {
     const wrongPort = env.port + 1000; // Wrong port
     const wrongUrl = `http://127.0.0.1:${wrongPort}`;
 
-    // Should not throw unhandled exception
-    try {
-      await fetch(`${wrongUrl}/v1/health`, {
+    // Should throw a clean error (ECONNREFUSED, timeout, etc.)
+    await expect(
+      fetch(`${wrongUrl}/v1/health`, {
         signal: AbortSignal.timeout(2000),
-      });
-      // If we reach here, something weird happened (port might actually be open)
-      expect.fail("Expected fetch to fail but it succeeded");
-    } catch (err) {
-      // Should get a clean error (ECONNREFUSED, timeout, etc.)
-      expect(err).toBeDefined();
-      expect(err instanceof Error).toBe(true);
-    }
+      }),
+    ).rejects.toThrow();
   });
 
   it("should reject malformed JSON to /v1/remember with 400 or 422", async () => {
@@ -229,11 +215,21 @@ describe("Error Handling & Edge Cases E2E", () => {
 
     const results = await Promise.all(storePromises);
 
-    // All should succeed
-    for (const res of results) {
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.memory_id).toBeDefined();
+    // All should succeed (improved diagnostics)
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      expect(
+        res.status,
+        `Request ${i + 1}/${concurrency} should return 200`,
+      ).toBe(200);
+      expect(
+        res.body.success,
+        `Request ${i + 1}/${concurrency} should succeed. Error: ${res.body.error || "none"}`,
+      ).toBe(true);
+      expect(
+        res.body.memory_id,
+        `Request ${i + 1}/${concurrency} should have memory_id`,
+      ).toBeDefined();
     }
 
     // All memory IDs should be unique
@@ -474,7 +470,24 @@ describe("Error Handling & Edge Cases E2E", () => {
     expect(res2.body.detail).toBeDefined();
   });
 
-  it("should handle non-existent memory ID gracefully on GET /v1/memory/{id}", async () => {
+  it("should reject invalid UUID format on GET /v1/memory/{id} with 404 or 422", async () => {
+    const invalidUuids = [
+      "not-a-uuid",
+      "12345",
+      "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz",
+    ];
+
+    for (const invalidUuid of invalidUuids) {
+      const res = await fetch(`${env.baseUrl}/v1/memory/${invalidUuid}`);
+      // Should return 404 (not found) or 422 (invalid format)
+      expect(
+        [404, 422],
+        `Invalid UUID "${invalidUuid}" should return 404 or 422, got ${res.status}`,
+      ).toContain(res.status);
+    }
+  });
+
+  it("should handle non-existent valid UUID on GET /v1/memory/{id} with 404", async () => {
     const fakeId = "00000000-0000-0000-0000-000000000000";
     const res = await fetch(`${env.baseUrl}/v1/memory/${fakeId}`);
 

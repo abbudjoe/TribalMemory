@@ -11,21 +11,12 @@ import {
   startTestServer,
   rawPost,
   VALID_SOURCE_TYPES,
+  type RecallResult,
   type TestEnvironment,
 } from "./setup";
 
 // 10KB+ tests server handling of payloads exceeding typical memory size
 const LARGE_CONTENT_SIZE = 10240;
-
-interface RecallResult {
-  memory: {
-    content: string;
-    tags: string[];
-    memory_id: string;
-  };
-  similarity_score: number;
-  retrieval_time_ms?: number;
-}
 
 describe("tribal_store E2E", () => {
   let env: TestEnvironment;

@@ -28,6 +28,17 @@ export const VALID_SOURCE_TYPES = [
 ] as const;
 export type SourceType = (typeof VALID_SOURCE_TYPES)[number];
 
+/** Recall result structure from /v1/recall endpoint. */
+export interface RecallResult {
+  memory: {
+    content: string;
+    tags: string[];
+    memory_id: string;
+  };
+  similarity_score: number;
+  retrieval_time_ms?: number;
+}
+
 export interface TestEnvironment {
   /** TribalClient connected to the test server */
   client: TribalClient;

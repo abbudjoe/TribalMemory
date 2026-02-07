@@ -12,8 +12,9 @@ import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 import logging
 
 # Constants
@@ -641,7 +642,7 @@ class SpacyEntityExtractor:
 
 
 class EntityValidator:
-    """Validates entities before they enter the graph store (Issue #129).
+    """Validates entities before they enter the graph store (Issue #129, #135).
     
     Prevents garbage entities from polluting the knowledge graph by enforcing:
     - Max name length (100 chars)
@@ -649,6 +650,10 @@ class EntityValidator:
     - Reject numeric-only entities ("12345")
     - Reject entities with no alphabetic characters ("---", "...")
     - Reject single-word common English words when entity_type is 'concept'
+    
+    Performance optimizations (Issue #135):
+    - Batch validation support via validate_batch()
+    - LRU cache for common word lookups
     """
     
     # Maximum entity name length (prevents extremely long extractions)
@@ -688,6 +693,32 @@ class EntityValidator:
         'pretty', 'enough', 'also', 'only', 'even', 'well',
     }
     
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _is_common_word(name_lower: str) -> bool:
+        """Cached check if a lowercase name is a common concept word.
+        
+        Args:
+            name_lower: Lowercase entity name.
+            
+        Returns:
+            True if the name is in COMMON_CONCEPT_WORDS.
+        """
+        return name_lower in EntityValidator.COMMON_CONCEPT_WORDS
+    
+    @staticmethod
+    @lru_cache(maxsize=512)
+    def _has_alpha(name: str) -> bool:
+        """Cached check if a string contains alphabetic characters.
+        
+        Args:
+            name: String to check.
+            
+        Returns:
+            True if the string contains at least one alphabetic character.
+        """
+        return any(c.isalpha() for c in name)
+    
     def is_valid(self, entity: Entity) -> bool:
         """Check if an entity is valid for storage.
         
@@ -726,8 +757,8 @@ class EntityValidator:
         if name.isdigit():
             return False
         
-        # Reject entities with no alphabetic characters
-        if not any(c.isalpha() for c in name):
+        # Reject entities with no alphabetic characters (cached)
+        if not self._has_alpha(name):
             return False
         
         # Reject single-word common English words when entity_type is 'concept'
@@ -735,19 +766,37 @@ class EntityValidator:
         # single-word names (e.g., organization named "Check")
         if entity.entity_type == 'concept':
             # Check if it's a single word (no spaces)
-            if ' ' not in name and name.lower() in self.COMMON_CONCEPT_WORDS:
+            if ' ' not in name and self._is_common_word(name.lower()):
                 return False
         
         return True
+    
+    def validate_batch(self, entities: List[Entity]) -> List[bool]:
+        """Validate a batch of entities efficiently.
+        
+        Performance optimization for large-scale validation (Issue #135).
+        Uses the same validation logic as is_valid() but processes entities
+        in batch for better performance with large datasets.
+        
+        Args:
+            entities: List of entities to validate.
+            
+        Returns:
+            List of booleans indicating validity for each entity (same order).
+        """
+        return [self.is_valid(entity) for entity in entities]
 
 
 class RelationshipValidator:
-    """Validates relationships before they enter the graph store (Issue #129).
+    """Validates relationships before they enter the graph store (Issue #129, #135).
     
     Prevents garbage relationships from polluting the knowledge graph by enforcing:
     - Both source and target must be valid entities
     - No self-relationships (source == target, case-insensitive)
     - Source and target must meet minimum length requirements
+    
+    Performance optimizations (Issue #135):
+    - Batch validation support via validate_batch()
     """
     
     def __init__(self) -> None:
@@ -794,6 +843,21 @@ class RelationshipValidator:
             return False
         
         return True
+    
+    def validate_batch(self, relationships: List[Relationship]) -> List[bool]:
+        """Validate a batch of relationships efficiently.
+        
+        Performance optimization for large-scale validation (Issue #135).
+        Uses the same validation logic as is_valid() but processes relationships
+        in batch for better performance with large datasets.
+        
+        Args:
+            relationships: List of relationships to validate.
+            
+        Returns:
+            List of booleans indicating validity for each relationship (same order).
+        """
+        return [self.is_valid(rel) for rel in relationships]
 
 
 class HybridEntityExtractor:

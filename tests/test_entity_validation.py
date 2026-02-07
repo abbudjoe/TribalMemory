@@ -264,7 +264,7 @@ class TestHybridEntityExtractorWithValidation:
     @pytest.fixture
     def extractor(self):
         """Create a HybridEntityExtractor (without spaCy to avoid dependency issues)."""
-        return HybridEntityExtractor(use_spacy=False)
+        return HybridEntityExtractor(use_spacy=False, extraction_context="software")
 
     def test_extract_valid_entities_only(self, extractor):
         """Extractor should filter out invalid entities."""

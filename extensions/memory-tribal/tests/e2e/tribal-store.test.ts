@@ -14,7 +14,18 @@ import {
   type TestEnvironment,
 } from "./setup";
 
+// 10KB+ tests server handling of payloads exceeding typical memory size
 const LARGE_CONTENT_SIZE = 10240;
+
+interface RecallResult {
+  memory: {
+    content: string;
+    tags: string[];
+    memory_id: string;
+  };
+  similarity_score: number;
+  retrieval_time_ms?: number;
+}
 
 describe("tribal_store E2E", () => {
   let env: TestEnvironment;
@@ -53,6 +64,7 @@ describe("tribal_store E2E", () => {
     });
     expect(storeRes.status).toBe(200);
     expect(storeRes.body.success).toBe(true);
+    const storedMemoryId = storeRes.body.memory_id as string;
 
     // Recall and verify tags + response structure
     const recallRes = await rawPost(env.baseUrl, "/v1/recall", {
@@ -65,10 +77,7 @@ describe("tribal_store E2E", () => {
     expect(recallRes.body.results).toBeDefined();
     expect(Array.isArray(recallRes.body.results)).toBe(true);
 
-    const results = recallRes.body.results as Array<{
-      memory: { content: string; tags: string[] };
-      similarity_score: number;
-    }>;
+    const results = recallRes.body.results as RecallResult[];
     
     // Each result should have required fields
     for (const result of results) {
@@ -81,8 +90,9 @@ describe("tribal_store E2E", () => {
       expect(result.similarity_score).toBeLessThanOrEqual(1);
     }
 
+    // Find our stored memory (improved test isolation)
     const match = results.find((r) =>
-      r.memory.content.includes("PostgreSQL"),
+      r.memory.memory_id === storedMemoryId || r.memory.content.includes("PostgreSQL"),
     );
     expect(match).toBeDefined();
     expect(match!.memory.tags).toEqual(expect.arrayContaining(tags));
@@ -146,6 +156,7 @@ describe("tribal_store E2E", () => {
   });
 
   it("should reject other invalid sourceType values with 422", async () => {
+    // Comprehensive test of various invalid types (deliberate tested above, included here for completeness)
     const invalidTypes = ["deliberate", "manual", "agent", "system", ""];
     for (const badType of invalidTypes) {
       const res = await rawPost(env.baseUrl, "/v1/remember", {
@@ -217,9 +228,7 @@ describe("tribal_store E2E", () => {
     });
     expect(recallRes.status).toBe(200);
 
-    const results = recallRes.body.results as Array<{
-      memory: { content: string };
-    }>;
+    const results = recallRes.body.results as RecallResult[];
     const found = results.some((r) =>
       r.memory.content.includes("blue-green"),
     );

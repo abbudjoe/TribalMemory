@@ -71,7 +71,7 @@ async function findFreePort(): Promise<number> {
  */
 async function waitForHealth(
   baseUrl: string,
-  timeoutMs: number = 30000,
+  timeoutMs: number = parseInt(process.env.E2E_HEALTH_TIMEOUT_MS || "30000", 10),
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -79,7 +79,7 @@ async function waitForHealth(
       const res = await fetch(`${baseUrl}/v1/health`);
       if (res.ok) {
         // Validate health response structure
-        const data = (await res.json()) as Record<string, unknown>;
+        const data = (await res.json()) as { status?: string };
         if (data.status === "ok") {
           return;
         }

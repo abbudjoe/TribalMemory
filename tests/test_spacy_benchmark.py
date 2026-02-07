@@ -213,7 +213,10 @@ class TestSpacyBenchmark:
         )
 
         # Lazy ingest should not be significantly slower than eager.
-        # Allow 20% tolerance for noise in fast operations.
+        # 20% tolerance accounts for:
+        # - Timer granularity on fast operations (sub-ms noise)
+        # - GC pauses and OS scheduling jitter
+        # - pytest fixture overhead variance between runs
         assert lazy.ingest_total_ms <= eager.ingest_total_ms * 1.20, (
             f"Lazy ingest ({lazy.ingest_total_ms:.2f}ms) was more than 20% "
             f"slower than eager ({eager.ingest_total_ms:.2f}ms)"
@@ -234,13 +237,17 @@ class TestSpacyBenchmark:
         )
 
         # Both should produce positive timings
-        for result in (lazy, eager):
-            assert result.ingest_total_ms > 0
-            assert result.ingest_per_item_ms > 0
-            assert result.recall_total_ms > 0
-            assert result.recall_per_query_ms > 0
-            assert result.num_ingested == len(SAMPLE_MEMORIES)
-            assert result.num_queries == len(SAMPLE_QUERIES)
+        for label, result in [("lazy", lazy), ("eager", eager)]:
+            assert result.ingest_total_ms > 0, f"{label} ingest_total_ms should be positive"
+            assert result.ingest_per_item_ms > 0, f"{label} ingest_per_item_ms should be positive"
+            assert result.recall_total_ms > 0, f"{label} recall_total_ms should be positive"
+            assert result.recall_per_query_ms > 0, f"{label} recall_per_query_ms should be positive"
+            assert result.num_ingested == len(SAMPLE_MEMORIES), (
+                f"{label} num_ingested: expected {len(SAMPLE_MEMORIES)}, got {result.num_ingested}"
+            )
+            assert result.num_queries == len(SAMPLE_QUERIES), (
+                f"{label} num_queries: expected {len(SAMPLE_QUERIES)}, got {result.num_queries}"
+            )
 
     @pytest.mark.asyncio
     async def test_benchmark_summary_table(
@@ -326,9 +333,11 @@ class TestSpacyBenchmark:
             lazy_spacy=False, memories=SAMPLE_MEMORIES, queries=SAMPLE_QUERIES,
         )
 
-        # With spaCy, lazy ingest should be faster (regex-only vs regex+spaCy)
+        # With spaCy, lazy ingest should be faster (regex-only vs regex+spaCy).
         # We just verify it's not slower — the speedup magnitude depends on
         # the machine and spaCy model loading overhead.
+        # 10% tolerance (tighter than mock test) because spaCy NER is the
+        # dominant cost, making the signal-to-noise ratio much higher.
         assert lazy.ingest_total_ms <= eager.ingest_total_ms * 1.10, (
             f"With spaCy installed, lazy ingest ({lazy.ingest_total_ms:.2f}ms) "
             f"should not be slower than eager ({eager.ingest_total_ms:.2f}ms)"

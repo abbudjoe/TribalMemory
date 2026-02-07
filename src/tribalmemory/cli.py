@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+from importlib.metadata import version as metadata_version
 from pathlib import Path
 
 try:
@@ -23,6 +24,19 @@ try:
     import tomli_w  # For writing TOML
 except ImportError:
     tomli_w = None  # type: ignore
+
+
+def _get_version() -> str:
+    """Get the installed package version via importlib.metadata.
+
+    Falls back to 'unknown' if the package metadata is unavailable
+    (e.g. running from source without installing).
+    """
+    try:
+        return metadata_version("tribalmemory")
+    except Exception:
+        return "unknown"
+
 
 TRIBAL_DIR = Path.home() / ".tribal-memory"
 CONFIG_FILE = TRIBAL_DIR / "config.yaml"
@@ -593,6 +607,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="tribalmemory",
         description="Tribal Memory — Shared memory for AI agents",
+    )
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"%(prog)s {_get_version()}",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

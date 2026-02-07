@@ -704,3 +704,26 @@ class TestMainEntrypoint:
             assert exc_info.value.code == 0
 
         assert (cli_env / ".tribal-memory" / "config.yaml").exists()
+
+    def test_version_flag_displays_version(self, capsys):
+        """--version should print version and exit."""
+        with patch("sys.argv", ["tribalmemory", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            # argparse's version action exits with code 0
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert "tribalmemory" in captured.out
+        # Should show actual version or "unknown"
+        assert len(captured.out.strip()) > len("tribalmemory")
+
+    def test_version_flag_short_form(self, capsys):
+        """-V should print version and exit."""
+        with patch("sys.argv", ["tribalmemory", "-V"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        captured = capsys.readouterr()
+        assert "tribalmemory" in captured.out

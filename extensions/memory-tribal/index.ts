@@ -620,7 +620,7 @@ const memoryTribalPlugin = {
         try {
           const sessionId = context?.sessionId ?? "unknown";
           const result = await tribalClient.remember(params.content, {
-            sourceType: "deliberate",
+            sourceType: "user_explicit",
             context:
               params.context ??
               `Deliberately stored (session: ${sessionId})`,

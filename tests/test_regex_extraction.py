@@ -375,17 +375,31 @@ class TestHybridPersonalContextWithSpacy:
         )
 
     def test_personal_context_no_regex_relationships(self):
-        """In personal context, no regex relationships should be extracted."""
+        """In personal context, no regex relationships should be extracted.
+        
+        Note: Dependency-parsed relationships (from spaCy SVO extraction) ARE
+        allowed in personal context. This test verifies that the old regex
+        patterns (serves, connects_to, stores_in) are suppressed.
+        """
         extractor = HybridEntityExtractor(
             use_spacy=True, extraction_context="personal"
         )
         text = "Sarah uses Redis for caching data in PostgreSQL."
         entities, relationships = extractor.extract_with_relationships(text)
 
-        assert relationships == [], (
+        # Regex relationship types that should be suppressed in personal context
+        regex_relation_types = {"serves", "connects_to", "stores_in"}
+        regex_relationships = [
+            r for r in relationships if r.relation_type in regex_relation_types
+        ]
+        assert regex_relationships == [], (
             f"Personal context should not produce regex relationships, "
-            f"got: {[(r.source, r.relation_type, r.target) for r in relationships]}"
+            f"got: {[(r.source, r.relation_type, r.target) for r in regex_relationships]}"
         )
+        # Dependency-parsed relationships (e.g., "uses") are allowed
+        if relationships:
+            for rel in relationships:
+                assert rel.relation_type not in regex_relation_types
 
     def test_personal_context_still_extracts_technologies(self):
         """In personal context, regex should still extract technology names."""

@@ -219,6 +219,35 @@ class TestCorrectEndpoint:
         assert data["memory_id"] != original_id
 
 
+    def test_correct_rejects_empty_content(self, client):
+        """Correct should reject empty corrected content."""
+        # Store original
+        response = client.post("/v1/remember", json={
+            "content": "Original content",
+        })
+        original_id = response.json()["memory_id"]
+
+        # Correct with empty content
+        response = client.post("/v1/correct", json={
+            "original_id": original_id,
+            "corrected_content": "",
+        })
+        assert response.status_code == 422
+
+    def test_correct_rejects_whitespace_content(self, client):
+        """Correct should reject whitespace-only corrected content."""
+        response = client.post("/v1/remember", json={
+            "content": "Original content",
+        })
+        original_id = response.json()["memory_id"]
+
+        response = client.post("/v1/correct", json={
+            "original_id": original_id,
+            "corrected_content": "   ",
+        })
+        assert response.status_code == 422
+
+
 class TestStatsEndpoint:
     """Tests for /v1/stats endpoint."""
 

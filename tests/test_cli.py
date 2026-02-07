@@ -686,6 +686,59 @@ class TestEnvFile:
         load_env_file()
 
 
+class TestVersionFlag:
+    """Tests for --version flag (#112)."""
+
+    def test_version_flag_exits_zero(self):
+        """--version should exit with code 0."""
+        with patch("sys.argv", ["tribalmemory", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+    def test_version_flag_prints_version(self, capsys):
+        """--version should print the package version."""
+        from importlib.metadata import version as get_version
+
+        expected_version = get_version("tribalmemory")
+
+        with patch("sys.argv", ["tribalmemory", "--version"]):
+            with pytest.raises(SystemExit):
+                main()
+
+        captured = capsys.readouterr()
+        assert expected_version in captured.out
+
+    def test_version_matches_pyproject(self):
+        """The reported version should match pyproject.toml."""
+        from importlib.metadata import version as get_version
+
+        installed_version = get_version("tribalmemory")
+        # Read pyproject.toml to cross-check
+        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        content = pyproject_path.read_text()
+        # Extract version from pyproject.toml
+        for line in content.splitlines():
+            if line.strip().startswith("version"):
+                # version = "0.6.2"
+                pyproject_version = line.split("=", 1)[1].strip().strip('"')
+                break
+        else:
+            pytest.fail("Could not find version in pyproject.toml")
+
+        assert installed_version == pyproject_version
+
+    def test_version_fallback_when_metadata_unavailable(self, monkeypatch):
+        """_get_version() should return 'unknown' if metadata lookup fails."""
+        from tribalmemory.cli import _get_version
+
+        def mock_version(name):
+            raise Exception("package not found")
+
+        monkeypatch.setattr("tribalmemory.cli.metadata_version", mock_version)
+        assert _get_version() == "unknown"
+
+
 class TestMainEntrypoint:
     """Tests for the main() CLI dispatcher."""
 

@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 import uuid
@@ -225,13 +225,16 @@ class TribalMemoryService(IMemoryService):
                 entry.id, e,
             )
 
+    # Type alias for temporal range tuple (after, before)
+    TemporalRange = tuple[Optional[str], Optional[str]]
+
     def _extract_query_temporal(
         self, query: str
-    ) -> Optional[tuple[Optional[str], Optional[str]]]:
+    ) -> Optional[TemporalRange]:
         """Extract temporal filters from a query.
 
         Looks for temporal expressions like "last Saturday", "yesterday",
-        "last week" and converts them to date filters.
+        "last week" and converts them to date filters for memory recall.
 
         Args:
             query: The search query
@@ -241,6 +244,12 @@ class TribalMemoryService(IMemoryService):
             For point-in-time references like "last Saturday", returns
             (date, date) to filter to that specific day.
             For ranges like "last week", returns (start, end).
+
+        Note:
+            If the query contains multiple temporal expressions (e.g.,
+            "meetings last Monday and next Friday"), only the FIRST one is
+            used. This is a simplification for v1; future versions may support
+            multi-range queries.
         """
         if not self.temporal_extractor:
             return None
@@ -249,14 +258,20 @@ class TribalMemoryService(IMemoryService):
             return None
 
         try:
-            from datetime import datetime
-
             # Extract temporal expressions from query
             temporal_rels = self.temporal_extractor.extract_with_context(query)
             if not temporal_rels:
                 return None
 
-            # Use the first temporal expression found
+            # Use the first temporal expression found.
+            # Multiple temporal expressions are logged but only the first is used.
+            if len(temporal_rels) > 1:
+                logger.debug(
+                    "Query has %d temporal expressions, using first: %s",
+                    len(temporal_rels),
+                    temporal_rels[0].temporal.expression,
+                )
+
             rel = temporal_rels[0]
             temp = rel.temporal
 
@@ -269,19 +284,31 @@ class TribalMemoryService(IMemoryService):
             # For day precision, filter to that specific day
             if precision == "day":
                 return (resolved, resolved)
-            # For week/month, expand to range
+
+            # For week precision, expand to 7-day range (inclusive)
             elif precision == "week":
-                # resolved is start of week, add 7 days for end
+                # resolved is start of week, end is 6 days later (inclusive)
                 try:
                     start = datetime.fromisoformat(resolved)
-                    from datetime import timedelta
                     end = start + timedelta(days=6)
                     return (resolved, end.strftime("%Y-%m-%d"))
                 except ValueError:
                     return (resolved, None)
+
+            # For month precision, expand to full month range
             elif precision == "month":
-                # resolved is YYYY-MM, filter by month prefix
-                return (resolved, None)
+                try:
+                    import calendar
+                    # resolved is YYYY-MM format
+                    year, month = resolved.split("-")
+                    year_int, month_int = int(year), int(month)
+                    last_day = calendar.monthrange(year_int, month_int)[1]
+                    start = f"{year}-{month}-01"
+                    end = f"{year}-{month}-{last_day:02d}"
+                    return (start, end)
+                except (ValueError, IndexError):
+                    return (resolved, None)
+
             else:
                 # Unknown precision, use as after filter only
                 return (resolved, None)
@@ -301,14 +328,21 @@ class TribalMemoryService(IMemoryService):
         before: Optional[str] = None,
     ) -> list[RecallResult]:
         """Recall relevant memories using hybrid search with optional graph expansion.
-        
+
         When hybrid search is enabled (FTS store available), combines
         vector similarity with BM25 keyword matching for better results.
         Falls back to vector-only search when FTS is unavailable.
-        
+
         When graph expansion is enabled, entities are extracted from the query
         and the candidate pool is expanded via entity graph traversal.
-        
+
+        **Auto-temporal extraction:** If neither ``after`` nor ``before`` is
+        provided, temporal expressions in the query are automatically extracted
+        and applied as date filters. For example, a query like "What meetings
+        did I have last week?" will auto-extract "last week" and filter results
+        to that date range. Explicit ``after``/``before`` params always override
+        auto-extraction.
+
         Args:
             query: Natural language query
             limit: Maximum results
@@ -317,13 +351,14 @@ class TribalMemoryService(IMemoryService):
             graph_expansion: Expand candidates via entity graph (default True)
             after: Only include memories with temporal facts on or after this
                 date. Accepts ISO format (YYYY-MM-DD) or natural language
-                (parsed via TemporalExtractor). Memories **without** any
-                temporal facts pass through unfiltered — they have no dates
-                that could violate the range. Invalid/unparseable dates are
-                logged and silently ignored.
+                (parsed via TemporalExtractor). If not provided, temporal
+                expressions in the query are auto-extracted and applied.
+                Memories **without** any temporal facts pass through
+                unfiltered — they have no dates that could violate the range.
+                Invalid/unparseable dates are logged and silently ignored.
             before: Only include memories with temporal facts on or before this
                 date. Same format and passthrough rules as ``after``.
-        
+
         Returns:
             List of RecallResult objects with retrieval_method indicating source:
             - "vector": Pure vector similarity search

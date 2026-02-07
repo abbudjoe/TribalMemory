@@ -105,12 +105,18 @@ class StoreResponse(BaseModel):
 
 
 class BatchRememberRequest(BaseModel):
-    """Request to store multiple memories at once."""
+    """Request to store multiple memories at once.
+
+    Batch size is limited to 1000 memories per request to prevent request
+    timeouts and memory exhaustion. For larger imports, split into multiple
+    batch requests. Memories are processed concurrently in chunks of 50
+    for optimal throughput.
+    """
     memories: list[RememberRequest] = Field(
         ...,
-        description="List of memories to store",
+        description="List of memories to store (max 1000 per request)",
         min_length=1,
-        max_length=100,
+        max_length=1000,
     )
 
 

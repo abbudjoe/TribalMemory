@@ -118,11 +118,26 @@ async def remember_batch(
 ) -> BatchStoreResponse:
     """Store multiple memories in a single request.
 
-    Processes memories sequentially but reduces HTTP overhead for bulk ingestion.
-    Each memory is processed independently; failures don't affect other memories.
+    Processes memories concurrently in chunks to maximize throughput while
+    reducing HTTP overhead for bulk ingestion. Each memory is processed
+    independently; failures don't affect other memories.
+
+    Chunk size of 50 balances concurrency with resource usage. Larger batches
+    are split into chunks processed sequentially, with memories within each
+    chunk processed concurrently.
     """
-    results = []
-    for mem in request.memories:
+    import asyncio
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Process in concurrent chunks to balance throughput and resource usage.
+    # 50 concurrent operations avoids overwhelming the embedding service
+    # while still providing significant speedup over sequential processing.
+    CHUNK_SIZE = 50
+
+    async def process_memory(mem: RememberRequest) -> StoreResponse:
+        """Process a single memory, handling exceptions."""
         try:
             result = await service.remember(
                 content=mem.content,
@@ -131,14 +146,29 @@ async def remember_batch(
                 tags=mem.tags,
                 skip_dedup=mem.skip_dedup,
             )
-            results.append(StoreResponse(
+            return StoreResponse(
                 success=result.success,
                 memory_id=result.memory_id,
                 duplicate_of=result.duplicate_of,
                 error=result.error,
-            ))
+            )
         except Exception as e:
-            results.append(StoreResponse(success=False, error=str(e)))
+            logger.exception(
+                "Batch memory storage failed: %s",
+                mem.content[:50] if mem.content else "(empty)"
+            )
+            return StoreResponse(success=False, error=str(e))
+
+    results: list[StoreResponse] = []
+    memories = request.memories
+
+    # Process in chunks for controlled concurrency
+    for i in range(0, len(memories), CHUNK_SIZE):
+        chunk = memories[i:i + CHUNK_SIZE]
+        chunk_results = await asyncio.gather(
+            *(process_memory(mem) for mem in chunk)
+        )
+        results.extend(chunk_results)
 
     successful = sum(1 for r in results if r.success)
     return BatchStoreResponse(

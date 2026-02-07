@@ -69,10 +69,12 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 - ❌ No skipping the `@claude review this PR` comment (required after EVERY push)
 - ❌ Do NOT put `@claude review this PR` in commit messages
 - ❌ Do NOT rely on automatic GitHub Action triggers
+- ❌ Do NOT skip review items marked "low priority", "nice to have", or "suggestion"
 - ✅ The comment must be **standalone** on the PR (not combined with other text)
 - ✅ Comment after **every push** to trigger re-review
 - ✅ **Check back after 5 minutes** to view and address all review comments
 - ✅ **Address EVERY comment** — partial fixes are not acceptable
+- ✅ **ALL review items must be resolved** — including suggestions, observations, and "nice to have" items. Every single one. No exceptions.
 
 ## Project Structure
 

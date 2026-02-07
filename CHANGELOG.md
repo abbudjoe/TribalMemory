@@ -5,7 +5,7 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.1] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.6.1/))
+## [0.6.2] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.6.2/))
 
 ### Added
 
@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Powered by `dateparser` with relative date support
 - Extracts date ranges from query text and applies as temporal filters
 - Works with all recall endpoints (HTTP, MCP, Python API)
+
+---
+
+## [0.6.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.6.1/))
 
 ### Fixed
 

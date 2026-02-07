@@ -119,7 +119,8 @@ class EntityExtractor:
     # - Excludes common false positives via MIN_ENTITY_NAME_LENGTH
     SERVICE_PATTERN = re.compile(
         r'\b('
-        r'[a-z][a-z0-9]*-(?:[a-z0-9]+-)*(?:service|api|worker|db|cache|server|client|gateway|proxy|database)'  # Known suffix
+        r'[a-z][a-z0-9]*-(?:[a-z0-9]+-)*'
+        r'(?:service|api|worker|db|cache|server|client|gateway|proxy|database)'
         r'|'
         r'[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}'  # 3+ segments
         r'|'

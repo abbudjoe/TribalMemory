@@ -167,7 +167,7 @@ class EntityExtractor:
                 ))
         
         # Filter through validator to remove garbage entities
-        validator = self._get_entity_validator()
+        validator = EntityValidator()
         return [e for e in entities if validator.is_valid(e)]
     
     def extract_with_relationships(
@@ -222,8 +222,8 @@ class EntityExtractor:
                     ))
         
         # Filter through validators to remove garbage
-        entity_validator = self._get_entity_validator()
-        relationship_validator = self._get_relationship_validator()
+        entity_validator = EntityValidator()
+        relationship_validator = RelationshipValidator()
         entities = [e for e in entities if entity_validator.is_valid(e)]
         relationships = [r for r in relationships if relationship_validator.is_valid(r)]
         
@@ -343,6 +343,109 @@ PERSON_TITLES = {
 }
 
 
+class SpacyPostProcessor:
+    """Post-processes spaCy entities to fix common misclassifications.
+    
+    Addresses Issue #131: spaCy often misclassifies products and food items
+    as PERSON entities. This processor applies heuristics to:
+    - Reject product names (brands, model numbers) misclassified as people
+    - Reject food names commonly misclassified as people
+    - Reclassify certain ambiguous product-like entities from person to product
+    - Preserve real person names and non-person entities
+    
+    Processing rules (applied only to PERSON entities):
+        1. Reclassify if EXACT match of reclassify keywords (Galaxy, Kraken)
+        2. Reject if in food blocklist
+        3. Reject if contains product brand keywords
+        4. Reject if matches model number pattern
+        5. Pass through all other entities unchanged
+    
+    Usage:
+        processor = SpacyPostProcessor()
+        cleaned_entity = processor.process(entity)  # Returns None if rejected
+    """
+    
+    # Well-known product brand keywords (case-insensitive matching)
+    # If a PERSON entity contains any of these, reject it entirely
+    PRODUCT_BRANDS = {
+        'razer', 'kindle', 'iphone', 'ipad', 'macbook',
+        'samsung', 'pixel', 'oneplus', 'xiaomi',
+        'playstation', 'xbox', 'nintendo',
+        'gopro', 'canon', 'nikon', 'sony',
+    }
+    
+    # Keywords that trigger reclassification from person → product
+    # These are ambiguous terms that could be products OR other things
+    # ONLY reclassify if it's an EXACT match (standalone word)
+    # Example: "Galaxy" alone → reclassify, "Galaxy S23" → reject via brands
+    RECLASSIFY_TO_PRODUCT = {
+        'galaxy', 'kraken', 'airpods',
+    }
+    
+    # Model number pattern: letter + digits (e.g., X100, S23, Pro Max)
+    # Matches patterns like: X100, S23, Z300, Pro Max, etc.
+    MODEL_NUMBER_PATTERN = re.compile(
+        r'\b[A-Z]\d{2,}\b|'  # Letter followed by 2+ digits: X100, S23
+        r'\bPro\s+Max\b',    # Common product suffix: Pro Max
+        re.IGNORECASE
+    )
+    
+    # Food names commonly misclassified as PERSON by spaCy
+    # These should be rejected entirely (not reclassified)
+    FOOD_BLOCKLIST = {
+        'sarson ka saag', 'biryani', 'pad thai', 'tikka masala',
+        'butter chicken', 'palak paneer', 'kung pao', 'tom yum',
+        'pad see ew', 'chow mein', 'lo mein', 'pho',
+    }
+    
+    def process(self, entity: Entity) -> Optional[Entity]:
+        """Process an entity through post-processing rules.
+        
+        Args:
+            entity: Entity to process.
+            
+        Returns:
+            - None if entity should be rejected
+            - Modified Entity if reclassification occurred
+            - Original Entity if no changes needed
+        """
+        # Only apply rules to PERSON entities
+        if entity.entity_type != 'person':
+            return entity
+        
+        # Empty or whitespace-only names should be rejected
+        if not entity.name or not entity.name.strip():
+            return None
+        
+        name_lower = entity.name.lower().strip()
+        
+        # Rule 1: Reclassify to product if EXACT match of reclassify keywords
+        # (Only for standalone ambiguous words like "Galaxy", "Kraken")
+        if name_lower in self.RECLASSIFY_TO_PRODUCT:
+            # Create new entity with type changed to 'product'
+            return Entity(
+                name=entity.name,
+                entity_type='product',
+                metadata=entity.metadata
+            )
+        
+        # Rule 2: Reject if in food blocklist (exact match, case-insensitive)
+        if name_lower in self.FOOD_BLOCKLIST:
+            return None
+        
+        # Rule 3: Reject if contains product brand keywords (substring match)
+        for brand in self.PRODUCT_BRANDS:
+            if brand in name_lower:
+                return None
+        
+        # Rule 4: Reject if matches model number pattern
+        if self.MODEL_NUMBER_PATTERN.search(entity.name):
+            return None
+        
+        # Pass through unchanged (valid person name)
+        return entity
+
+
 class SpacyEntityExtractor:
     """Entity extractor using spaCy NER for personal conversations.
     
@@ -417,6 +520,9 @@ class SpacyEntityExtractor:
                 f"spaCy model '{model_name}' not found. "
                 f"Download with: python -m spacy download {model_name}"
             )
+        
+        # Initialize post-processor for entity cleaning (Issue #131)
+        self._post_processor = SpacyPostProcessor()
     
     def _normalize_person_name(self, name: str) -> str:
         """Strip consecutive leading title words from person names.
@@ -458,11 +564,13 @@ class SpacyEntityExtractor:
     def extract(self, text: Optional[str]) -> list[Entity]:
         """Extract named entities from text using spaCy NER.
         
+        Applies post-processing to fix common misclassifications (Issue #131).
+        
         Args:
             text: Input text to extract entities from (can be None).
             
         Returns:
-            List of extracted Entity objects.
+            List of extracted and post-processed Entity objects.
         """
         if not text or not text.strip():
             return []
@@ -492,11 +600,16 @@ class SpacyEntityExtractor:
             seen_names.add(name_lower)
             
             entity_type = self.SPACY_TYPE_MAP.get(ent.label_, 'concept')
-            entities.append(Entity(
+            entity = Entity(
                 name=name,
                 entity_type=entity_type,
                 metadata={'spacy_label': ent.label_}
-            ))
+            )
+            
+            # Apply post-processing to fix misclassifications (Issue #131)
+            processed_entity = self._post_processor.process(entity)
+            if processed_entity is not None:
+                entities.append(processed_entity)
         
         return entities
     

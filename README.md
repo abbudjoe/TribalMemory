@@ -92,6 +92,21 @@ Or manually — add to `~/.claude.json`:
 }
 ```
 
+#### Auto-Capture
+
+By default, Claude Code has the MCP tools available but won't use them unless you ask. Add `--auto-capture` to make Claude Code **proactively** store and recall memories:
+
+```bash
+tribalmemory init --claude-code --auto-capture
+```
+
+This appends instructions to `~/.claude/CLAUDE.md` that tell Claude Code to:
+- **Auto-recall** relevant memories at the start of each conversation
+- **Auto-store** important decisions, architecture choices, and key facts
+- Use `tribal_remember` and `tribal_recall` without being explicitly asked
+
+Without `--auto-capture`, you can still use memory manually by saying "remember that..." or "what do you know about...".
+
 Now Claude Code has persistent memory across sessions:
 
 ```
@@ -139,6 +154,21 @@ command = "tribalmemory-mcp"
 > **Note:** The init flag resolves the full binary path automatically, so the desktop app finds the command even if it doesn't inherit your shell PATH.
 
 That's it. Codex now shares the same memory store as Claude Code. Memories stored by one are instantly available to the other.
+
+Auto-capture works for Codex too — it writes instructions to `~/.codex/AGENTS.md`:
+
+```bash
+tribalmemory init --codex --auto-capture
+```
+
+### Set Up Everything at Once
+
+```bash
+# Configure all agents + auto-capture + background service
+tribalmemory init --claude-code --codex --auto-capture --service
+```
+
+One command: MCP configured for both agents, auto-capture enabled, server running as a service.
 
 ### OpenClaw
 

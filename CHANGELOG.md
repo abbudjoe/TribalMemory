@@ -5,7 +5,21 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.1] - 2026-02-06 ([PyPI](https://pypi.org/project/tribalmemory/0.6.1/))
+## [0.6.1] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.6.1/))
+
+### Added
+
+#### Batch Ingestion Endpoint
+- **`POST /v1/remember/batch`** — Store up to 1000 memories in a single request
+- Concurrent processing with `asyncio.gather` (chunk size: 50)
+- Returns list of memory IDs for all stored items
+- Ideal for bulk ingestion, migrations, and benchmarking
+
+#### Auto-Temporal Query Extraction
+- **Date parsing from natural language queries** — "What did I say last Saturday?" automatically filters to that date
+- Powered by `dateparser` with relative date support
+- Extracts date ranges from query text and applies as temporal filters
+- Works with all recall endpoints (HTTP, MCP, Python API)
 
 ### Fixed
 

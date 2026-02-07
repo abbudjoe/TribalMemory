@@ -246,10 +246,23 @@ curl -X POST http://localhost:18790/v1/remember \
   -H "Content-Type: application/json" \
   -d '{"content": "The database uses Postgres 16", "tags": ["infra"]}'
 
-# Search memories
+# Batch store (up to 1000 memories)
+curl -X POST http://localhost:18790/v1/remember/batch \
+  -H "Content-Type: application/json" \
+  -d '{"memories": [
+    {"content": "Auth uses JWT with RS256"},
+    {"content": "Database is Postgres 16", "tags": ["infra"]}
+  ]}'
+
+# Search memories (auto-parses dates from query)
 curl -X POST http://localhost:18790/v1/recall \
   -H "Content-Type: application/json" \
-  -d '{"query": "what database", "limit": 5}'
+  -d '{"query": "what did we discuss last week?", "limit": 5}'
+
+# Search with explicit temporal filter
+curl -X POST http://localhost:18790/v1/recall \
+  -H "Content-Type: application/json" \
+  -d '{"query": "database decisions", "after": "2026-01-01", "limit": 5}'
 
 # Health check
 curl http://localhost:18790/v1/health
@@ -331,6 +344,8 @@ The server is the single source of truth. Each agent connects as an instance. Me
 - **Graph search** — Entity extraction + relationship traversal
 - **Hybrid retrieval** — Vector + BM25 keyword search combined
 - **Zero cloud** — Local ONNX embeddings via FastEmbed, no API keys needed
+- **Batch ingestion** — Store up to 1000 memories in a single request
+- **Auto-temporal queries** — "What happened last week?" auto-parses dates
 - **Session indexing** — Index conversation transcripts for search
 - **Automatic deduplication** — Won't store the same thing twice
 - **Memory corrections** — Update outdated information with audit trail

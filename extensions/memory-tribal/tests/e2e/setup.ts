@@ -43,6 +43,11 @@ export interface TestEnvironment {
 
 /**
  * Find a free port by binding to port 0 and reading the assigned port.
+ * 
+ * ⚠️ Known limitation: Race condition between srv.close() and server startup.
+ * Another process could claim the port in the window after we close the test
+ * server but before tribalmemory binds to it. This is acceptable for E2E tests
+ * running in isolation, but parallel test runs may experience flakes.
  */
 async function findFreePort(): Promise<number> {
   const { createServer } = await import("net");
@@ -72,7 +77,13 @@ async function waitForHealth(
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(`${baseUrl}/v1/health`);
-      if (res.ok) return;
+      if (res.ok) {
+        // Validate health response structure
+        const data = (await res.json()) as Record<string, unknown>;
+        if (data.status === "ok") {
+          return;
+        }
+      }
     } catch {
       // Server not ready yet
     }
@@ -117,6 +128,8 @@ search:
     {
       env: {
         ...process.env,
+        // Override PYTHONPATH to ensure the test uses the local source tree
+        // rather than any system-installed version of TribalMemory
         PYTHONPATH: join(__dirname, "../../../../src"),
       },
       stdio: "pipe",
@@ -124,9 +137,14 @@ search:
   );
 
   // Collect stderr for debugging
+  const debugMode = process.env.DEBUG === "1" || process.env.DEBUG === "true";
   let stderr = "";
   serverProcess.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
+    const text = chunk.toString();
+    stderr += text;
+    if (debugMode) {
+      console.error("[tribalmemory stderr]", text);
+    }
   });
 
   try {
@@ -167,17 +185,19 @@ search:
 /**
  * Make a raw HTTP request to the server (bypasses TribalClient).
  * Useful for testing invalid payloads that the client would reject.
+ * 
+ * @param T - Expected response body type (defaults to Record<string, unknown>)
  */
-export async function rawPost(
+export async function rawPost<T = Record<string, unknown>>(
   baseUrl: string,
   path: string,
   body: Record<string, unknown>,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<{ status: number; body: T }> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = (await res.json()) as Record<string, unknown>;
+  const data = (await res.json()) as T;
   return { status: res.status, body: data };
 }

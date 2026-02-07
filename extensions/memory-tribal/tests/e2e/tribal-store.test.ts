@@ -14,12 +14,15 @@ import {
   type TestEnvironment,
 } from "./setup";
 
+const LARGE_CONTENT_SIZE = 10240;
+
 describe("tribal_store E2E", () => {
   let env: TestEnvironment;
 
+  // Extended timeout for server startup, config write, and health check
   beforeAll(async () => {
     env = await startTestServer();
-  }, 60000); // 60s timeout for server startup
+  }, 60000);
 
   afterAll(async () => {
     await env.cleanup();
@@ -51,16 +54,33 @@ describe("tribal_store E2E", () => {
     expect(storeRes.status).toBe(200);
     expect(storeRes.body.success).toBe(true);
 
-    // Recall and verify tags
+    // Recall and verify tags + response structure
     const recallRes = await rawPost(env.baseUrl, "/v1/recall", {
       query: "primary database",
       limit: 5,
     });
     expect(recallRes.status).toBe(200);
 
+    // Validate recall response structure
+    expect(recallRes.body.results).toBeDefined();
+    expect(Array.isArray(recallRes.body.results)).toBe(true);
+
     const results = recallRes.body.results as Array<{
       memory: { content: string; tags: string[] };
+      similarity_score: number;
     }>;
+    
+    // Each result should have required fields
+    for (const result of results) {
+      expect(result.memory).toBeDefined();
+      expect(result.memory.content).toBeDefined();
+      expect(typeof result.memory.content).toBe("string");
+      expect(result.similarity_score).toBeDefined();
+      expect(typeof result.similarity_score).toBe("number");
+      expect(result.similarity_score).toBeGreaterThanOrEqual(0);
+      expect(result.similarity_score).toBeLessThanOrEqual(1);
+    }
+
     const match = results.find((r) =>
       r.memory.content.includes("PostgreSQL"),
     );
@@ -104,16 +124,17 @@ describe("tribal_store E2E", () => {
     expect(second.body.duplicate_of).not.toBeNull();
   });
 
-  it("rejects empty content with 422", async () => {
+  it("should reject empty content with 422", async () => {
     const res = await rawPost(env.baseUrl, "/v1/remember", {
       content: "",
       source_type: "user_explicit",
     });
     // Server should reject empty content
     expect(res.status).toBe(422);
+    expect(res.body.detail).toBeDefined();
   });
 
-  it("rejects invalid sourceType 'deliberate' with 422 (regression)", async () => {
+  it("should reject invalid sourceType 'deliberate' with 422 (regression)", async () => {
     // This is the exact bug that shipped broken — sourceType: "deliberate"
     // is not a valid enum value. The server MUST reject it.
     const res = await rawPost(env.baseUrl, "/v1/remember", {
@@ -121,9 +142,10 @@ describe("tribal_store E2E", () => {
       source_type: "deliberate",
     });
     expect(res.status).toBe(422);
+    expect(res.body.detail).toBeDefined();
   });
 
-  it("rejects other invalid sourceType values with 422", async () => {
+  it("should reject other invalid sourceType values with 422", async () => {
     const invalidTypes = ["deliberate", "manual", "agent", "system", ""];
     for (const badType of invalidTypes) {
       const res = await rawPost(env.baseUrl, "/v1/remember", {
@@ -131,6 +153,7 @@ describe("tribal_store E2E", () => {
         source_type: badType,
       });
       expect(res.status).toBe(422);
+      expect(res.body.detail).toBeDefined();
     }
   });
 
@@ -143,15 +166,26 @@ describe("tribal_store E2E", () => {
         content: uniqueContent,
         source_type: validType,
       });
+      // The key is no 422 (invalid enum) - dedup is acceptable
       expect(res.status).toBe(200);
-      // success=true means stored; success=false with duplicate_of means dedup
-      // Both are acceptable — the key is no 422 (invalid enum)
-      expect([200]).toContain(res.status);
+      expect(res.body.success).toBeDefined();
     }
-  }, 30000);
+  }, 30000); // Extended timeout for multiple API calls
+
+  it("should reject malformed JSON with 400 or 422", async () => {
+    // Test that server handles invalid JSON payloads gracefully
+    const res = await fetch(`${env.baseUrl}/v1/remember`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{invalid json payload",
+    });
+    
+    // Server should reject with 400 (bad request) or 422 (validation error)
+    expect([400, 422]).toContain(res.status);
+  });
 
   it("handles long content (10KB+)", async () => {
-    const longContent = "x".repeat(10240) + " architecture decision " + Date.now();
+    const longContent = "x".repeat(LARGE_CONTENT_SIZE) + " architecture decision " + Date.now();
 
     const res = await rawPost(env.baseUrl, "/v1/remember", {
       content: longContent,
@@ -160,8 +194,9 @@ describe("tribal_store E2E", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.memory_id).toBeDefined();
-  }, 30000);
+  }, 30000); // Extended timeout for large payload processing
 
+  // Extended timeout for embedding computation and semantic search
   it("stored memory is retrievable via recall", { timeout: 30000 }, async () => {
     const uniqueContent =
       `E2E retrieval test ${Date.now()}: ` +
@@ -197,6 +232,7 @@ describe("tribal_store E2E", () => {
     expect(VALID_SOURCE_TYPES).not.toContain("deliberate");
   });
 
+  // Extended timeout for client initialization and embedding
   it("store via TribalClient uses correct sourceType", { timeout: 30000 }, async () => {
     // Test the actual TribalClient.remember() method (same path as plugin)
     const result = await env.client.remember(

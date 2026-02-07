@@ -698,6 +698,10 @@ class EntityValidator:
     def _is_common_word(name_lower: str) -> bool:
         """Cached check if a lowercase name is a common concept word.
         
+        Note: This cache is intentionally global (shared across all EntityValidator
+        instances) since the results are deterministic and immutable. This provides
+        marginal benefits for workloads that validate the same entity names repeatedly.
+        
         Args:
             name_lower: Lowercase entity name.
             
@@ -710,6 +714,10 @@ class EntityValidator:
     @lru_cache(maxsize=512)
     def _has_alpha(name: str) -> bool:
         """Cached check if a string contains alphabetic characters.
+        
+        Note: This cache is intentionally global (shared across all EntityValidator
+        instances) since the results are deterministic. The main benefit is avoiding
+        repeated iterations for long entity names that are validated multiple times.
         
         Args:
             name: String to check.
@@ -775,8 +783,8 @@ class EntityValidator:
         """Validate a batch of entities efficiently.
         
         Performance optimization for large-scale validation (Issue #135).
-        Uses the same validation logic as is_valid() but processes entities
-        in batch for better performance with large datasets.
+        Reduces Python function call overhead by inlining validation logic
+        instead of repeatedly calling is_valid().
         
         Args:
             entities: List of entities to validate.
@@ -784,7 +792,36 @@ class EntityValidator:
         Returns:
             List of booleans indicating validity for each entity (same order).
         """
-        return [self.is_valid(entity) for entity in entities]
+        results = []
+        all_caps_stopwords = self.ALL_CAPS_STOPWORDS
+        max_length = self.MAX_ENTITY_NAME_LENGTH
+        min_length = MIN_ENTITY_NAME_LENGTH
+        
+        for entity in entities:
+            name = entity.name.strip() if entity.name else ""
+            
+            # Fast path: check simple conditions first
+            if (not name or 
+                len(name) < min_length or 
+                len(name) > max_length or
+                name in all_caps_stopwords or
+                name.isdigit()):
+                results.append(False)
+                continue
+            
+            # Check for alphabetic characters (cached)
+            if not self._has_alpha(name):
+                results.append(False)
+                continue
+            
+            # Check concept-specific filtering
+            if entity.entity_type == 'concept' and ' ' not in name and self._is_common_word(name.lower()):
+                results.append(False)
+                continue
+            
+            results.append(True)
+        
+        return results
 
 
 class RelationshipValidator:
@@ -848,8 +885,8 @@ class RelationshipValidator:
         """Validate a batch of relationships efficiently.
         
         Performance optimization for large-scale validation (Issue #135).
-        Uses the same validation logic as is_valid() but processes relationships
-        in batch for better performance with large datasets.
+        Reduces Python function call overhead by inlining validation logic
+        instead of repeatedly calling is_valid().
         
         Args:
             relationships: List of relationships to validate.
@@ -857,7 +894,29 @@ class RelationshipValidator:
         Returns:
             List of booleans indicating validity for each relationship (same order).
         """
-        return [self.is_valid(rel) for rel in relationships]
+        results = []
+        
+        for relationship in relationships:
+            source = relationship.source.strip() if relationship.source else ""
+            target = relationship.target.strip() if relationship.target else ""
+            
+            # Fast path: check simple conditions
+            if not source or not target or source.lower() == target.lower():
+                results.append(False)
+                continue
+            
+            # Validate source and target as entities
+            source_entity = Entity(name=source, entity_type='unknown')
+            target_entity = Entity(name=target, entity_type='unknown')
+            
+            if not (self._entity_validator.is_valid(source_entity) and 
+                    self._entity_validator.is_valid(target_entity)):
+                results.append(False)
+                continue
+            
+            results.append(True)
+        
+        return results
 
 
 class HybridEntityExtractor:

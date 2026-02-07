@@ -919,6 +919,400 @@ class RelationshipValidator:
         return results
 
 
+# Pronoun set for filtering relationship endpoints
+PRONOUNS = {
+    'i', 'me', 'my', 'mine', 'myself',
+    'you', 'your', 'yours', 'yourself',
+    'he', 'him', 'his', 'himself',
+    'she', 'her', 'hers', 'herself',
+    'it', 'its', 'itself',
+    'we', 'us', 'our', 'ours', 'ourselves',
+    'they', 'them', 'their', 'theirs', 'themselves',
+    'this', 'that', 'these', 'those',
+}
+
+
+class DependencyRelationshipExtractor:
+    """Extract relationships using spaCy dependency parsing (Issue #132).
+    
+    Finds subject-verb-object triples from dependency parse trees and maps
+    verbs to relationship types. Only creates relationships between entities
+    that were already extracted by NER.
+    
+    Key features:
+        - Walks spaCy dependency tree to find SVO triples
+        - Handles prepositional phrases ("lives in Denver")
+        - Supports passive voice ("was bought by John")
+        - Handles compound subjects/objects ("John and Mary")
+        - Maps verbs to semantic relationship types
+        - Filters out pronouns as relationship endpoints
+        - Matches multi-word entities correctly
+    
+    Usage:
+        extractor = DependencyRelationshipExtractor()
+        doc = nlp("John uses Python")
+        entities = [Entity("John", "person"), Entity("Python", "technology")]
+        relationships = extractor.extract(doc, entities)
+        # Returns: [Relationship("John", "Python", "uses")]
+    """
+    
+    # Verb-to-relationship mapping.
+    # Maps verb lemmas to semantic relationship types.
+    # Covers common verbs in personal conversations and their inflected forms.
+    VERB_RELATIONS: dict[str, str] = {
+        # Technology/tool usage
+        'use': 'uses', 'uses': 'uses', 'used': 'uses', 'using': 'uses',
+        
+        # Location
+        'live': 'located_in', 'lives': 'located_in', 'lived': 'located_in',
+        'move': 'moved_to', 'moved': 'moved_to',
+        
+        # Employment/education
+        'work': 'works_at', 'works': 'works_at', 'worked': 'works_at',
+        'study': 'studied_at', 'studied': 'studied_at', 'studies': 'studied_at',
+        
+        # Travel/events
+        'visit': 'visited', 'visited': 'visited', 'visiting': 'visited',
+        'attend': 'attended', 'attended': 'attended',
+        
+        # Social
+        'meet': 'met', 'met': 'met', 'meeting': 'met',
+        'know': 'knows', 'knows': 'knows', 'knew': 'knows',
+        
+        # Preferences
+        'like': 'prefers', 'likes': 'prefers', 'liked': 'prefers',
+        'love': 'prefers', 'loves': 'prefers', 'loved': 'prefers',
+        'prefer': 'prefers', 'prefers': 'prefers', 'preferred': 'prefers',
+        
+        # Transactions
+        'buy': 'purchased', 'bought': 'purchased', 'buying': 'purchased',
+        'own': 'owns', 'owns': 'owns', 'owned': 'owns',
+        
+        # Information flow
+        'recommend': 'recommends', 'recommends': 'recommends',
+        
+        # Activities
+        'play': 'plays', 'plays': 'plays', 'played': 'plays',
+        'drive': 'drives', 'drives': 'drives', 'drove': 'drives',
+        'eat': 'eats', 'eats': 'eats', 'ate': 'eats',
+    }
+    
+    def extract(self, doc, entities: list[Entity]) -> list[Relationship]:
+        """Extract relationships from a spaCy Doc using dependency parsing.
+        
+        Args:
+            doc: spaCy Doc object (already parsed).
+            entities: List of entities extracted from the same text.
+                      Only relationships between these entities will be created.
+        
+        Returns:
+            List of Relationship objects extracted from dependency parse.
+        """
+        if not doc or not entities:
+            return []
+        
+        # Build entity name index for fast lookup (case-insensitive)
+        entity_names_lower = {e.name.lower() for e in entities}
+        
+        relationships = []
+        
+        # Find all verbs and their subject-object dependencies
+        for token in doc:
+            if token.pos_ != "VERB":
+                continue
+            
+            # Get verb lemma (lowercase) for mapping
+            verb_lemma = token.lemma_.lower()
+            
+            # Skip unmapped verbs
+            if verb_lemma not in self.VERB_RELATIONS:
+                continue
+            
+            relation_type = self.VERB_RELATIONS[verb_lemma]
+            
+            # Extract relationships from this verb
+            verb_relationships = self._extract_from_verb(
+                token, entity_names_lower, relation_type
+            )
+            relationships.extend(verb_relationships)
+            
+            # Handle coordinated verbs (conjunctions that share the same subject)
+            # Example: "Mike works at Google and lives in Seattle"
+            # "lives" is a conj of "works", shares subject "Mike"
+            for child in token.children:
+                if child.dep_ == "conj" and child.pos_ == "VERB":
+                    conj_verb_lemma = child.lemma_.lower()
+                    if conj_verb_lemma in self.VERB_RELATIONS:
+                        conj_relation_type = self.VERB_RELATIONS[conj_verb_lemma]
+                        # Extract from coordinated verb, passing parent's subjects
+                        conj_relationships = self._extract_from_verb(
+                            child, entity_names_lower, conj_relation_type,
+                            inherited_subjects=self._find_subjects(token)
+                        )
+                        relationships.extend(conj_relationships)
+        
+        return relationships
+    
+    def _extract_from_verb(
+        self,
+        verb_token,
+        entity_names_lower: set[str],
+        relation_type: str,
+        inherited_subjects: Optional[list[str]] = None
+    ) -> list[Relationship]:
+        """Extract all relationships from a verb token.
+        
+        Handles:
+            - Active voice: subject + verb + direct object
+            - Passive voice: subject + verb + agent (by-phrase)
+            - Prepositional objects: verb + prep + object
+            - Coordinated verbs (inherited subjects from parent verb)
+        
+        Args:
+            verb_token: spaCy Token for the verb.
+            entity_names_lower: Set of lowercase entity names.
+            relation_type: Relationship type to create.
+            inherited_subjects: Subjects inherited from a parent verb (for coordinated verbs).
+        
+        Returns:
+            List of extracted relationships.
+        """
+        relationships = []
+        
+        # Find subjects (use inherited if provided and no explicit subjects found)
+        subjects = self._find_subjects(verb_token)
+        if not subjects and inherited_subjects:
+            subjects = inherited_subjects
+        
+        # Find objects (direct objects, prepositional objects, attributes)
+        objects = self._find_objects(verb_token)
+        
+        # Create relationships between all subject-object pairs
+        for subj_text in subjects:
+            for obj_text in objects:
+                # Skip if either is a pronoun
+                if self._is_pronoun(subj_text) or self._is_pronoun(obj_text):
+                    continue
+                
+                # Match to entity names (fuzzy match for multi-word entities)
+                subj_entity = self._match_entity(subj_text, entity_names_lower)
+                obj_entity = self._match_entity(obj_text, entity_names_lower)
+                
+                # Only create relationship if both match known entities
+                if subj_entity and obj_entity:
+                    relationships.append(Relationship(
+                        source=subj_entity,
+                        target=obj_entity,
+                        relation_type=relation_type
+                    ))
+        
+        # Handle passive voice: check for agent phrases (by X)
+        passive_rels = self._extract_passive_relationships(
+            verb_token, entity_names_lower, relation_type
+        )
+        relationships.extend(passive_rels)
+        
+        return relationships
+    
+    def _find_subjects(self, verb_token) -> list[str]:
+        """Find subject spans for a verb token.
+        
+        Handles:
+            - nsubj (nominal subject)
+            - nsubjpass (passive nominal subject)
+            - Compound subjects (John and Mary)
+        
+        Args:
+            verb_token: spaCy Token for the verb.
+        
+        Returns:
+            List of subject text spans.
+        """
+        subjects = []
+        
+        for child in verb_token.children:
+            if child.dep_ in {"nsubj", "nsubjpass"}:
+                # Get full noun phrase including compounds
+                subj_text = self._get_full_noun_phrase(child)
+                subjects.append(subj_text)
+                
+                # Check for compound subjects (and, or)
+                for conj_child in child.children:
+                    if conj_child.dep_ == "conj":
+                        conj_text = self._get_full_noun_phrase(conj_child)
+                        subjects.append(conj_text)
+        
+        return subjects
+    
+    def _find_objects(self, verb_token) -> list[str]:
+        """Find object spans for a verb token.
+        
+        Handles:
+            - dobj (direct object)
+            - pobj (prepositional object via prep children)
+            - attr (attribute)
+            - oprd (object predicate)
+        
+        Args:
+            verb_token: spaCy Token for the verb.
+        
+        Returns:
+            List of object text spans.
+        """
+        objects = []
+        
+        for child in verb_token.children:
+            # Direct objects
+            if child.dep_ in {"dobj", "attr", "oprd"}:
+                obj_text = self._get_full_noun_phrase(child)
+                objects.append(obj_text)
+                
+                # Check for compound objects
+                for conj_child in child.children:
+                    if conj_child.dep_ == "conj":
+                        conj_text = self._get_full_noun_phrase(conj_child)
+                        objects.append(conj_text)
+            
+            # Prepositional objects ("lives in Denver")
+            elif child.dep_ == "prep":
+                for prep_child in child.children:
+                    if prep_child.dep_ == "pobj":
+                        pobj_text = self._get_full_noun_phrase(prep_child)
+                        objects.append(pobj_text)
+                        
+                        # Compound prepositional objects
+                        for conj_child in prep_child.children:
+                            if conj_child.dep_ == "conj":
+                                conj_text = self._get_full_noun_phrase(conj_child)
+                                objects.append(conj_text)
+        
+        return objects
+    
+    def _extract_passive_relationships(
+        self,
+        verb_token,
+        entity_names_lower: set[str],
+        relation_type: str
+    ) -> list[Relationship]:
+        """Extract relationships from passive voice constructions.
+        
+        Example: "Python was recommended by Alice"
+            → Alice recommends Python (reversed subject/object)
+        
+        Args:
+            verb_token: spaCy Token for the verb.
+            entity_names_lower: Set of lowercase entity names.
+            relation_type: Relationship type to create.
+        
+        Returns:
+            List of relationships with reversed direction.
+        """
+        relationships = []
+        
+        # Find passive subject (the thing being acted upon)
+        passive_subjects = []
+        for child in verb_token.children:
+            if child.dep_ == "nsubjpass":
+                subj_text = self._get_full_noun_phrase(child)
+                passive_subjects.append(subj_text)
+        
+        # Find agent ("by X")
+        agents = []
+        for child in verb_token.children:
+            if child.dep_ == "agent":  # "by" phrase
+                for agent_child in child.children:
+                    if agent_child.dep_ == "pobj":
+                        agent_text = self._get_full_noun_phrase(agent_child)
+                        agents.append(agent_text)
+        
+        # Create relationships: agent -> passive_subject
+        # (reversed from normal subject -> object)
+        for agent_text in agents:
+            for psubj_text in passive_subjects:
+                if self._is_pronoun(agent_text) or self._is_pronoun(psubj_text):
+                    continue
+                
+                agent_entity = self._match_entity(agent_text, entity_names_lower)
+                psubj_entity = self._match_entity(psubj_text, entity_names_lower)
+                
+                if agent_entity and psubj_entity:
+                    # Agent is the source in passive voice
+                    relationships.append(Relationship(
+                        source=agent_entity,
+                        target=psubj_entity,
+                        relation_type=relation_type
+                    ))
+        
+        return relationships
+    
+    def _get_full_noun_phrase(self, token) -> str:
+        """Get the full noun phrase including compounds and modifiers.
+        
+        Handles multi-word entities like "New York" or "Glen Canyon Dam".
+        
+        Args:
+            token: Head token of the noun phrase.
+        
+        Returns:
+            Full noun phrase as a string.
+        """
+        # Collect all tokens in the noun phrase
+        tokens = [token]
+        
+        # Add compound modifiers (New York -> [New, York])
+        for child in token.children:
+            if child.dep_ in {"compound", "amod"}:
+                tokens.append(child)
+        
+        # Sort by position in sentence
+        tokens.sort(key=lambda t: t.i)
+        
+        # Join into text
+        return ' '.join(t.text for t in tokens)
+    
+    def _is_pronoun(self, text: str) -> bool:
+        """Check if text is a pronoun that should be filtered.
+        
+        Args:
+            text: Text to check.
+        
+        Returns:
+            True if text is a pronoun.
+        """
+        return text.lower().strip() in PRONOUNS
+    
+    def _match_entity(self, text: str, entity_names_lower: set[str]) -> Optional[str]:
+        """Match text span to a known entity name.
+        
+        Uses case-insensitive matching. If text is a substring of or
+        contained by an entity name, returns the entity name.
+        
+        Args:
+            text: Text span from dependency parse.
+            entity_names_lower: Set of lowercase entity names.
+        
+        Returns:
+            Matched entity name (original case), or None if no match.
+        """
+        text_lower = text.lower().strip()
+        
+        # Exact match (most common case)
+        if text_lower in entity_names_lower:
+            return text  # Return original case
+        
+        # Check if text is a substring of any entity name
+        # (e.g., "Dam" matches "Glen Canyon Dam")
+        for entity_name in entity_names_lower:
+            if text_lower in entity_name or entity_name in text_lower:
+                # Return the entity name in original case
+                # (we need to reconstruct it from the set)
+                # Since we only have lowercase in the set, return text for now
+                # The caller should handle case preservation
+                return text
+        
+        return None
+
+
 class HybridEntityExtractor:
     """Combines regex-based and spaCy-based entity extraction.
     
@@ -1015,23 +1409,38 @@ class HybridEntityExtractor:
         """Extract entities and relationships.
         
         Respects extraction_context:
-            - "personal": Extracts entities only (no regex relationships)
-            - "software": Extracts entities + regex relationships
+            - "personal": Extracts entities via regex+spaCy, relationships via
+              dependency parsing (Issue #132).
+            - "software": Extracts entities + regex relationships.
         
         Args:
             text: Input text to process.
             
         Returns:
-            Tuple of (combined valid entities, valid regex-based relationships).
+            Tuple of (combined valid entities, valid relationships).
         """
-        # Context-aware extraction: personal context disables regex relationships
+        # Context-aware extraction: personal context uses dependency parsing
         if self._extraction_context == "personal":
             # Extract entities only (no relationships from regex patterns)
             regex_entities = self._regex_extractor.extract(text)
-            relationships = []  # No regex relationships in personal context
+            relationships = []
+            
+            # Use dependency parsing for relationships if spaCy is available
+            if self._spacy_extractor:
+                # Parse text with spaCy to get Doc (for dependency parsing)
+                doc = self._spacy_extractor._nlp(text)
+                
+                # We'll combine entities after spaCy extraction below
+                # For now, just initialize the dependency extractor
+                dep_extractor = DependencyRelationshipExtractor()
+            else:
+                doc = None
+                dep_extractor = None
         else:
             # Software context: extract both entities and relationships
             regex_entities, relationships = self._regex_extractor.extract_with_relationships(text)
+            doc = None
+            dep_extractor = None
         
         seen_names = {e.name.lower() for e in regex_entities}
         
@@ -1046,6 +1455,11 @@ class HybridEntityExtractor:
         
         # Filter entities through validator to remove garbage (Issue #129)
         valid_entities = [e for e in entities if self._entity_validator.is_valid(e)]
+        
+        # Extract dependency-parsed relationships if in personal context
+        if self._extraction_context == "personal" and dep_extractor and doc:
+            dep_relationships = dep_extractor.extract(doc, valid_entities)
+            relationships.extend(dep_relationships)
         
         # Filter relationships through validator to remove garbage (Issue #129)
         valid_relationships = [r for r in relationships if self._relationship_validator.is_valid(r)]

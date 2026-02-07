@@ -873,7 +873,7 @@ describe("Integration: Additional error handling", () => {
   beforeEach(() => {
     mockFetch.mockReset();
     api = createMockApi();
-    plugin.register(api as any); // Type cast needed: mock API simplified for testing (doesn't implement full OpenClawPluginApi interface) // Type cast needed: mock API doesn't implement full OpenClawPluginApi interface for test simplicity
+    plugin.register(api as any); // Type cast needed: mock API simplified for testing (doesn't implement full OpenClawPluginApi interface)
   });
 
   afterEach(() => {

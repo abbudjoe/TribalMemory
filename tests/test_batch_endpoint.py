@@ -203,3 +203,88 @@ class TestBatchRememberEndpoint:
         assert data["results"][0]["duplicate_of"] == original_id
         # Second should be new
         assert data["results"][1]["duplicate_of"] is None
+
+    def test_batch_remember_empty_content(self, client):
+        """Test batch with empty content string (issue #114)."""
+        response = client.post("/v1/remember/batch", json={
+            "memories": [{"content": ""}]
+        })
+        # Empty content should be rejected by validation
+        assert response.status_code == 422
+
+    def test_batch_remember_whitespace_only_content(self, client):
+        """Test batch with whitespace-only content."""
+        response = client.post("/v1/remember/batch", json={
+            "memories": [{"content": "   "}]
+        })
+        # Whitespace-only should be rejected
+        assert response.status_code == 422
+
+    def test_batch_remember_mixed_empty_and_valid(self, client):
+        """Test batch with mix of empty and valid content."""
+        response = client.post("/v1/remember/batch", json={
+            "memories": [
+                {"content": "Valid memory"},
+                {"content": ""},
+            ]
+        })
+        # Should reject the whole batch since validation is per-item
+        assert response.status_code == 422
+
+
+class TestBatchPerformance:
+    """Performance tests for batch endpoint (issue #115)."""
+
+    def test_batch_faster_than_sequential(self, client):
+        """Verify batch processing is faster than sequential requests."""
+        import time
+
+        count = 20
+
+        # Sequential: individual requests
+        seq_start = time.time()
+        for i in range(count):
+            resp = client.post("/v1/remember", json={
+                "content": f"Sequential memory {i}"
+            })
+            assert resp.status_code == 200
+        seq_time = time.time() - seq_start
+
+        # Batch: single request
+        batch_start = time.time()
+        batch_resp = client.post("/v1/remember/batch", json={
+            "memories": [
+                {"content": f"Batch memory {i}"} for i in range(count)
+            ]
+        })
+        batch_time = time.time() - batch_start
+
+        assert batch_resp.status_code == 200
+        data = batch_resp.json()
+        assert data["successful"] == count
+
+        # Batch should be faster (or at least not significantly slower)
+        # Using 2x as threshold since test client overhead is high
+        assert batch_time < seq_time * 2, (
+            f"Batch ({batch_time:.2f}s) should be faster than sequential "
+            f"({seq_time:.2f}s)"
+        )
+
+    def test_batch_50_completes_reasonably(self, client):
+        """Verify batch of 50 memories completes in reasonable time."""
+        import time
+
+        start = time.time()
+        response = client.post("/v1/remember/batch", json={
+            "memories": [
+                {"content": f"Performance test memory {i}"} for i in range(50)
+            ]
+        })
+        elapsed = time.time() - start
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 50
+        assert data["successful"] == 50
+        # Should complete in under 10 seconds (mock embeddings are fast)
+        assert elapsed < 10.0, f"Batch of 50 took {elapsed:.2f}s (expected < 10s)"

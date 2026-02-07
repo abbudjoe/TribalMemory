@@ -50,30 +50,13 @@ class TestEntityValidator:
         entity = Entity(name="a" * 101, entity_type="concept")
         assert not validator.is_valid(entity), "101-char name should fail"
 
-    def test_all_caps_stopword_rejected_the(self, validator):
-        """All-caps stopword 'THE' should be rejected."""
-        entity = Entity(name="THE", entity_type="concept")
-        assert not validator.is_valid(entity), "All-caps 'THE' should be rejected"
-
-    def test_all_caps_stopword_rejected_and(self, validator):
-        """All-caps stopword 'AND' should be rejected."""
-        entity = Entity(name="AND", entity_type="concept")
-        assert not validator.is_valid(entity), "All-caps 'AND' should be rejected"
-
-    def test_all_caps_stopword_rejected_from(self, validator):
-        """All-caps stopword 'FROM' should be rejected."""
-        entity = Entity(name="FROM", entity_type="concept")
-        assert not validator.is_valid(entity), "All-caps 'FROM' should be rejected"
-
-    def test_all_caps_stopword_rejected_would(self, validator):
-        """All-caps stopword 'WOULD' should be rejected."""
-        entity = Entity(name="WOULD", entity_type="concept")
-        assert not validator.is_valid(entity), "All-caps 'WOULD' should be rejected"
-
-    def test_all_caps_stopword_rejected_before(self, validator):
-        """All-caps stopword 'BEFORE' should be rejected."""
-        entity = Entity(name="BEFORE", entity_type="concept")
-        assert not validator.is_valid(entity), "All-caps 'BEFORE' should be rejected"
+    @pytest.mark.parametrize("word", ["THE", "AND", "FROM", "WOULD", "BEFORE"])
+    def test_all_caps_stopword_rejected(self, validator, word):
+        """All-caps stopwords should be rejected."""
+        entity = Entity(name=word, entity_type="concept")
+        assert not validator.is_valid(entity), (
+            f"All-caps '{word}' should be rejected"
+        )
 
     def test_mixed_case_stopword_rejected_as_concept(self, validator):
         """Mixed-case common words should be rejected as concepts."""
@@ -95,60 +78,28 @@ class TestEntityValidator:
         entity = Entity(name="00123", entity_type="concept")
         assert not validator.is_valid(entity), "Numeric '00123' should be rejected"
 
-    def test_no_alphabetic_characters_rejected_dashes(self, validator):
-        """Entities with no alphabetic characters should be rejected (dashes)."""
-        entity = Entity(name="---", entity_type="concept")
-        assert not validator.is_valid(entity), "No alphabetic chars '---' should be rejected"
-
-    def test_no_alphabetic_characters_rejected_dots(self, validator):
-        """Entities with no alphabetic characters should be rejected (dots)."""
-        entity = Entity(name="...", entity_type="concept")
-        assert not validator.is_valid(entity), "No alphabetic chars '...' should be rejected"
-
-    def test_no_alphabetic_characters_rejected_symbols(self, validator):
-        """Entities with no alphabetic characters should be rejected (symbols)."""
-        entity = Entity(name="@#$%", entity_type="concept")
-        assert not validator.is_valid(entity), "No alphabetic chars '@#$%' should be rejected"
+    @pytest.mark.parametrize("name", ["---", "...", "@#$%"])
+    def test_no_alphabetic_characters_rejected(self, validator, name):
+        """Entities with no alphabetic characters should be rejected."""
+        entity = Entity(name=name, entity_type="concept")
+        assert not validator.is_valid(entity), (
+            f"No alphabetic chars '{name}' should be rejected"
+        )
 
     def test_alphanumeric_passes(self, validator):
         """Alphanumeric entities with letters should pass."""
         entity = Entity(name="auth123", entity_type="service")
         assert validator.is_valid(entity), "Alphanumeric 'auth123' should pass"
 
-    def test_single_word_common_concept_rejected_the(self, validator):
-        """Single-word common English 'the' as concept should be rejected."""
-        entity = Entity(name="the", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'the' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_and(self, validator):
-        """Single-word common English 'and' as concept should be rejected."""
-        entity = Entity(name="and", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'and' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_really(self, validator):
-        """Single-word common English 'really' as concept should be rejected."""
-        entity = Entity(name="really", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'really' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_very(self, validator):
-        """Single-word common English 'very' as concept should be rejected."""
-        entity = Entity(name="very", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'very' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_just(self, validator):
-        """Single-word common English 'just' as concept should be rejected."""
-        entity = Entity(name="just", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'just' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_also(self, validator):
-        """Single-word common English 'also' as concept should be rejected."""
-        entity = Entity(name="also", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'also' as concept should be rejected"
-
-    def test_single_word_common_concept_rejected_even(self, validator):
-        """Single-word common English 'even' as concept should be rejected."""
-        entity = Entity(name="even", entity_type="concept")
-        assert not validator.is_valid(entity), "Common word 'even' as concept should be rejected"
+    @pytest.mark.parametrize("word", [
+        "the", "and", "really", "very", "just", "also", "even",
+    ])
+    def test_single_word_common_concept_rejected(self, validator, word):
+        """Single-word common English words as concept should be rejected."""
+        entity = Entity(name=word, entity_type="concept")
+        assert not validator.is_valid(entity), (
+            f"Common word '{word}' as concept should be rejected"
+        )
 
     def test_single_word_uncommon_concept_passes(self, validator):
         """Single-word uncommon concepts should pass."""
@@ -384,10 +335,10 @@ class TestHybridEntityExtractorWithValidation:
         
         # Should have valid entities: auth-service, PostgreSQL, Redis
         # (THE, AND, 12345 should be filtered out)
-        expected_valid_count = 3  # auth-service, PostgreSQL, Redis
-        assert len(entities) == expected_valid_count, (
-            f"Expected {expected_valid_count} valid entities, "
-            f"got {len(entities)}: {[e.name for e in entities]}"
+        expected_entities = {"auth-service", "PostgreSQL", "Redis"}
+        actual_names = {e.name for e in entities}
+        assert actual_names == expected_entities, (
+            f"Expected {expected_entities}, got {actual_names}"
         )
 
     def test_empty_text_yields_no_entities(self, extractor):

@@ -76,6 +76,9 @@ class EntityExtractor:
     Applies EntityValidator and RelationshipValidator to filter garbage.
     Can be upgraded to spaCy NER or LLM extraction later.
     
+    Applies EntityValidator and RelationshipValidator to filter garbage entities
+    and relationships before returning results.
+    
     Attributes:
         SERVICE_PATTERN: Regex for service-like names (kebab-case with suffix or 8+ chars).
         TECHNOLOGIES: Set of known technology names for exact matching.
@@ -639,7 +642,7 @@ class RelationshipValidator:
     - Source and target must meet minimum length requirements
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize with an entity validator."""
         self._entity_validator = EntityValidator()
     
@@ -717,6 +720,10 @@ class HybridEntityExtractor:
         self._regex_extractor = EntityExtractor()
         self._spacy_extractor: Optional[SpacyEntityExtractor] = None
         self._extraction_context = extraction_context
+        
+        # Validators for quality filtering (Issue #129)
+        self._entity_validator = EntityValidator()
+        self._relationship_validator = RelationshipValidator()
         
         # Validators for quality filtering (Issue #129)
         self._entity_validator = EntityValidator()

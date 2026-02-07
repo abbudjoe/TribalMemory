@@ -224,7 +224,72 @@ class TribalMemoryService(IMemoryService):
                 "Temporal extraction failed for %s: %s",
                 entry.id, e,
             )
-    
+
+    def _extract_query_temporal(
+        self, query: str
+    ) -> Optional[tuple[Optional[str], Optional[str]]]:
+        """Extract temporal filters from a query.
+
+        Looks for temporal expressions like "last Saturday", "yesterday",
+        "last week" and converts them to date filters.
+
+        Args:
+            query: The search query
+
+        Returns:
+            Tuple of (after, before) date strings, or None if no temporal found.
+            For point-in-time references like "last Saturday", returns
+            (date, date) to filter to that specific day.
+            For ranges like "last week", returns (start, end).
+        """
+        if not self.temporal_extractor:
+            return None
+
+        if not self.temporal_extractor.has_temporal_signal(query):
+            return None
+
+        try:
+            from datetime import datetime
+
+            # Extract temporal expressions from query
+            temporal_rels = self.temporal_extractor.extract_with_context(query)
+            if not temporal_rels:
+                return None
+
+            # Use the first temporal expression found
+            rel = temporal_rels[0]
+            temp = rel.temporal
+
+            if not temp.resolved_date:
+                return None
+
+            resolved = temp.resolved_date
+            precision = temp.precision
+
+            # For day precision, filter to that specific day
+            if precision == "day":
+                return (resolved, resolved)
+            # For week/month, expand to range
+            elif precision == "week":
+                # resolved is start of week, add 7 days for end
+                try:
+                    start = datetime.fromisoformat(resolved)
+                    from datetime import timedelta
+                    end = start + timedelta(days=6)
+                    return (resolved, end.strftime("%Y-%m-%d"))
+                except ValueError:
+                    return (resolved, None)
+            elif precision == "month":
+                # resolved is YYYY-MM, filter by month prefix
+                return (resolved, None)
+            else:
+                # Unknown precision, use as after filter only
+                return (resolved, None)
+
+        except Exception as e:
+            logger.debug("Query temporal extraction failed: %s", e)
+            return None
+
     async def recall(
         self,
         query: str,
@@ -269,7 +334,13 @@ class TribalMemoryService(IMemoryService):
             query_embedding = await self.embedding_service.embed(query)
         except Exception:
             return []
-        
+
+        # Auto-extract temporal filters from query if not explicitly provided
+        if self.temporal_extractor and after is None and before is None:
+            extracted = self._extract_query_temporal(query)
+            if extracted:
+                after, before = extracted
+
         filters = {"tags": tags} if tags else None
 
         if self.hybrid_search and self.fts_store:

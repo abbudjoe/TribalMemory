@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceType(str, Enum):
@@ -23,7 +23,19 @@ class SourceType(str, Enum):
 
 class RememberRequest(BaseModel):
     """Request to store a new memory."""
-    content: str = Field(..., description="The memory content to store")
+    content: str = Field(
+        ...,
+        description="The memory content to store",
+        min_length=1,
+    )
+
+    @field_validator("content")
+    @classmethod
+    def content_not_blank(cls, v: str) -> str:
+        """Reject empty or whitespace-only content."""
+        if not v.strip():
+            raise ValueError("content must not be blank")
+        return v
     source_type: SourceType = Field(
         default=SourceType.AUTO_CAPTURE,
         description="How this memory was captured"

@@ -20,6 +20,12 @@ from tribalmemory.testing.mocks import MockEmbeddingService, MockVectorStore
 # Constants
 MIN_TIME_EPSILON = 0.0001  # Guard against division by zero in speedup calculations
 
+# Speedup thresholds for assertions (conservative due to mock service variance)
+# Small benchmarks: lazy should not be slower (20% variance allowed)
+SPEEDUP_THRESHOLD_SMOKE = 1.2
+SPEEDUP_THRESHOLD_MEDIUM = 1.3   # 100-memory benchmark: expect measurable improvement with spaCy
+SPEEDUP_THRESHOLD_COMPREHENSIVE = 1.2  # 200-memory benchmark: conservative minimum with spaCy
+
 
 # --- Test Data Generation ---
 
@@ -154,8 +160,8 @@ class TestLazySpacyBenchmark:
         print(f"Eager: {eager_time:.3f}s ({eager_ms_per:.2f}ms/memory)")
         print(f"Speedup: {speedup:.1f}x")
         
-        # Lazy should not be slower (allow 20% variance)
-        assert lazy_time <= eager_time * 1.2, (
+        # Lazy should not be slower (allow variance)
+        assert lazy_time <= eager_time * SPEEDUP_THRESHOLD_SMOKE, (
             f"Lazy unexpectedly slower: lazy={lazy_time:.3f}s, "
             f"eager={eager_time:.3f}s (speedup={speedup:.1f}x)"
         )
@@ -166,7 +172,7 @@ class TestLazySpacyBenchmark:
     ):
         """Benchmark ingest with 100 memories.
         
-        Expected: 1.3x speedup with mocks (70x with real embeddings).
+        Expected: SPEEDUP_THRESHOLD_MEDIUM speedup with mocks (70x with real embeddings).
         """
         memories = generate_test_memories(100, seed=97)
         
@@ -215,14 +221,15 @@ class TestLazySpacyBenchmark:
         print(f"Eager: {eager_time:.3f}s ({eager_ms:.2f}ms/memory)")
         print(f"Speedup: {speedup:.1f}x")
         
-        # With mock embeddings, expect at least 1.3x improvement
+        # With mock embeddings, expect at least SPEEDUP_THRESHOLD_MEDIUM improvement
         # Real-world with actual embeddings shows ~70x
         if SPACY_AVAILABLE:
-            assert speedup >= 1.3, (
-                f"Expected ≥1.3x speedup with spaCy, got {speedup:.1f}x. "
-                f"Real-world (with real embeddings) shows ~70x."
+            assert speedup >= SPEEDUP_THRESHOLD_MEDIUM, (
+                f"Expected ≥{SPEEDUP_THRESHOLD_MEDIUM}x speedup with spaCy, "
+                f"got {speedup:.1f}x. Real-world (with real embeddings) shows ~70x."
             )
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_comprehensive_benchmark(
         self, tmp_path, mock_embedding_service
@@ -327,8 +334,8 @@ class TestLazySpacyBenchmark:
         print(f"{'='*70}\n")
         
         # === ASSERTIONS ===
-        # Lazy should be at least as fast (allow 20% variance)
-        assert lazy_ingest_time <= eager_ingest_time * 1.2, (
+        # Lazy should be at least as fast (allow variance)
+        assert lazy_ingest_time <= eager_ingest_time * SPEEDUP_THRESHOLD_SMOKE, (
             f"Lazy mode slower than expected: lazy={lazy_ingest_time:.3f}s, "
             f"eager={eager_ingest_time:.3f}s (speedup={speedup:.1f}x)"
         )
@@ -340,15 +347,17 @@ class TestLazySpacyBenchmark:
             f"eager={len(eager_results)}"
         )
         
-        # If spaCy available, expect measurable improvement (at least 1.2x)
+        # If spaCy available, expect measurable improvement
         # This threshold is conservative to account for variance in mock services
         if SPACY_AVAILABLE:
-            assert speedup >= 1.2, (
-                f"Expected ≥1.2x speedup with spaCy, got {speedup:.1f}x. "
-                f"Real-world shows ~70x with actual embeddings."
+            assert speedup >= SPEEDUP_THRESHOLD_COMPREHENSIVE, (
+                f"Expected ≥{SPEEDUP_THRESHOLD_COMPREHENSIVE}x speedup with spaCy, "
+                f"got {speedup:.1f}x. Real-world shows ~70x with actual embeddings."
             )
         
         print(f"✅ Benchmark complete: {speedup:.1f}x faster ingest with lazy spaCy")
+
+    # --- Recall tests ---
 
     @pytest.mark.asyncio
     async def test_recall_vector_only_identical(
@@ -417,3 +426,111 @@ class TestLazySpacyBenchmark:
         lazy_contents = {r.memory.content for r in lazy_results}
         eager_contents = {r.memory.content for r in eager_results}
         assert lazy_contents == eager_contents, "Vector recall content differs"
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_differs_between_modes(
+        self, tmp_path, mock_embedding_service
+    ):
+        """Verify graph expansion may differ between lazy and eager modes.
+
+        This documents a deliberate design tradeoff (Issue #97):
+        - Lazy mode uses regex-only entity extraction on ingest → fewer graph entities
+        - Eager mode uses spaCy NER on ingest → richer graph entities
+        - Graph expansion at recall uses spaCy in both modes (query side)
+
+        The tradeoff: lazy mode trades graph richness for dramatically faster
+        ingest (~70x with real embeddings). In practice, regex captures the
+        most important entities (service names, technologies, capitalized names),
+        while spaCy additionally detects context-dependent entities.
+        """
+        # Sentences with entities that regex vs spaCy may extract differently
+        memories = [
+            "The auth-service uses PostgreSQL for user storage",
+            "John deployed the api-gateway to production using Docker",
+            "Sarah reviewed the payment-service integration with Stripe",
+            "The api-gateway connects to Redis on port 6379",
+            "Bob fixed a memory leak bug in the auth-service handler",
+        ]
+
+        # Create separate vector stores
+        lazy_vector_store = MockVectorStore(mock_embedding_service)
+        eager_vector_store = MockVectorStore(mock_embedding_service)
+
+        # Lazy mode
+        lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
+        lazy_service = TribalMemoryService(
+            instance_id="lazy",
+            embedding_service=mock_embedding_service,
+            vector_store=lazy_vector_store,
+            graph_store=lazy_graph_store,
+            graph_enabled=True,
+            lazy_spacy=True,
+        )
+
+        for content in memories:
+            await lazy_service.remember(content)
+
+        # Eager mode
+        eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
+        eager_service = TribalMemoryService(
+            instance_id="eager",
+            embedding_service=mock_embedding_service,
+            vector_store=eager_vector_store,
+            graph_store=eager_graph_store,
+            graph_enabled=True,
+            lazy_spacy=False,
+        )
+
+        for content in memories:
+            await eager_service.remember(content)
+
+        # Count total graph entities stored by each mode
+        lazy_entity_count = lazy_graph_store._conn.execute(
+            "SELECT COUNT(*) FROM entities"
+        ).fetchone()[0]
+        eager_entity_count = eager_graph_store._conn.execute(
+            "SELECT COUNT(*) FROM entities"
+        ).fetchone()[0]
+
+        print(f"\n=== Graph Entity Comparison ===")
+        print(f"Lazy (regex-only ingest):  {lazy_entity_count} entities")
+        print(f"Eager (spaCy ingest):      {eager_entity_count} entities")
+
+        if SPACY_AVAILABLE:
+            # When spaCy is available, eager mode should extract at least as many
+            # entities as lazy mode (spaCy is a superset of regex extraction)
+            assert eager_entity_count >= lazy_entity_count, (
+                f"Eager mode should extract ≥ lazy entities: "
+                f"eager={eager_entity_count}, lazy={lazy_entity_count}"
+            )
+            print(
+                f"  ✓ Eager extracted ≥ lazy entities "
+                f"(spaCy is superset of regex)"
+            )
+        else:
+            # Without spaCy, both modes use regex only — entities should match
+            assert eager_entity_count == lazy_entity_count, (
+                f"Without spaCy, entity counts should match: "
+                f"eager={eager_entity_count}, lazy={lazy_entity_count}"
+            )
+            print(f"  ⚠ spaCy not available — both modes use regex, counts match")
+
+        # Both modes should extract SOME entities (regex catches capitalized names,
+        # service names with hyphens, and known technology names)
+        assert lazy_entity_count > 0, "Lazy mode should extract some entities via regex"
+        assert eager_entity_count > 0, "Eager mode should extract entities"
+
+        # Recall with graph expansion — results may differ
+        lazy_results = await lazy_service.recall(
+            "auth-service PostgreSQL", limit=10, graph_expansion=True
+        )
+        eager_results = await eager_service.recall(
+            "auth-service PostgreSQL", limit=10, graph_expansion=True
+        )
+
+        print(f"Recall with graph expansion:")
+        print(f"  Lazy:  {len(lazy_results)} results")
+        print(f"  Eager: {len(eager_results)} results")
+        print(
+            f"  Design tradeoff: lazy trades graph richness for ~70x faster ingest"
+        )

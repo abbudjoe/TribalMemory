@@ -5,6 +5,35 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.7.0/))
+
+### Added
+
+#### Entity Extraction v2 — High-Quality Graph Construction
+Complete rewrite of entity extraction for accurate knowledge graphs from personal conversations.
+
+- **Entity & Relationship Validators** — Quality filtering prevents garbage from entering the graph. Configurable min/max name length, stopword rejection, self-relationship detection, and common-word filtering.
+- **Extraction Context** — `"personal"` (default) disables noisy regex relationship patterns; `"software"` enables them for technical text. Set via config or API.
+- **spaCy Entity Post-Processing** — Fixes NER misclassifications (e.g., product names wrongly tagged as PERSON). Context-aware filtering using surrounding text.
+- **Dependency-Parsed Relationships** — Replaces regex patterns with spaCy dependency parsing for semantically valid subject-verb-object relationships. 37 verb mappings (uses, located_in, works_at, visited, prefers, purchased, etc.). Handles passive voice, compound subjects/objects, prepositional phrases, and coordinated verbs.
+- **Word Boundary Entity Matching** — Prevents false positive matches (e.g., "can" no longer matches "Glen Canyon Dam").
+- **Batch Entity Validation** — `validate_batch()` methods with LRU caching for large-scale extraction.
+
+#### Documentation
+- **Auto-capture documentation** in README — explains `--auto-capture` flag for Claude Code and Codex integration.
+- **"Set Up Everything at Once"** section — single-command setup for all agents + service.
+
+### Changed
+- Regex relationship extraction disabled by default in personal context (prevents garbage relationships from casual conversation)
+- Entity validation uses conservative common-word list (only truly meaningless words filtered)
+
+### Performance
+- Batch validation with inlined logic (10-30% faster for large datasets)
+- LRU caching for common entity lookups
+- `@pytest.mark.slow` decorator on expensive benchmark tests for faster CI
+
+---
+
 ## [0.6.2] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.6.2/))
 
 ### Added

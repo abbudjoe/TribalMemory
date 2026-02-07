@@ -23,6 +23,17 @@ from tribalmemory.services.memory import TribalMemoryService
 from tribalmemory.testing.mocks import MockEmbeddingService, MockVectorStore
 
 
+# --- Speedup thresholds (Issue #126) ---
+
+# Tolerance for lazy mode performance relative to eager mode.
+# Lazy ingest should not be significantly slower than eager.
+MAX_LAZY_SLOWDOWN_RATIO = 1.20  # 20% tolerance for timer noise
+
+# When spaCy is installed, lazy should be measurably faster.
+# Conservative threshold accounting for test variance.
+MAX_SPACY_LAZY_SLOWDOWN_RATIO = 1.10  # 10% tolerance with spaCy
+
+
 # --- Sample data ---
 
 SAMPLE_MEMORIES = [
@@ -213,13 +224,14 @@ class TestSpacyBenchmark:
         )
 
         # Lazy ingest should not be significantly slower than eager.
-        # 20% tolerance accounts for:
+        # Tolerance accounts for:
         # - Timer granularity on fast operations (sub-ms noise)
         # - GC pauses and OS scheduling jitter
         # - pytest fixture overhead variance between runs
-        assert lazy.ingest_total_ms <= eager.ingest_total_ms * 1.20, (
-            f"Lazy ingest ({lazy.ingest_total_ms:.2f}ms) was more than 20% "
-            f"slower than eager ({eager.ingest_total_ms:.2f}ms)"
+        assert lazy.ingest_total_ms <= eager.ingest_total_ms * MAX_LAZY_SLOWDOWN_RATIO, (
+            f"Lazy ingest ({lazy.ingest_total_ms:.2f}ms) was more than "
+            f"{(MAX_LAZY_SLOWDOWN_RATIO - 1) * 100:.0f}% slower than eager "
+            f"({eager.ingest_total_ms:.2f}ms)"
         )
 
     @pytest.mark.asyncio
@@ -249,6 +261,7 @@ class TestSpacyBenchmark:
                 f"{label} num_queries: expected {len(SAMPLE_QUERIES)}, got {result.num_queries}"
             )
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_benchmark_summary_table(
         self, tmp_path, mock_embedding_service, capsys
@@ -336,9 +349,9 @@ class TestSpacyBenchmark:
         # With spaCy, lazy ingest should be faster (regex-only vs regex+spaCy).
         # We just verify it's not slower — the speedup magnitude depends on
         # the machine and spaCy model loading overhead.
-        # 10% tolerance (tighter than mock test) because spaCy NER is the
+        # Tighter tolerance than mock test because spaCy NER is the
         # dominant cost, making the signal-to-noise ratio much higher.
-        assert lazy.ingest_total_ms <= eager.ingest_total_ms * 1.10, (
+        assert lazy.ingest_total_ms <= eager.ingest_total_ms * MAX_SPACY_LAZY_SLOWDOWN_RATIO, (
             f"With spaCy installed, lazy ingest ({lazy.ingest_total_ms:.2f}ms) "
             f"should not be slower than eager ({eager.ingest_total_ms:.2f}ms)"
         )

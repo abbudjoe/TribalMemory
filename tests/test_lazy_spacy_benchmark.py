@@ -166,6 +166,7 @@ class TestLazySpacyBenchmark:
             f"eager={eager_time:.3f}s (speedup={speedup:.1f}x)"
         )
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_ingest_benchmark_100(
         self, tmp_path, mock_embedding_service
@@ -534,3 +535,143 @@ class TestLazySpacyBenchmark:
         print(
             f"  Design tradeoff: lazy trades graph richness for ~70x faster ingest"
         )
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_tradeoff_documentation(self, tmp_path):
+        """Document the design tradeoff between lazy and eager modes (Issue #127).
+
+        This test serves as living documentation of the lazy spaCy design decision:
+
+        **Lazy Mode (lazy_spacy=True):**
+        - Ingest: Regex-only entity extraction → ~70x faster with real embeddings
+        - Graph: Captures high-signal entities (services, tech, capitalized names)
+        - Tradeoff: Misses context-dependent entities that spaCy would detect
+
+        **Eager Mode (lazy_spacy=False):**
+        - Ingest: Full spaCy NER → richer entity graph, slower ingest
+        - Graph: Captures all entities including context-dependent ones
+        - Tradeoff: Ingest latency increases significantly
+
+        **Recommendation:** Use lazy mode for most workloads. The regex extractor
+        captures the most important entities while dramatically reducing ingest time.
+        Use eager mode only when entity graph richness is critical.
+        """
+        # Use higher-dimensional embeddings to better simulate real-world usage
+        embedding_service = MockEmbeddingService(embedding_dim=384)
+
+        # Entity-rich memories designed to highlight extraction differences
+        memories = [
+            "Sarah deployed auth-service v2.1 to production using Docker Compose",
+            "The api-gateway handles authentication via JWT tokens and Redis cache",
+            "John discussed the migration plan with the DevOps team at the office",
+            "PostgreSQL replication lag caused timeout errors in payment-service",
+            "Alice configured monitoring with Prometheus and Grafana dashboards",
+        ]
+
+        # === Lazy Mode ===
+        lazy_vector_store = MockVectorStore(embedding_service)
+        lazy_graph_store = GraphStore(str(tmp_path / "lazy_graph.db"))
+        lazy_service = TribalMemoryService(
+            instance_id="lazy-tradeoff",
+            embedding_service=embedding_service,
+            vector_store=lazy_vector_store,
+            graph_store=lazy_graph_store,
+            graph_enabled=True,
+            lazy_spacy=True,
+        )
+
+        for content in memories:
+            await lazy_service.remember(content)
+
+        # === Eager Mode ===
+        eager_vector_store = MockVectorStore(embedding_service)
+        eager_graph_store = GraphStore(str(tmp_path / "eager_graph.db"))
+        eager_service = TribalMemoryService(
+            instance_id="eager-tradeoff",
+            embedding_service=embedding_service,
+            vector_store=eager_vector_store,
+            graph_store=eager_graph_store,
+            graph_enabled=True,
+            lazy_spacy=False,
+        )
+
+        for content in memories:
+            await eager_service.remember(content)
+
+        # === Compare Entity Extraction ===
+        lazy_entities = lazy_graph_store._conn.execute(
+            "SELECT name FROM entities ORDER BY name"
+        ).fetchall()
+        eager_entities = eager_graph_store._conn.execute(
+            "SELECT name FROM entities ORDER BY name"
+        ).fetchall()
+
+        lazy_entity_names = {name for (name,) in lazy_entities}
+        eager_entity_names = {name for (name,) in eager_entities}
+
+        print(f"\n{'='*70}")
+        print(f"Graph Expansion Tradeoff Analysis (Issue #127)")
+        print(f"{'='*70}")
+        print(f"Memories ingested: {len(memories)}")
+        print(f"Embedding dimension: {embedding_service.embedding_dim}")
+        print()
+        print(f"Lazy mode entities ({len(lazy_entity_names)}):")
+        print(f"  {sorted(lazy_entity_names)}")
+        print()
+        print(f"Eager mode entities ({len(eager_entity_names)}):")
+        print(f"  {sorted(eager_entity_names)}")
+        print()
+
+        if SPACY_AVAILABLE:
+            only_in_eager = eager_entity_names - lazy_entity_names
+            only_in_lazy = lazy_entity_names - eager_entity_names
+            common = lazy_entity_names & eager_entity_names
+
+            print(f"Common entities: {len(common)}")
+            print(f"Only in eager (spaCy-detected): {len(only_in_eager)}")
+            if only_in_eager:
+                print(f"  {sorted(only_in_eager)}")
+            print(f"Only in lazy (regex-detected): {len(only_in_lazy)}")
+            if only_in_lazy:
+                print(f"  {sorted(only_in_lazy)}")
+            print()
+            print(f"Design decision: Lazy mode trades {len(only_in_eager)} "
+                  f"spaCy-detected entities for ~70x faster ingest")
+        else:
+            print(f"⚠ spaCy not installed — both modes use regex")
+            print(f"  Install spaCy to see the extraction difference:")
+            print(f"    pip install tribalmemory[spacy] && "
+                  f"python -m spacy download en_core_web_sm")
+
+        print(f"{'='*70}\n")
+
+        # === Test Recall with Graph Expansion ===
+        # Use min_relevance=0.0 to retrieve all memories regardless of similarity
+        lazy_results = await lazy_service.recall(
+            "authentication system", limit=10, min_relevance=0.0, graph_expansion=True
+        )
+        eager_results = await eager_service.recall(
+            "authentication system", limit=10, min_relevance=0.0, graph_expansion=True
+        )
+
+        print(f"Recall with graph expansion (min_relevance=0.0):")
+        print(f"  Lazy:  {len(lazy_results)} results")
+        print(f"  Eager: {len(eager_results)} results")
+
+        # === Assertions ===
+        # Both modes should extract some entities
+        assert len(lazy_entity_names) > 0, "Lazy mode should extract entities"
+        assert len(eager_entity_names) > 0, "Eager mode should extract entities"
+
+        if SPACY_AVAILABLE:
+            # With spaCy, eager should extract at least as many entities
+            assert len(eager_entity_names) >= len(lazy_entity_names), (
+                f"Eager mode should extract ≥ lazy entities: "
+                f"eager={len(eager_entity_names)}, lazy={len(lazy_entity_names)}"
+            )
+
+        # Both modes should successfully recall memories
+        assert len(lazy_results) > 0, "Lazy mode should return results"
+        assert len(eager_results) > 0, "Eager mode should return results"
+
+        print(f"✅ Graph expansion tradeoff documented and verified")

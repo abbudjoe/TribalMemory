@@ -309,8 +309,9 @@ describe("tribal_recall E2E", () => {
       limit: 5,
     });
 
-    // Server currently accepts empty queries and returns 200 with empty/all results.
-    // Ideally it should return 422 (validation error) for empty queries.
+    // Known Issue #154: Server accepts empty queries and returns 200.
+    // Expected behavior: Should return 422 (validation error).
+    // Test accepts both until server is fixed.
     expect([200, 422]).toContain(res.status);
     
     if (res.status === 200) {
@@ -533,10 +534,10 @@ describe("tribal_recall E2E", () => {
     // Verify higher threshold returns fewer results
     expect(res90.body.results.length).toBeLessThanOrEqual(res0.body.results.length);
     
-    // Note: Empirical testing shows min_relevance filter has some tolerance (returns scores
-    // slightly below threshold, e.g., 0.879 when min_relevance=0.9). This may be intentional
-    // for better recall, or due to floating-point precision. The key behavior is that higher
-    // thresholds return fewer, more relevant results.
+    // Known Issue #153: min_relevance filter not strictly enforced.
+    // Server returns results with scores below threshold (e.g., 0.879 when min_relevance=0.9).
+    // Expected behavior per vector_store.py:166: if similarity < min_similarity: continue
+    // Test validates that higher thresholds return fewer results, but not strict enforcement.
   });
 
   it("should handle invalid date format for after filter gracefully", async () => {
@@ -546,8 +547,9 @@ describe("tribal_recall E2E", () => {
       after: "not-a-valid-date",
     });
 
-    // Server currently accepts invalid dates and returns 200, either with empty results
-    // or with an error field. Ideally it should return 422 for validation errors.
+    // Known Issue #155: Server accepts invalid date formats and returns 200.
+    // Expected behavior: Should return 422 (validation error).
+    // Test accepts both until server is fixed.
     expect([200, 422]).toContain(res.status);
     
     if (res.status === 200 && res.body.error) {

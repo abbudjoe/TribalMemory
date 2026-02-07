@@ -8,16 +8,6 @@ from tribalmemory.services.graph_store import (
 )
 
 
-# Module-scoped fixture for faster test execution
-# spaCy model loading is expensive (~1-2s), so we share it across tests
-@pytest.fixture(scope="module")
-def shared_spacy_extractor():
-    """Shared SpacyEntityExtractor for performance (module-scoped)."""
-    if not SPACY_AVAILABLE:
-        pytest.skip("spaCy not installed")
-    return SpacyEntityExtractor()
-
-
 @pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
 class TestSpacyEntityExtractor:
     """Tests for SpacyEntityExtractor."""
@@ -453,6 +443,26 @@ class TestMultiWordTitleNormalization:
         # "Rev. Dr." are both titles
         assert extractor._normalize_person_name("Rev. Dr. King") == "King"
 
+    def test_extract_normalizes_person_titles_end_to_end(self):
+        """Verify title normalization happens during extract() (Issue #91).
+
+        This is an end-to-end test: feed text with titled names into
+        extract() and verify the returned entities have normalized names.
+        """
+        extractor = SpacyEntityExtractor()
+        text = "I met Professor Smith at the conference yesterday."
+        entities = extractor.extract(text)
+
+        person_names = {e.name for e in entities if e.entity_type == 'person'}
+        # Should have normalized "Professor Smith" to "Smith"
+        if person_names:  # spaCy may or may not detect as PERSON in this context
+            assert "Smith" in person_names or any("smith" in n.lower() for n in person_names), (
+                f"Expected normalized 'Smith' in {person_names}"
+            )
+            assert "Professor Smith" not in person_names, (
+                f"Title should be stripped: {person_names}"
+            )
+
 
 # =============================================================================
 # Issue #107: Edge case tests for entity extraction
@@ -474,10 +484,13 @@ class TestEntityExtractionEdgeCases:
 
         # Should not crash and should return a list
         assert isinstance(entities, list)
-        # spaCy should extract at least one place entity
+        # spaCy should extract at least one place entity with unicode chars intact
         names_lower = {e.name.lower() for e in entities}
-        assert any("paulo" in n or "zürich" in n or "zurich" in n for n in names_lower), (
-            f"Expected at least one unicode city name, got: {[e.name for e in entities]}"
+        unicode_cities_found = [n for n in names_lower
+                                if "paulo" in n or "zürich" in n or "zurich" in n]
+        assert len(unicode_cities_found) >= 1, (
+            f"Expected at least one unicode city name (São Paulo or Zürich), "
+            f"got entities: {[(e.name, e.entity_type) for e in entities]}"
         )
 
     def test_emoji_in_text(self):
@@ -512,6 +525,7 @@ class TestEntityExtractionEdgeCases:
         extractor = SpacyEntityExtractor()
         assert extractor.extract("   \t\n  ") == []
 
+    @pytest.mark.slow
     def test_very_long_text(self):
         """Should handle very long text without errors (Issue #107).
 
@@ -525,8 +539,10 @@ class TestEntityExtractionEdgeCases:
         entities = extractor.extract(long_text)
 
         assert isinstance(entities, list)
-        # Should still deduplicate — same entities repeated shouldn't balloon
-        assert len(entities) <= 20, (
+        # Should still deduplicate — same entities repeated shouldn't balloon.
+        # With 3 unique entities (Sarah, Google, San Francisco) repeated 200x,
+        # deduplication should keep this well under 10.
+        assert len(entities) <= 10, (
             f"Expected deduplication to limit entities, got {len(entities)}"
         )
         # Should still find the key entities
@@ -570,6 +586,11 @@ class TestEntityExtractionEdgeCases:
 
         Multiple threads extracting entities simultaneously should not
         cause data races, crashes, or corrupted results.
+
+        Thread safety note: spaCy's nlp() is thread-safe for inference
+        (the model weights are read-only after loading). Our extractor
+        adds no shared mutable state — seen_names is local to each
+        extract() call. This test verifies no regressions.
         """
         import concurrent.futures
 

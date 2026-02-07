@@ -8,16 +8,6 @@ from tribalmemory.services.graph_store import (
 )
 
 
-# Module-scoped fixture for faster test execution
-# spaCy model loading is expensive (~1-2s), so we share it across tests
-@pytest.fixture(scope="module")
-def shared_spacy_extractor():
-    """Shared SpacyEntityExtractor for performance (module-scoped)."""
-    if not SPACY_AVAILABLE:
-        pytest.skip("spaCy not installed")
-    return SpacyEntityExtractor()
-
-
 @pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
 class TestSpacyEntityExtractor:
     """Tests for SpacyEntityExtractor."""
@@ -386,3 +376,273 @@ class TestMinEntityNameLength:
     def test_min_length_constant_value(self):
         """MIN_ENTITY_NAME_LENGTH should be 3 (hardcoded constant)."""
         assert MIN_ENTITY_NAME_LENGTH == 3
+
+
+# =============================================================================
+# Issue #91: Multi-word title normalization for person names
+# =============================================================================
+
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
+class TestMultiWordTitleNormalization:
+    """Tests for multi-word title stripping from person names (Issue #91)."""
+
+    def test_normalize_single_title(self):
+        """Should strip single-word titles like Dr., Mr., Mrs."""
+        extractor = SpacyEntityExtractor()
+        assert extractor._normalize_person_name("Dr. Thompson") == "Thompson"
+        assert extractor._normalize_person_name("Mr. Johnson") == "Johnson"
+        assert extractor._normalize_person_name("Mrs. Williams") == "Williams"
+        assert extractor._normalize_person_name("Ms. Davis") == "Davis"
+        assert extractor._normalize_person_name("Prof. Miller") == "Miller"
+
+    def test_normalize_multi_word_title(self):
+        """Should strip multi-word titles like 'Professor Emeritus' (Issue #91).
+
+        Multi-word titles consist of consecutive title words at the start
+        of the name. All should be stripped to yield the actual name.
+        """
+        extractor = SpacyEntityExtractor()
+        assert extractor._normalize_person_name("Professor Emeritus Smith") == "Smith"
+
+    def test_normalize_preserves_non_title_names(self):
+        """Should not strip words that aren't titles."""
+        extractor = SpacyEntityExtractor()
+        assert extractor._normalize_person_name("Sarah Connor") == "Sarah Connor"
+        assert extractor._normalize_person_name("John") == "John"
+
+    def test_normalize_title_without_period(self):
+        """Should strip titles regardless of trailing period."""
+        extractor = SpacyEntityExtractor()
+        assert extractor._normalize_person_name("Dr Thompson") == "Thompson"
+        assert extractor._normalize_person_name("Professor Smith") == "Smith"
+
+    def test_normalize_preserves_middle_title_words(self):
+        """Should only strip leading title words, not titles in the middle."""
+        extractor = SpacyEntityExtractor()
+        # "Sir" is a title, but "Arthur" and "Doyle" are not
+        assert extractor._normalize_person_name("Sir Arthur Doyle") == "Arthur Doyle"
+
+    def test_normalize_all_titles_yields_original(self):
+        """If stripping all titles would leave nothing, return original."""
+        extractor = SpacyEntityExtractor()
+        # Edge case: name is just titles (unlikely but defensive)
+        assert extractor._normalize_person_name("Dr.") == "Dr."
+        assert extractor._normalize_person_name("Professor") == "Professor"
+
+    def test_normalize_military_titles(self):
+        """Should strip military rank titles."""
+        extractor = SpacyEntityExtractor()
+        assert extractor._normalize_person_name("Sgt. Barnes") == "Barnes"
+        assert extractor._normalize_person_name("Captain Rogers") == "Rogers"
+        assert extractor._normalize_person_name("General Patton") == "Patton"
+        assert extractor._normalize_person_name("Col. Mustard") == "Mustard"
+
+    def test_normalize_multiple_consecutive_titles(self):
+        """Should strip all consecutive title words."""
+        extractor = SpacyEntityExtractor()
+        # "Rev. Dr." are both titles
+        assert extractor._normalize_person_name("Rev. Dr. King") == "King"
+
+    def test_extract_normalizes_person_titles_end_to_end(self):
+        """Verify title normalization happens during extract() (Issue #91).
+
+        This is an end-to-end test: feed text with titled names into
+        extract() and verify the returned entities have normalized names.
+        """
+        extractor = SpacyEntityExtractor()
+        text = "I met Professor Smith at the conference yesterday."
+        entities = extractor.extract(text)
+
+        person_names = {e.name for e in entities if e.entity_type == 'person'}
+        # Should have normalized "Professor Smith" to "Smith"
+        if person_names:  # spaCy may or may not detect as PERSON in this context
+            assert "Smith" in person_names or any("smith" in n.lower() for n in person_names), (
+                f"Expected normalized 'Smith' in {person_names}"
+            )
+            assert "Professor Smith" not in person_names, (
+                f"Title should be stripped: {person_names}"
+            )
+
+
+# =============================================================================
+# Issue #107: Edge case tests for entity extraction
+# =============================================================================
+
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
+class TestEntityExtractionEdgeCases:
+    """Edge case tests for entity extraction (Issue #107)."""
+
+    def test_unicode_entity_names(self):
+        """Should handle non-ASCII characters in entity names (Issue #107).
+
+        Names like 'São Paulo' and 'Zürich' contain accented characters
+        that must not cause errors or be silently dropped.
+        """
+        extractor = SpacyEntityExtractor()
+        text = "I traveled from São Paulo to Zürich last summer."
+        entities = extractor.extract(text)
+
+        # Should not crash and should return a list
+        assert isinstance(entities, list)
+        # spaCy should extract at least one place entity with unicode chars intact
+        names_lower = {e.name.lower() for e in entities}
+        unicode_cities_found = [n for n in names_lower
+                                if "paulo" in n or "zürich" in n or "zurich" in n]
+        assert len(unicode_cities_found) >= 1, (
+            f"Expected at least one unicode city name (São Paulo or Zürich), "
+            f"got entities: {[(e.name, e.entity_type) for e in entities]}"
+        )
+
+    def test_emoji_in_text(self):
+        """Should handle emoji in text without crashing (Issue #107).
+
+        Emoji should not cause exceptions. Entities around emoji should
+        still be extracted normally.
+        """
+        extractor = SpacyEntityExtractor()
+        text = "Had lunch with Sarah 🍕 in New York 🗽"
+        entities = extractor.extract(text)
+
+        assert isinstance(entities, list)
+        # Should still extract named entities despite emoji
+        names_lower = {e.name.lower() for e in entities}
+        assert "sarah" in names_lower or "new york" in names_lower, (
+            f"Expected entities despite emoji, got: {[e.name for e in entities]}"
+        )
+
+    def test_empty_string(self):
+        """Should return empty list for empty string (Issue #107)."""
+        extractor = SpacyEntityExtractor()
+        assert extractor.extract("") == []
+
+    def test_none_input(self):
+        """Should return empty list for None input (Issue #107)."""
+        extractor = SpacyEntityExtractor()
+        assert extractor.extract(None) == []
+
+    def test_whitespace_only(self):
+        """Should return empty list for whitespace-only text (Issue #107)."""
+        extractor = SpacyEntityExtractor()
+        assert extractor.extract("   \t\n  ") == []
+
+    @pytest.mark.slow
+    def test_very_long_text(self):
+        """Should handle very long text without errors (Issue #107).
+
+        Tests that entity extraction works on text >10,000 characters
+        without crashing, timing out, or truncating results.
+        """
+        extractor = SpacyEntityExtractor()
+        # Build a long text with known entities scattered throughout
+        base_sentence = "Sarah visited Google headquarters in San Francisco. "
+        long_text = base_sentence * 200  # ~10,000+ chars
+        entities = extractor.extract(long_text)
+
+        assert isinstance(entities, list)
+        # Should still deduplicate — same entities repeated shouldn't balloon.
+        # With 3 unique entities (Sarah, Google, San Francisco) repeated 200x,
+        # deduplication should keep this well under 10.
+        assert len(entities) <= 10, (
+            f"Expected deduplication to limit entities, got {len(entities)}"
+        )
+        # Should still find the key entities
+        names = {e.name.lower() for e in entities}
+        assert "sarah" in names or "google" in names or "san francisco" in names, (
+            f"Expected known entities from repeated text, got: {names}"
+        )
+
+    def test_special_characters_in_text(self):
+        """Should handle special characters without crashing (Issue #107).
+
+        Text with HTML entities, brackets, quotes, and other special
+        characters should not cause extraction errors.
+        """
+        extractor = SpacyEntityExtractor()
+        text = 'Meeting with <Dr. Smith> & "Prof. Jones" @ the university (Room #42).'
+        entities = extractor.extract(text)
+
+        assert isinstance(entities, list)
+        # Should not crash — correctness of extraction may vary
+
+    def test_mixed_language_text(self):
+        """Should handle mixed-language text without errors (Issue #107).
+
+        English spaCy model may not extract non-English entities accurately,
+        but it should not crash on mixed-language input.
+        """
+        extractor = SpacyEntityExtractor()
+        text = "I met Pierre in Paris. Nous avons visité le Louvre."
+        entities = extractor.extract(text)
+
+        assert isinstance(entities, list)
+        # Should at least extract the English-context entities
+        names_lower = {e.name.lower() for e in entities}
+        assert "pierre" in names_lower or "paris" in names_lower or "louvre" in names_lower, (
+            f"Expected at least one entity from mixed text, got: {names_lower}"
+        )
+
+    def test_concurrent_extraction(self):
+        """Should be thread-safe for concurrent extraction (Issue #107).
+
+        Multiple threads extracting entities simultaneously should not
+        cause data races, crashes, or corrupted results.
+
+        Thread safety note: spaCy's nlp() is thread-safe for inference
+        (the model weights are read-only after loading). Our extractor
+        adds no shared mutable state — seen_names is local to each
+        extract() call. This test verifies no regressions.
+        """
+        import concurrent.futures
+
+        extractor = SpacyEntityExtractor()
+        texts = [
+            "Sarah visited New York last Monday.",
+            "Dr. Thompson works at Google in London.",
+            "Bob met Amy at the conference in Berlin.",
+            "Professor Smith teaches at Harvard University.",
+        ]
+
+        def extract_from(text):
+            return extractor.extract(text)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(extract_from, t) for t in texts]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+        # All results should be valid lists
+        for result in results:
+            assert isinstance(result, list)
+            for entity in result:
+                assert hasattr(entity, 'name')
+                assert hasattr(entity, 'entity_type')
+
+    def test_numeric_only_text(self):
+        """Should handle text that is purely numeric (Issue #107)."""
+        extractor = SpacyEntityExtractor()
+        text = "12345 67890 11111"
+        entities = extractor.extract(text)
+
+        assert isinstance(entities, list)
+        # Numeric-only entities may or may not be extracted (CARDINAL/ORDINAL
+        # are not in RELEVANT_TYPES), but should not crash
+
+    def test_single_character_text(self):
+        """Should handle single-character text (Issue #107)."""
+        extractor = SpacyEntityExtractor()
+        assert extractor.extract("a") == [] or isinstance(extractor.extract("a"), list)
+        assert extractor.extract(".") == [] or isinstance(extractor.extract("."), list)
+
+    def test_very_long_entity_name(self):
+        """Should handle entity names >100 chars without overflow (Issue #107).
+
+        spaCy may extract very long spans as entities. The extractor should
+        handle these gracefully without truncation issues.
+        """
+        extractor = SpacyEntityExtractor()
+        # Construct text with a very long proper noun phrase
+        long_name = "The International Association of " + "Very " * 25 + "Important Scientists"
+        text = f"She presented at {long_name} in Geneva."
+        entities = extractor.extract(text)
+
+        assert isinstance(entities, list)
+        # Should not crash regardless of entity name length

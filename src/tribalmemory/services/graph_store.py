@@ -278,10 +278,20 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Common person titles to strip for better entity matching
+# Common person titles to strip for better entity matching.
+# Includes both abbreviated and full forms. The normalization logic
+# strips ALL consecutive leading title words, so multi-word titles like
+# "Professor Emeritus" are handled by matching each word individually.
 PERSON_TITLES = {
     'dr', 'dr.', 'mr', 'mr.', 'mrs', 'mrs.', 'ms', 'ms.', 'miss',
     'prof', 'prof.', 'professor', 'sir', 'madam', 'rev', 'rev.',
+    'reverend', 'hon', 'hon.', 'honorable',
+    'emeritus', 'emerita',
+    'sgt', 'sgt.', 'sergeant', 'cpl', 'cpl.', 'corporal',
+    'capt', 'capt.', 'captain', 'lt', 'lt.', 'lieutenant',
+    'cmdr', 'cmdr.', 'commander', 'col', 'col.', 'colonel',
+    'gen', 'gen.', 'general', 'maj', 'maj.', 'major',
+    'pvt', 'pvt.', 'private', 'admiral',
 }
 
 
@@ -321,7 +331,23 @@ class SpacyEntityExtractor:
         'ORDINAL': 'number',
     }
     
-    # Entity types we care about for personal conversations
+    # Entity types we care about for personal conversations.
+    #
+    # NOTE: RELEVANT_TYPES is intentionally a SUBSET of SPACY_TYPE_MAP.
+    # SPACY_TYPE_MAP defines how to translate *all* spaCy labels we might
+    # encounter into our internal type system (including MONEY, CARDINAL,
+    # ORDINAL, TIME). RELEVANT_TYPES controls which of those labels we
+    # actually *extract* during personal conversation processing.
+    #
+    # Types like MONEY, CARDINAL, and ORDINAL are mapped but excluded from
+    # extraction because they generate too much noise in personal conversation
+    # contexts (e.g., every number or dollar amount becoming an entity).
+    # TIME is mapped to 'date' but excluded because standalone time
+    # expressions ("3pm") are rarely useful as entities without a date.
+    #
+    # To add a new entity type:
+    #   1. Add the spaCy label -> internal type mapping to SPACY_TYPE_MAP
+    #   2. Add the spaCy label to RELEVANT_TYPES if it should be extracted
     RELEVANT_TYPES = {'PERSON', 'GPE', 'LOC', 'FAC', 'ORG', 'DATE', 'EVENT', 'PRODUCT'}
     
     def __init__(self, model_name: str = "en_core_web_sm"):
@@ -345,17 +371,40 @@ class SpacyEntityExtractor:
             )
     
     def _normalize_person_name(self, name: str) -> str:
-        """Strip common titles from person names for better matching.
-        
+        """Strip consecutive leading title words from person names.
+
+        Handles both single-word titles ("Dr. Smith" -> "Smith") and
+        multi-word titles ("Professor Emeritus Smith" -> "Smith").
+        Each leading word is checked against PERSON_TITLES (with and
+        without trailing period). Stripping stops at the first non-title
+        word. If all words are titles, the original name is returned
+        unchanged to avoid producing an empty string.
+
         Args:
-            name: Raw person name (e.g., "Dr. Thompson").
-            
+            name: Raw person name (e.g., "Professor Emeritus Smith").
+
         Returns:
-            Normalized name (e.g., "Thompson").
+            Normalized name with leading titles removed (e.g., "Smith").
         """
         parts = name.split()
-        if len(parts) > 1 and parts[0].lower().rstrip('.') in PERSON_TITLES:
-            return ' '.join(parts[1:])
+        if len(parts) <= 1:
+            return name
+
+        # Strip all consecutive leading title words (not just the first)
+        # This handles multi-word titles like "Professor Emeritus"
+        first_non_title = 0
+        for i, part in enumerate(parts):
+            if part.lower().rstrip('.') in PERSON_TITLES:
+                first_non_title = i + 1
+            else:
+                break
+
+        # Don't strip if it would remove all words
+        if first_non_title >= len(parts):
+            return name
+
+        if first_non_title > 0:
+            return ' '.join(parts[first_non_title:])
         return name
 
     def extract(self, text: Optional[str]) -> list[Entity]:

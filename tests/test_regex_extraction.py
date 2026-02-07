@@ -8,6 +8,7 @@ import pytest
 from tribalmemory.services.graph_store import (
     EntityExtractor,
     HybridEntityExtractor,
+    SPACY_AVAILABLE,
     Entity,
     Relationship,
 )
@@ -328,3 +329,72 @@ class TestBackwardCompatibility:
             assert any('smith' in name for name in entity_names), (
                 "spaCy should extract person name (title-stripped)"
             )
+
+
+class TestExtractionContextValidation:
+    """Tests for extraction_context parameter validation (Review L2)."""
+
+    def test_personal_context_is_valid(self):
+        """Should accept 'personal' context."""
+        extractor = HybridEntityExtractor(extraction_context="personal")
+        assert extractor._extraction_context == "personal"
+
+    def test_software_context_is_valid(self):
+        """Should accept 'software' context."""
+        extractor = HybridEntityExtractor(extraction_context="software")
+        assert extractor._extraction_context == "software"
+
+    def test_invalid_context_raises_value_error(self):
+        """Should reject invalid extraction_context values."""
+        import pytest
+        with pytest.raises(ValueError, match="extraction_context must be"):
+            HybridEntityExtractor(extraction_context="invalid")
+
+    def test_empty_context_raises_value_error(self):
+        """Should reject empty extraction_context."""
+        import pytest
+        with pytest.raises(ValueError, match="extraction_context must be"):
+            HybridEntityExtractor(extraction_context="")
+
+
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spaCy not installed")
+class TestHybridPersonalContextWithSpacy:
+    """Tests for HybridEntityExtractor in personal context with spaCy (Review L1)."""
+
+    def test_personal_context_extracts_people_via_spacy(self):
+        """In personal context, spaCy should still extract person entities."""
+        extractor = HybridEntityExtractor(
+            use_spacy=True, extraction_context="personal"
+        )
+        text = "I had lunch with Sarah in New York yesterday."
+        entities = extractor.extract(text)
+
+        names = {e.name.lower() for e in entities}
+        assert "sarah" in names or "new york" in names, (
+            f"spaCy should extract entities in personal context, got: {names}"
+        )
+
+    def test_personal_context_no_regex_relationships(self):
+        """In personal context, no regex relationships should be extracted."""
+        extractor = HybridEntityExtractor(
+            use_spacy=True, extraction_context="personal"
+        )
+        text = "Sarah uses Redis for caching data in PostgreSQL."
+        entities, relationships = extractor.extract_with_relationships(text)
+
+        assert relationships == [], (
+            f"Personal context should not produce regex relationships, "
+            f"got: {[(r.source, r.relation_type, r.target) for r in relationships]}"
+        )
+
+    def test_personal_context_still_extracts_technologies(self):
+        """In personal context, regex should still extract technology names."""
+        extractor = HybridEntityExtractor(
+            use_spacy=True, extraction_context="personal"
+        )
+        text = "I learned PostgreSQL and Redis this week."
+        entities = extractor.extract(text)
+
+        names = {e.name.lower() for e in entities}
+        assert "postgresql" in names, f"Should extract technologies, got: {names}"
+        assert "redis" in names, f"Should extract technologies, got: {names}"

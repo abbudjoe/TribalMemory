@@ -73,6 +73,7 @@ class EntityExtractor:
     """Extract entities and relationships from text.
     
     Uses pattern-based extraction for common software architecture terms.
+    Applies EntityValidator and RelationshipValidator to filter garbage.
     Can be upgraded to spaCy NER or LLM extraction later.
     
     Attributes:
@@ -80,6 +81,36 @@ class EntityExtractor:
         TECHNOLOGIES: Set of known technology names for exact matching.
         RELATIONSHIP_PATTERNS: List of (pattern, relation_type) tuples for extraction.
     """
+    
+    def __init__(self) -> None:
+        """Initialize entity extractor with lazy-loaded validators.
+        
+        Validators are lazy-loaded to avoid circular dependencies
+        (they're defined later in the file).
+        """
+        # Lazy-initialized validators (Issue #129, PR #133 H1)
+        self._entity_validator: Optional['EntityValidator'] = None
+        self._relationship_validator: Optional['RelationshipValidator'] = None
+    
+    def _get_entity_validator(self) -> 'EntityValidator':
+        """Get or create the entity validator.
+        
+        Returns:
+            EntityValidator instance.
+        """
+        if self._entity_validator is None:
+            self._entity_validator = EntityValidator()
+        return self._entity_validator
+    
+    def _get_relationship_validator(self) -> 'RelationshipValidator':
+        """Get or create the relationship validator.
+        
+        Returns:
+            RelationshipValidator instance.
+        """
+        if self._relationship_validator is None:
+            self._relationship_validator = RelationshipValidator()
+        return self._relationship_validator
     
     # Patterns for common entity types
     # Matches: kebab-case identifiers that look like service/component names
@@ -162,7 +193,9 @@ class EntityExtractor:
                     entity_type='technology'
                 ))
         
-        return entities
+        # Filter through validator to remove garbage entities
+        validator = self._get_entity_validator()
+        return [e for e in entities if validator.is_valid(e)]
     
     def extract_with_relationships(
         self, text: str
@@ -188,7 +221,7 @@ class EntityExtractor:
                 source = match.group(1).strip('.,;:')
                 target = match.group(2).strip('.,;:')
                 
-                # TIGHTENED: Only create relationship if BOTH sides are known entities
+                # NOTE: Only create relationship if BOTH sides are known entities
                 # This prevents garbage like "waiting for the bus" → (waiting, bus, serves)
                 if not self._is_known_entity(source):
                     continue
@@ -214,6 +247,12 @@ class EntityExtractor:
                         name=target,
                         entity_type=self._infer_type(target)
                     ))
+        
+        # Filter through validators to remove garbage
+        entity_validator = self._get_entity_validator()
+        relationship_validator = self._get_relationship_validator()
+        entities = [e for e in entities if entity_validator.is_valid(e)]
+        relationships = [r for r in relationships if relationship_validator.is_valid(r)]
         
         return entities, relationships
     
@@ -657,7 +696,7 @@ class HybridEntityExtractor:
         use_spacy: bool = True,
         spacy_model: str = "en_core_web_sm",
         extraction_context: str = "personal"
-    ):
+    ) -> None:
         """Initialize hybrid extractor.
         
         Args:
@@ -666,7 +705,15 @@ class HybridEntityExtractor:
             extraction_context: Context for extraction ("personal" or "software").
                 Defaults to "personal" which disables regex relationship extraction
                 to prevent garbage relationships from casual conversation.
+        
+        Raises:
+            ValueError: If extraction_context is not "personal" or "software".
         """
+        if extraction_context not in ("personal", "software"):
+            raise ValueError(
+                f"extraction_context must be 'personal' or 'software', "
+                f"got: {extraction_context!r}"
+            )
         self._regex_extractor = EntityExtractor()
         self._spacy_extractor: Optional[SpacyEntityExtractor] = None
         self._extraction_context = extraction_context

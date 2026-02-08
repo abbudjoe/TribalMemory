@@ -5,6 +5,21 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-02-08 ([PyPI](https://pypi.org/project/tribalmemory/0.7.2/))
+
+### Fixed
+- **Similarity scores could exceed 1.0** — LanceDB returns squared L2 distance, not L2 distance. Fixed formula from `1 - (distance² / 2)` to `1 - (distance / 2)`. Scores now correctly bounded to [0, 1]. (#153)
+- **`min_relevance` filter not enforced at high thresholds** — Direct consequence of the similarity calculation bug. Filter now works correctly at all thresholds including 0.9+. (#153)
+- **Empty query accepted by recall endpoint** — Now returns 422 with validation error. (#154)
+- **Invalid date formats accepted by recall endpoint** — `after`/`before` fields now validate ISO 8601 format, returning 422 for invalid dates. (#155)
+
+### Added
+- Comprehensive E2E test suite: `tribal_store` (12 tests), `tribal_recall` (22 tests), error handling (29 tests)
+- Similarity calculation unit tests (6 tests)
+- Server validation tests for empty queries and invalid dates
+
+---
+
 ## [0.7.1] - 2026-02-07 ([PyPI](https://pypi.org/project/tribalmemory/0.7.1/))
 
 ### Fixed

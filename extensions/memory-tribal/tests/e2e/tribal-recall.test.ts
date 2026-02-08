@@ -303,22 +303,14 @@ describe("tribal_recall E2E", () => {
     }
   });
 
-  it("should handle empty query gracefully", async () => {
+  it("should reject empty query with 422", async () => {
     const res = await rawPost<RecallResponse>(env.baseUrl, "/v1/recall", {
       query: "",
       limit: 5,
     });
 
-    // Known server bug (Issue #154): Server accepts empty queries and returns 200.
-    // Should return 422 (validation error). Once #154 is fixed, change to expect 422 only.
-    expect([200, 422]).toContain(res.status);
-    
-    if (res.status === 200) {
-      expect(res.body.results).toBeDefined();
-      expect(Array.isArray(res.body.results)).toBe(true);
-    } else {
-      expect(res.body.detail).toBeDefined();
-    }
+    expect(res.status).toBe(422);
+    expect(res.body.detail).toBeDefined();
   });
 
   it("should return empty results for obscure query with no matches", async () => {
@@ -539,20 +531,15 @@ describe("tribal_recall E2E", () => {
     // Once #153 is fixed, add strict assertion here and remove this comment.
   });
 
-  it("should handle invalid date format for after filter gracefully", async () => {
+  it("should reject invalid date format for after filter with 422", async () => {
     const res = await rawPost<RecallResponse>(env.baseUrl, "/v1/recall", {
       query: "database",
       limit: 5,
       after: "not-a-valid-date",
     });
 
-    // Known server bug (Issue #155): Server accepts invalid date formats and returns 200.
-    // Should return 422 (validation error). Once #155 is fixed, change to expect 422 only.
-    expect([200, 422]).toContain(res.status);
-    
-    if (res.status === 422) {
-      expect(res.body.detail).toBeDefined();
-    }
+    expect(res.status).toBe(422);
+    expect(res.body.detail).toBeDefined();
   });
 
   it("should reject invalid limit (negative) with 422", async () => {

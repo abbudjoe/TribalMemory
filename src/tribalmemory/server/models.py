@@ -79,6 +79,25 @@ class RecallRequest(BaseModel):
         description="Only include memories with events on/before this date (ISO or natural language)"
     )
 
+    @field_validator("query")
+    @classmethod
+    def query_must_not_be_empty(cls, v: str) -> str:
+        """Reject empty or whitespace-only query strings."""
+        if not v or not v.strip():
+            raise ValueError("Query must not be empty")
+        return v
+
+    @field_validator("after", "before")
+    @classmethod
+    def validate_dates(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that date strings are valid ISO 8601 format."""
+        if v is not None:
+            try:
+                datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                raise ValueError(f"Invalid date format: {v}. Expected ISO 8601.")
+        return v
+
 
 class CorrectRequest(BaseModel):
     """Request to correct an existing memory."""

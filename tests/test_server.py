@@ -142,6 +142,64 @@ class TestRecallEndpoint:
         data = response.json()
         assert data["results"] == []
 
+    def test_recall_rejects_empty_query(self, client):
+        """Recall should reject empty query string with 422."""
+        response = client.post("/v1/recall", json={
+            "query": "",
+        })
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_recall_rejects_whitespace_query(self, client):
+        """Recall should reject whitespace-only query string with 422."""
+        response = client.post("/v1/recall", json={
+            "query": "   ",
+        })
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_recall_rejects_invalid_after_date(self, client):
+        """Recall should reject invalid 'after' date format with 422."""
+        response = client.post("/v1/recall", json={
+            "query": "test query",
+            "after": "not-a-date",
+        })
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_recall_rejects_invalid_before_date(self, client):
+        """Recall should reject invalid 'before' date format with 422."""
+        response = client.post("/v1/recall", json={
+            "query": "test query",
+            "before": "invalid",
+        })
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_recall_accepts_valid_iso_dates(self, client):
+        """Recall should accept valid ISO 8601 dates."""
+        response = client.post("/v1/recall", json={
+            "query": "test query",
+            "after": "2024-01-01T00:00:00Z",
+            "before": "2024-12-31T23:59:59Z",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+
+    def test_recall_accepts_none_dates(self, client):
+        """Recall should accept None/omitted date fields."""
+        response = client.post("/v1/recall", json={
+            "query": "test query",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+
 
 class TestForgetEndpoint:
     """Tests for /v1/forget endpoint."""

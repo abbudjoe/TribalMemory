@@ -309,9 +309,8 @@ describe("tribal_recall E2E", () => {
       limit: 5,
     });
 
-    // Known Issue #154: Server accepts empty queries and returns 200.
-    // Expected behavior: Should return 422 (validation error).
-    // Test accepts both until server is fixed.
+    // Known server bug (Issue #154): Server accepts empty queries and returns 200.
+    // Should return 422 (validation error). Once #154 is fixed, change to expect 422 only.
     expect([200, 422]).toContain(res.status);
     
     if (res.status === 200) {
@@ -534,10 +533,10 @@ describe("tribal_recall E2E", () => {
     // Verify higher threshold returns fewer results
     expect(res90.body.results.length).toBeLessThanOrEqual(res0.body.results.length);
     
-    // Known Issue #153: min_relevance filter not strictly enforced.
-    // Server returns results with scores below threshold (e.g., 0.879 when min_relevance=0.9).
-    // Expected behavior per vector_store.py:166: if similarity < min_similarity: continue
-    // Test validates that higher thresholds return fewer results, but not strict enforcement.
+    // Known server bug (Issue #153): min_relevance filter works correctly at lower
+    // thresholds (0.7 — see strict assertion above) but returns results below threshold
+    // at 0.9 (e.g., 0.879). Likely a similarity calculation issue in vector_store.py.
+    // Once #153 is fixed, add strict assertion here and remove this comment.
   });
 
   it("should handle invalid date format for after filter gracefully", async () => {
@@ -547,14 +546,12 @@ describe("tribal_recall E2E", () => {
       after: "not-a-valid-date",
     });
 
-    // Known Issue #155: Server accepts invalid date formats and returns 200.
-    // Expected behavior: Should return 422 (validation error).
-    // Test accepts both until server is fixed.
+    // Known server bug (Issue #155): Server accepts invalid date formats and returns 200.
+    // Should return 422 (validation error). Once #155 is fixed, change to expect 422 only.
     expect([200, 422]).toContain(res.status);
     
-    if (res.status === 200 && res.body.error) {
-      // Error field should mention the date issue
-      expect(res.body.error).toBeDefined();
+    if (res.status === 422) {
+      expect(res.body.detail).toBeDefined();
     }
   });
 

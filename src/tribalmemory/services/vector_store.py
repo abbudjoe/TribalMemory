@@ -156,12 +156,12 @@ class LanceDBVectorStore(IVectorStore):
         
         recall_results = []
         for row in results:
-            # LanceDB returns L2 distance. Convert to cosine similarity.
+            # LanceDB returns squared L2 distance (L2²), not L2 distance.
             # For normalized vectors (which FastEmbed embeddings are):
-            # L2_distance² = 2 * (1 - cosine_similarity)
-            # Therefore: cosine_similarity = 1 - (L2_distance² / 2)
-            distance = row.get("_distance", 0)
-            similarity = max(0, 1 - (distance * distance / 2))
+            # L2² = 2 * (1 - cosine_similarity)
+            # Therefore: cosine_similarity = 1 - (L2² / 2)
+            distance = row.get("_distance", 0)  # This is L2², not L2
+            similarity = max(0, 1 - (distance / 2))
             
             if similarity < min_similarity:
                 continue

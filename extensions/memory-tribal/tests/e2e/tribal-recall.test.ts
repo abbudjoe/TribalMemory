@@ -341,10 +341,7 @@ describe("tribal_recall E2E", () => {
       expect(result.similarity_score).toBeDefined();
       expect(typeof result.similarity_score).toBe("number");
       expect(result.similarity_score).toBeGreaterThanOrEqual(0);
-      // Note: similarity_score theoretically should be bounded to [0,1] by cosine similarity
-      // formula (1 - distance²/2), but empirical E2E testing shows scores can exceed 1.0
-      // (e.g., 1.776...). Upper bound check removed to match observed behavior.
-      // See tribal-store.test.ts for detailed note on this behavior.
+      expect(result.similarity_score).toBeLessThanOrEqual(1.0);
       expect(result.retrieval_time_ms).toBeDefined();
       expect(typeof result.retrieval_time_ms).toBe("number");
 
@@ -511,6 +508,7 @@ describe("tribal_recall E2E", () => {
     // Should return results with any relevance score
     for (const result of res0.body.results) {
       expect(result.similarity_score).toBeGreaterThanOrEqual(0.0);
+      expect(result.similarity_score).toBeLessThanOrEqual(1.0);
     }
 
     // Test min_relevance = 0.9 (very high threshold)
@@ -525,10 +523,11 @@ describe("tribal_recall E2E", () => {
     // Verify higher threshold returns fewer results
     expect(res90.body.results.length).toBeLessThanOrEqual(res0.body.results.length);
     
-    // Known server bug (Issue #153): min_relevance filter works correctly at lower
-    // thresholds (0.7 — see strict assertion above) but returns results below threshold
-    // at 0.9 (e.g., 0.879). Likely a similarity calculation issue in vector_store.py.
-    // Once #153 is fixed, add strict assertion here and remove this comment.
+    // Strict assertion: ALL results must meet the threshold (Issue #153 fixed)
+    for (const result of res90.body.results) {
+      expect(result.similarity_score).toBeGreaterThanOrEqual(0.9);
+      expect(result.similarity_score).toBeLessThanOrEqual(1.0);
+    }
   });
 
   it("should reject invalid date format for after filter with 422", async () => {

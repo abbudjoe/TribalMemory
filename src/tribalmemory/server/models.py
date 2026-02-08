@@ -58,7 +58,11 @@ class RememberRequest(BaseModel):
 
 class RecallRequest(BaseModel):
     """Request to recall memories."""
-    query: str = Field(..., description="Natural language search query")
+    query: str = Field(
+        ...,
+        description="Natural language search query",
+        min_length=1,
+    )
     limit: int = Field(default=5, ge=1, le=50, description="Maximum results")
     min_relevance: float = Field(
         default=0.3,
@@ -83,7 +87,7 @@ class RecallRequest(BaseModel):
     @classmethod
     def query_must_not_be_empty(cls, v: str) -> str:
         """Reject empty or whitespace-only query strings."""
-        if not v or not v.strip():
+        if not v.strip():
             raise ValueError("Query must not be empty")
         return v
 

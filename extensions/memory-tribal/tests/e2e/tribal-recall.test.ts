@@ -10,54 +10,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   startTestServer,
   rawPost,
+  expectValidRecallResponse,
   type TestEnvironment,
+  type RecallResult,
+  type RecallResponse,
+  type StoreResponse,
 } from "./setup";
-
-interface RecallResult {
-  memory: {
-    id: string;
-    content: string;
-    tags: string[];
-    source_type: string;
-    created_at: string;
-    updated_at: string;
-    source_instance: string;
-    context: string | null;
-    confidence: number;
-    supersedes: string | null;
-  };
-  similarity_score: number;
-  retrieval_time_ms: number;
-}
-
-interface RecallResponse {
-  results: RecallResult[];
-  query: string;
-  total_time_ms: number;
-  error?: string;
-}
-
-interface StoreResponse {
-  success: boolean;
-  memory_id?: string;
-  duplicate_of?: string | null;
-  error?: string;
-}
-
-/**
- * Helper function to validate recall response structure.
- * Reduces duplication across tests.
- */
-function expectValidRecallResponse(res: { status: number; body: RecallResponse }) {
-  expect(res.status).toBe(200);
-  expect(res.body.results).toBeDefined();
-  expect(Array.isArray(res.body.results)).toBe(true);
-  expect(res.body.query).toBeDefined();
-  expect(typeof res.body.query).toBe("string");
-  expect(res.body.total_time_ms).toBeDefined();
-  expect(typeof res.body.total_time_ms).toBe("number");
-  expect(res.body.total_time_ms).toBeGreaterThanOrEqual(0);
-}
 
 describe("tribal_recall E2E", () => {
   let env: TestEnvironment;

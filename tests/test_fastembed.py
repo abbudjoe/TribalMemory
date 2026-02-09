@@ -242,24 +242,23 @@ class TestFastEmbedServiceNativeBatch:
 
 
 class TestFastEmbedServiceFactory:
-    """Test factory integration."""
+    """Test factory integration (FastEmbed-only since v0.6.0)."""
 
-    def test_create_memory_service_with_fastembed(self, tmp_path):
-        """create_memory_service should accept provider='fastembed'."""
+    def test_create_memory_service_uses_fastembed(self, tmp_path):
+        """create_memory_service should use FastEmbed by default."""
         from tribalmemory.services.memory import (
             create_memory_service,
         )
         service = create_memory_service(
             instance_id="test",
             db_path=str(tmp_path / "db"),
-            embedding_provider="fastembed",
         )
         from tribalmemory.services.fastembed_service import (
             FastEmbedService,
         )
         assert isinstance(service.embedding_service, FastEmbedService)
 
-    def test_create_memory_service_fastembed_custom_model(
+    def test_create_memory_service_custom_model(
         self, tmp_path
     ):
         """Factory should pass model/dimensions to FastEmbedService."""
@@ -269,7 +268,6 @@ class TestFastEmbedServiceFactory:
         service = create_memory_service(
             instance_id="test",
             db_path=str(tmp_path / "db"),
-            embedding_provider="fastembed",
             embedding_model="BAAI/bge-base-en-v1.5",
             embedding_dimensions=768,
         )
@@ -297,14 +295,6 @@ class TestFastEmbedServiceFactory:
             if old is not None:
                 os.environ["OPENAI_API_KEY"] = old
 
-    def test_unknown_provider_raises(self):
-        """Unknown provider should raise ValueError."""
-        from tribalmemory.services.memory import (
-            _create_embedding_service,
-        )
-        with pytest.raises(ValueError, match="Unknown embedding"):
-            _create_embedding_service(provider="nonexistent")
-
     def test_provider_name_attribute(self):
         """FastEmbedService should expose provider_name."""
         from tribalmemory.services.fastembed_service import (
@@ -312,14 +302,6 @@ class TestFastEmbedServiceFactory:
         )
         service = FastEmbedService()
         assert service.provider_name == "fastembed"
-
-    def test_openai_provider_name_attribute(self):
-        """OpenAIEmbeddingService should expose provider_name."""
-        from tribalmemory.services.embeddings import (
-            OpenAIEmbeddingService,
-        )
-        service = OpenAIEmbeddingService(api_key="test-key")
-        assert service.provider_name == "openai"
 
 
 class TestFastEmbedServiceIntegration:
@@ -334,7 +316,6 @@ class TestFastEmbedServiceIntegration:
         service = create_memory_service(
             instance_id="test-fastembed",
             db_path=str(tmp_path / "db"),
-            embedding_provider="fastembed",
         )
 
         await service.remember("The cat sat on the mat")
@@ -357,7 +338,6 @@ class TestFastEmbedServiceIntegration:
         service = create_memory_service(
             instance_id="test-hybrid",
             db_path=str(tmp_path / "db"),
-            embedding_provider="fastembed",
             hybrid_search=True,
         )
 

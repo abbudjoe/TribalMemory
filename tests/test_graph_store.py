@@ -289,3 +289,20 @@ class TestGraphStoreIntegration:
             "NonExistent",
         )
         assert result is None
+
+    def test_memory_counts_batch_chunking(
+        self, graph_store,
+    ):
+        """Batch counts should chunk beyond SQLite limit."""
+        # Create more entities than _SQLITE_VAR_LIMIT
+        names = []
+        for i in range(950):
+            name = f"Entity-{i}"
+            graph_store.add_entity(
+                Entity(name, "test"), f"mem-{i}",
+            )
+            names.append(name)
+
+        counts = graph_store.get_memory_counts_batch(names)
+        assert len(counts) == 950
+        assert all(v >= 1 for v in counts.values())

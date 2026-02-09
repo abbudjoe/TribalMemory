@@ -2161,10 +2161,16 @@ class GraphStore:
             "memory_count": row["mem_count"],
         }
 
+    # SQLite default host-parameter limit
+    _SQLITE_VAR_LIMIT = 900
+
     def get_memory_counts_batch(
         self, entity_names: list[str],
     ) -> dict[str, int]:
-        """Get memory counts for multiple entities in one query.
+        """Get memory counts for multiple entities.
+
+        Chunks queries to stay within SQLite's 999
+        host-parameter limit.
 
         Args:
             entity_names: Entity names to look up.
@@ -2174,20 +2180,29 @@ class GraphStore:
         """
         if not entity_names:
             return {}
+        result: dict[str, int] = {}
+        limit = self._SQLITE_VAR_LIMIT
         with self._lock:
-            placeholders = ",".join("?" * len(entity_names))
-            rows = self._conn.execute(
-                f"""
-                SELECT e.name, COUNT(em.memory_id) as cnt
-                FROM entities e
-                LEFT JOIN entity_memories em
-                    ON e.id = em.entity_id
-                WHERE e.name IN ({placeholders})
-                GROUP BY e.name
-                """,
-                entity_names,
-            ).fetchall()
-        return {r["name"]: r["cnt"] for r in rows}
+            for i in range(0, len(entity_names), limit):
+                chunk = entity_names[i : i + limit]
+                placeholders = ",".join(
+                    "?" * len(chunk)
+                )
+                rows = self._conn.execute(
+                    f"""
+                    SELECT e.name,
+                        COUNT(em.memory_id) as cnt
+                    FROM entities e
+                    LEFT JOIN entity_memories em
+                        ON e.id = em.entity_id
+                    WHERE e.name IN ({placeholders})
+                    GROUP BY e.name
+                    """,
+                    chunk,
+                ).fetchall()
+                for r in rows:
+                    result[r["name"]] = r["cnt"]
+        return result
 
     # =====================================================================
     # Graph visualization helpers (Issue #165)

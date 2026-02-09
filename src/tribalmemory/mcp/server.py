@@ -179,10 +179,12 @@ def create_server() -> FastMCP:
         if project is not None:
             project = project.strip()
             if not project:
-                return [TextContent(
-                    type="text",
-                    text='{"error": "project must not be blank"}'
-                )]
+                return json.dumps({
+                    "success": False,
+                    "memory_id": None,
+                    "duplicate_of": None,
+                    "error": "project must not be blank",
+                })
             project_tag = f"project:{project}"
             if project_tag not in merged_tags:
                 merged_tags.append(project_tag)

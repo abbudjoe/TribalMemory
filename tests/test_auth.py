@@ -430,6 +430,47 @@ class TestRateLimitPersistence:
         assert failures == {}
         assert cooldowns == {}
 
+    def test_non_dict_json_returns_empty(self, tmp_path):
+        """Valid JSON that's not a dict returns empty (graceful)."""
+        import json as json_mod
+        path = tmp_path / "rate-limits.json"
+
+        # Array instead of dict
+        with open(path, "w") as f:
+            json_mod.dump([1, 2, 3], f)
+        failures, cooldowns = load_rate_limit_state(path)
+        assert failures == {}
+        assert cooldowns == {}
+
+        # String instead of dict
+        with open(path, "w") as f:
+            json_mod.dump("hello", f)
+        failures, cooldowns = load_rate_limit_state(path)
+        assert failures == {}
+        assert cooldowns == {}
+
+    def test_malformed_entry_skipped(self, tmp_path):
+        """Non-dict entries in the state file are skipped."""
+        import json as json_mod
+        path = tmp_path / "rate-limits.json"
+        future = time.time() + 3600
+
+        with open(path, "w") as f:
+            json_mod.dump({
+                "good_ip": {
+                    "failures": 5,
+                    "cooldown_until": future,
+                },
+                "bad_ip": "not a dict",
+                "also_bad": 42,
+            }, f)
+
+        failures, cooldowns = load_rate_limit_state(path)
+        assert "good_ip" in failures
+        assert failures["good_ip"] == 5
+        assert "bad_ip" not in failures
+        assert "also_bad" not in failures
+
     def test_save_removes_file_when_no_active(self, tmp_path):
         """File is cleaned up when no active cooldowns exist."""
         path = tmp_path / "rate-limits.json"

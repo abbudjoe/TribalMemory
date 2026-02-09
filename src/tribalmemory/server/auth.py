@@ -7,6 +7,7 @@ Security properties:
 - Token stored in ~/.tribal-memory/.env with 600 permissions
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -177,13 +178,26 @@ def load_rate_limit_state(
         with open(path) as f:
             data = json.load(f)
 
+        if not isinstance(data, dict):
+            logger.warning(
+                "Rate limit state has invalid format "
+                "(expected dict, got %s)",
+                type(data).__name__,
+            )
+            return failure_count, cooldown_until
+
         now = time.time()
         for ip, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
             until = entry.get("cooldown_until", 0)
             if until > now:
                 failure_count[ip] = entry.get("failures", 0)
                 cooldown_until[ip] = until
-    except (json.JSONDecodeError, OSError) as e:
+    except (
+        json.JSONDecodeError, OSError,
+        AttributeError, TypeError,
+    ) as e:
         logger.warning("Failed to load rate limit state: %s", e)
 
     return failure_count, cooldown_until
@@ -260,10 +274,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    def _record_failure(self, client_ip: str) -> None:
-        """Record a failed auth attempt and apply rate limiting if needed."""
-        # Evict oldest entry if tracking too many IPs (memory safety)
-        at_capacity = len(self._failure_count) >= self._max_tracked_ips
+    async def _record_failure(self, client_ip: str) -> None:
+        """Record a failed auth attempt and apply rate limiting."""
+        # Evict oldest entry if tracking too many IPs
+        at_capacity = (
+            len(self._failure_count) >= self._max_tracked_ips
+        )
         is_new_ip = client_ip not in self._failure_count
         if at_capacity and is_new_ip:
             oldest_ip = next(iter(self._failure_count))
@@ -284,8 +300,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 count,
                 COOLDOWN_SECONDS,
             )
-            # Persist to disk on cooldown trigger
-            save_rate_limit_state(
+            # Persist to disk without blocking event loop
+            await asyncio.to_thread(
+                save_rate_limit_state,
                 self._failure_count,
                 self._cooldown_until,
                 self._rate_limit_path,
@@ -330,7 +347,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         # Validate token
         if not provided_token:
-            self._record_failure(client_ip)
+            await self._record_failure(client_ip)
             return JSONResponse(
                 status_code=401,
                 content={
@@ -341,7 +358,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             )
 
         if not _constant_time_compare(provided_token, self.token):
-            self._record_failure(client_ip)
+            await self._record_failure(client_ip)
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid API token."},

@@ -596,3 +596,47 @@ class TestAuditLogging:
             "Auth success" in r.message
             for r in caplog.records
         )
+
+
+# ------------------------------------------------------------------
+# Concurrent save serialization
+# ------------------------------------------------------------------
+
+
+class TestConcurrentSave:
+    """Test that concurrent rate limit saves are serialized."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_cooldowns_no_corrupt(self, tmp_path):
+        """Multiple IPs hitting cooldown concurrently."""
+        import asyncio
+        from tribalmemory.server.auth import (
+            TokenAuthMiddleware,
+            load_rate_limit_state,
+            MAX_FAILURES,
+        )
+
+        rate_path = tmp_path / "rate-limits.json"
+        app = FastAPI()
+        middleware = TokenAuthMiddleware(
+            app, token="tm_test", rate_limit_path=rate_path,
+        )
+
+        # Simulate MAX_FAILURES for 5 IPs concurrently
+        async def trigger_cooldown(ip: str) -> None:
+            for _ in range(MAX_FAILURES):
+                await middleware._record_failure(ip)
+
+        await asyncio.gather(*(
+            trigger_cooldown(f"10.0.0.{i}")
+            for i in range(5)
+        ))
+
+        # File should exist and be valid JSON
+        assert rate_path.exists()
+        failures, cooldowns = load_rate_limit_state(rate_path)
+
+        # All 5 IPs should be in cooldown
+        for i in range(5):
+            ip = f"10.0.0.{i}"
+            assert ip in cooldowns, f"{ip} missing"

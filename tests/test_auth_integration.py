@@ -29,8 +29,17 @@ from tribalmemory.server.routes import router
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _clean_app_state() -> None:
+    """Reset module-level app state after every test."""
+    yield
+    app_module._memory_service = None
+    app_module._session_store = None
+    app_module._instance_id = None
+
+
 @pytest.fixture
-def test_token():
+def test_token() -> str:
     """Generate a test token."""
     return generate_token()
 
@@ -69,7 +78,10 @@ def mock_session_store():
     )
 
 
-def create_test_app(token=None, add_cors=True):
+def create_test_app(
+    token: str | None = None,
+    add_cors: bool = True,
+) -> FastAPI:
     """Create FastAPI app with auth middleware for testing.
 
     Args:
@@ -325,7 +337,9 @@ class TestMultipleRequests:
 
         assert all(r.status_code == 200 for r in responses)
 
-    def test_mixed_valid_invalid_requests(self, client_with_token):
+    def test_mixed_valid_invalid_requests(
+        self, client_with_token,
+    ) -> None:
         """Valid and invalid requests shouldn't corrupt state."""
         client, token = client_with_token
         headers_valid = {"Authorization": f"Bearer {token}"}
@@ -341,6 +355,30 @@ class TestMultipleRequests:
                 headers=headers,
             )
             assert response.status_code == expected
+
+    def test_empty_authorization_header(
+        self, client_with_token,
+    ) -> None:
+        """Empty Authorization header returns 401."""
+        client, _token = client_with_token
+
+        response = client.get(
+            "/v1/stats",
+            headers={"Authorization": ""},
+        )
+        assert response.status_code == 401
+
+    def test_bearer_without_token(
+        self, client_with_token,
+    ) -> None:
+        """'Bearer ' with no token value returns 401."""
+        client, _token = client_with_token
+
+        response = client.get(
+            "/v1/stats",
+            headers={"Authorization": "Bearer "},
+        )
+        assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

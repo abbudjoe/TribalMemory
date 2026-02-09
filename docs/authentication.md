@@ -114,7 +114,7 @@ Failed authentication attempts are rate-limited per client IP:
 
 - **Threshold:** 10 failed attempts
 - **Cooldown:** 60 seconds
-- **Scope:** Per IP address, in-memory
+- **Scope:** Per IP address, persisted to disk
 
 After 10 failures from the same IP, the server returns `429 Too Many
 Requests` for 60 seconds. A successful authentication clears the

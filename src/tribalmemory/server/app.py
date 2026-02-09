@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,7 @@ from ..services.session_store import (
     LanceDBSessionStore,
     InMemorySessionStore,
 )
+from .auth import TokenAuthMiddleware, load_token
 from .config import TribalMemoryConfig
 from .routes import router
 
@@ -163,6 +165,11 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
 
     # Store config for lifespan access
     app.state.config = config
+
+    # Token authentication middleware
+    # Load token from env file or environment variable
+    api_token = os.environ.get("TRIBAL_MEMORY_API_TOKEN") or load_token()
+    app.add_middleware(TokenAuthMiddleware, token=api_token)
 
     # CORS middleware (localhost only)
     # Uses regex to match any port on localhost - OpenClaw Gateway runs on

@@ -522,6 +522,45 @@ class TestProjectScoping:
         assert "project:my-app" in mem["tags"]
         assert "project:  my-app  " not in mem["tags"]
 
+    def test_cross_project_dedup_allows_same_content(self, client):
+        """Same content in different projects should NOT be rejected as duplicate."""
+        r1 = client.post("/v1/remember", json={
+            "content": "Database uses PostgreSQL with read replicas",
+            "source_type": "user_explicit",
+            "project": "project-x",
+        })
+        assert r1.status_code == 200
+        assert r1.json()["success"] is True
+
+        # Same content, different project — should succeed
+        r2 = client.post("/v1/remember", json={
+            "content": "Database uses PostgreSQL with read replicas",
+            "source_type": "user_explicit",
+            "project": "project-y",
+        })
+        assert r2.status_code == 200
+        assert r2.json()["success"] is True
+        assert r2.json()["memory_id"] != r1.json()["memory_id"]
+
+    def test_same_project_dedup_still_works(self, client):
+        """Same content in the SAME project should still be deduplicated."""
+        r1 = client.post("/v1/remember", json={
+            "content": "Unique dedup test content for same project check",
+            "source_type": "user_explicit",
+            "project": "dedup-proj",
+        })
+        assert r1.status_code == 200
+        assert r1.json()["success"] is True
+
+        # Same content, same project — should be deduplicated
+        r2 = client.post("/v1/remember", json={
+            "content": "Unique dedup test content for same project check",
+            "source_type": "user_explicit",
+            "project": "dedup-proj",
+        })
+        assert r2.status_code == 200
+        assert r2.json()["success"] is False  # Duplicate rejected
+
     def test_recall_without_project_returns_all_in_results(self, client):
         """Recall without project should return memories from all projects in results."""
         client.post("/v1/remember", json={

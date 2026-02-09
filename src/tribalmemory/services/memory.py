@@ -128,6 +128,21 @@ class TribalMemoryService(IMemoryService):
         
         if not skip_dedup and self.auto_reject_duplicates:
             is_dup, dup_id = await self.dedup_service.is_duplicate(content, embedding)
+            if is_dup and dup_id:
+                # Don't reject as duplicate if the match is in a different project.
+                # Extract project from incoming tags and compare with duplicate's tags.
+                incoming_project = None
+                if tags:
+                    for t in tags:
+                        if t.startswith("project:"):
+                            incoming_project = t
+                            break
+
+                if incoming_project is not None:
+                    dup_entry = await self.vector_store.get(dup_id)
+                    if dup_entry and incoming_project not in dup_entry.tags:
+                        is_dup = False  # Different project — allow storage
+
             if is_dup:
                 return StoreResult(success=False, duplicate_of=dup_id)
         

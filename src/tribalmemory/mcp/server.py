@@ -174,9 +174,15 @@ def create_server() -> FastMCP:
         }
         source = source_map.get(source_type, MemorySource.AUTO_CAPTURE)
 
-        # Merge project tag
+        # Validate and merge project tag (mirrors HTTP API validation)
         merged_tags = list(tags or [])
-        if project:
+        if project is not None:
+            project = project.strip()
+            if not project:
+                return [TextContent(
+                    type="text",
+                    text='{"error": "project must not be blank"}'
+                )]
             project_tag = f"project:{project}"
             if project_tag not in merged_tags:
                 merged_tags.append(project_tag)

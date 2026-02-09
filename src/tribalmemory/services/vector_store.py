@@ -44,7 +44,7 @@ class LanceDBVectorStore(IVectorStore):
         self._db = None
         self._table = None
         self._initialized = False
-        self._init_lock = asyncio.Lock()
+        self._init_lock: Optional[asyncio.Lock] = None
     
     async def _ensure_initialized(self):
         """Lazily initialize database connection.
@@ -55,37 +55,51 @@ class LanceDBVectorStore(IVectorStore):
 
         Uses double-checked locking to prevent concurrent initialization
         from racing (two coroutines both seeing _initialized=False).
+        The lock is created lazily to avoid requiring a running event loop
+        at construction time.
         """
         if self._initialized:
             return
 
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+
         async with self._init_lock:
             if self._initialized:
                 return
-            await asyncio.to_thread(self._sync_init)
-            # Set flag in event loop thread (not in worker thread) so
-            # the write is immediately visible to other coroutines.
+            db, table = await asyncio.to_thread(self._sync_init)
+            # Assign in event loop thread so writes are immediately
+            # visible to other coroutines without memory barrier issues.
+            self._db = db
+            self._table = table
             self._initialized = True
 
     def _sync_init(self):
-        """Synchronous initialization — called via asyncio.to_thread."""
+        """Synchronous initialization — called via asyncio.to_thread.
+        
+        Returns (db, table) tuple; caller assigns to instance variables
+        in the event loop thread for thread-safe visibility.
+        """
         try:
             import lancedb
         except ImportError:
             raise ImportError("LanceDB not installed. Run: pip install lancedb")
 
         if self.db_uri:
-            self._db = lancedb.connect(self.db_uri, api_key=self.api_key)
+            db = lancedb.connect(self.db_uri, api_key=self.api_key)
         elif self.db_path:
             self.db_path.mkdir(parents=True, exist_ok=True)
-            self._db = lancedb.connect(str(self.db_path))
+            db = lancedb.connect(str(self.db_path))
         else:
             raise ValueError("Either db_path or db_uri must be provided")
 
-        if self.TABLE_NAME in self._db.table_names():
-            self._table = self._db.open_table(self.TABLE_NAME)
+        if self.TABLE_NAME in db.table_names():
+            table = db.open_table(self.TABLE_NAME)
         else:
-            self._table = self._create_table()
+            self._db = db  # Needed temporarily for _create_table()
+            table = self._create_table()
+
+        return db, table
     
     def _create_table(self) -> "lancedb.table.Table":
         """Create the memories table with the defined schema."""
@@ -254,7 +268,8 @@ class LanceDBVectorStore(IVectorStore):
         import re
         # UUID pattern: only allow alphanumeric and hyphens
         if not re.match(r'^[a-zA-Z0-9\-]+$', memory_id):
-            raise ValueError(f"Invalid memory_id format: {memory_id[:20]}...")
+            preview = memory_id[:20] + ("..." if len(memory_id) > 20 else "")
+            raise ValueError(f"Invalid memory_id format: {preview}")
         return memory_id
     
     async def list(

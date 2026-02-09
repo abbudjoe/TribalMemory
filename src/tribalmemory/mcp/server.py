@@ -175,7 +175,7 @@ def create_server() -> FastMCP:
         source = source_map.get(source_type, MemorySource.AUTO_CAPTURE)
 
         # Merge project tag
-        merged_tags = list(tags) if tags else []
+        merged_tags = list(tags or [])
         if project:
             project_tag = f"project:{project}"
             if project_tag not in merged_tags:
@@ -249,18 +249,24 @@ def create_server() -> FastMCP:
         # Search memories
         if sources in ("memories", "all"):
             service = await get_memory_service()
+            # Over-fetch when project filter is active to compensate for
+            # post-filter losses, then truncate to requested limit.
+            fetch_limit = limit * 3 if project else limit
             memory_results = await service.recall(
                 query=query,
-                limit=limit,
+                limit=fetch_limit,
                 min_relevance=min_relevance,
                 tags=tags,
                 after=after,
                 before=before,
             )
-            # Post-filter by project (AND with tag filter, not OR)
+            # Post-filter by project (AND with tag filter, not OR).
+            # May return fewer than `limit` if insufficient matches exist.
             if project:
                 project_tag = f"project:{project}"
-                memory_results = [r for r in memory_results if project_tag in r.memory.tags]
+                memory_results = [
+                    r for r in memory_results if project_tag in r.memory.tags
+                ][:limit]
 
             all_results.extend([
                 {

@@ -60,6 +60,17 @@ class RememberRequest(BaseModel):
         "Automatically adds a 'project:<name>' tag for filtering."
     )
 
+    @field_validator("project")
+    @classmethod
+    def validate_project(cls, v: Optional[str]) -> Optional[str]:
+        """Validate and sanitize project name."""
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("project must not be blank")
+        return v
+
 
 class RecallRequest(BaseModel):
     """Request to recall memories."""
@@ -90,8 +101,21 @@ class RecallRequest(BaseModel):
     project: Optional[str] = Field(
         default=None,
         description="Filter to memories in this project scope. "
-        "Matches the 'project:<name>' tag added during storage."
+        "Matches the 'project:<name>' tag added during storage. "
+        "Note: Post-filtering may return fewer than 'limit' results "
+        "if insufficient matches exist in this project."
     )
+
+    @field_validator("project")
+    @classmethod
+    def validate_project(cls, v: Optional[str]) -> Optional[str]:
+        """Validate and sanitize project name."""
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("project must not be blank")
+        return v
 
     @field_validator("query")
     @classmethod

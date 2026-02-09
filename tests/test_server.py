@@ -464,3 +464,91 @@ class TestProjectScoping:
         for r in results:
             assert "infrastructure" in r["memory"]["tags"]
             assert "project:alpha" in r["memory"]["tags"]
+
+    def test_batch_remember_with_project(self, client):
+        """Batch remember should apply project tags to each memory."""
+        response = client.post("/v1/remember/batch", json={
+            "memories": [
+                {
+                    "content": "Batch item one for gamma project setup",
+                    "source_type": "user_explicit",
+                    "project": "gamma",
+                },
+                {
+                    "content": "Batch item two for gamma project config",
+                    "source_type": "user_explicit",
+                    "project": "gamma",
+                    "tags": ["setup"],
+                },
+            ]
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["successful"] == 2
+
+        # Verify both memories have the project tag
+        for result in data["results"]:
+            mem = client.get(f"/v1/memory/{result['memory_id']}").json()
+            assert "project:gamma" in mem["tags"]
+
+        # Second memory should also keep its explicit tag
+        mem2 = client.get(
+            f"/v1/memory/{data['results'][1]['memory_id']}"
+        ).json()
+        assert "setup" in mem2["tags"]
+
+    def test_project_validation_rejects_blank(self, client):
+        """Empty or whitespace-only project should be rejected."""
+        for blank in ["", "  ", "\t"]:
+            response = client.post("/v1/remember", json={
+                "content": "Some content for validation test",
+                "project": blank,
+            })
+            assert response.status_code == 422, (
+                f"Expected 422 for project={blank!r}"
+            )
+
+    def test_project_validation_strips_whitespace(self, client):
+        """Project names with leading/trailing whitespace should be stripped."""
+        response = client.post("/v1/remember", json={
+            "content": "Whitespace project test memory content",
+            "source_type": "user_explicit",
+            "project": "  my-app  ",
+        })
+        assert response.status_code == 200
+        mem_id = response.json()["memory_id"]
+        mem = client.get(f"/v1/memory/{mem_id}").json()
+        # Tag should use stripped name
+        assert "project:my-app" in mem["tags"]
+        assert "project:  my-app  " not in mem["tags"]
+
+    def test_recall_without_project_returns_all_in_results(self, client):
+        """Recall without project should return memories from all projects in results."""
+        client.post("/v1/remember", json={
+            "content": "Delta project uses event sourcing architecture",
+            "source_type": "user_explicit",
+            "project": "delta",
+            "skip_dedup": True,
+        })
+        client.post("/v1/remember", json={
+            "content": "Epsilon project uses event driven architecture",
+            "source_type": "user_explicit",
+            "project": "epsilon",
+            "skip_dedup": True,
+        })
+
+        # Recall without project filter — should find both
+        response = client.post("/v1/recall", json={
+            "query": "event architecture",
+            "min_relevance": 0.0,
+            "limit": 10,
+        })
+        assert response.status_code == 200
+        results = response.json()["results"]
+        projects_found = set()
+        for r in results:
+            for tag in r["memory"]["tags"]:
+                if tag.startswith("project:"):
+                    projects_found.add(tag)
+        assert "project:delta" in projects_found
+        assert "project:epsilon" in projects_found

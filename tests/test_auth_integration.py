@@ -643,19 +643,20 @@ class TestLegacyMode:
 class TestTokenLoading:
     """Test token loading from env vars and files."""
 
-    def test_token_from_env_var(self, monkeypatch):
-        """Token should be loaded from TRIBAL_MEMORY_API_TOKEN env var."""
+    def test_token_from_env_var(self, monkeypatch) -> None:
+        """Token loaded from TRIBAL_MEMORY_API_TOKEN env var."""
         from tribalmemory.testing.mocks import (
             MockEmbeddingService,
             MockVectorStore,
             MockMemoryService,
         )
-        from tribalmemory.services.session_store import InMemorySessionStore
+        from tribalmemory.services.session_store import (
+            InMemorySessionStore,
+        )
 
         token = generate_token()
         monkeypatch.setenv("TRIBAL_MEMORY_API_TOKEN", token)
 
-        # Fresh mock services
         embedding = MockEmbeddingService()
         vector_store = MockVectorStore(embedding)
         service = MockMemoryService(
@@ -669,13 +670,17 @@ class TestTokenLoading:
             vector_store=vector_store,
         )
 
-        # Set module-level globals
         app_module._memory_service = service
         app_module._session_store = session_store
         app_module._instance_id = "test-instance-token-env"
 
-        # Create app with token (simulating what create_app does)
-        app = create_test_app(token=token)
+        # Resolve token the same way create_app does:
+        # env var takes precedence over file
+        import os
+        resolved = os.environ.get("TRIBAL_MEMORY_API_TOKEN")
+        assert resolved == token
+
+        app = create_test_app(token=resolved)
         client = TestClient(app)
 
         # Should require token
@@ -684,7 +689,7 @@ class TestTokenLoading:
         )
         assert response.status_code == 401
 
-        # Should work with token
+        # Should work with env-resolved token
         response = client.post(
             "/v1/recall",
             json={"query": "test", "limit": 5},
@@ -692,28 +697,33 @@ class TestTokenLoading:
         )
         assert response.status_code == 200
 
-        # Cleanup
-        app_module._memory_service = None
-        app_module._session_store = None
-        app_module._instance_id = None
-
-    def test_token_from_file(self, tmp_path, monkeypatch):
-        """Token should be loaded from .env file."""
+    def test_token_from_file(
+        self, tmp_path, monkeypatch,
+    ) -> None:
+        """Token loaded from .env file via load_token."""
         from tribalmemory.testing.mocks import (
             MockEmbeddingService,
             MockVectorStore,
             MockMemoryService,
         )
-        from tribalmemory.services.session_store import InMemorySessionStore
+        from tribalmemory.services.session_store import (
+            InMemorySessionStore,
+        )
+        from tribalmemory.server.auth import load_token
 
         token = generate_token()
         env_path = tmp_path / ".env"
         save_token(token, env_path)
 
-        # Mock load_token to return our token
-        monkeypatch.delenv("TRIBAL_MEMORY_API_TOKEN", raising=False)
+        # Ensure env var is NOT set so file wins
+        monkeypatch.delenv(
+            "TRIBAL_MEMORY_API_TOKEN", raising=False,
+        )
 
-        # Fresh mock services
+        # Actually exercise load_token
+        resolved = load_token(env_path)
+        assert resolved == token
+
         embedding = MockEmbeddingService()
         vector_store = MockVectorStore(embedding)
         service = MockMemoryService(
@@ -727,35 +737,26 @@ class TestTokenLoading:
             vector_store=vector_store,
         )
 
-        # Set module-level globals
         app_module._memory_service = service
         app_module._session_store = session_store
         app_module._instance_id = "test-instance-token-file"
 
-        with patch(
-            "tribalmemory.server.app.load_token", return_value=token
-        ):
-            app = create_test_app(token=token)
-            client = TestClient(app)
+        app = create_test_app(token=resolved)
+        client = TestClient(app)
 
-            # Should reject requests without token
-            response = client.post(
-                "/v1/recall", json={"query": "test", "limit": 5}
-            )
-            assert response.status_code == 401
+        # Should reject without token
+        response = client.post(
+            "/v1/recall", json={"query": "test", "limit": 5}
+        )
+        assert response.status_code == 401
 
-            # Should accept with token
-            response = client.post(
-                "/v1/recall",
-                json={"query": "test", "limit": 5},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            assert response.status_code == 200
-
-        # Cleanup
-        app_module._memory_service = None
-        app_module._session_store = None
-        app_module._instance_id = None
+        # Should accept with file-loaded token
+        response = client.post(
+            "/v1/recall",
+            json={"query": "test", "limit": 5},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

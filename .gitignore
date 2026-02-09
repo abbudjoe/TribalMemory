@@ -41,3 +41,4 @@ node_modules/
 
 # Video project (local only)
 video/
+.vite/

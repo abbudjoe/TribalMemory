@@ -343,16 +343,8 @@ document.getElementById('token-input')
     if (e.key === 'Enter') authenticate();
   });
 
-// Check URL param for token
-const urlToken = new URLSearchParams(
-  window.location.search
-).get('token');
-if (urlToken) {
-  document.getElementById('token-input').value = urlToken;
-  // Remove token from URL for security
-  history.replaceState(null, '', '/graph');
-  authenticate();
-}
+// Token input only via the login form — no URL parameters
+// to prevent leaks via Referer headers and browser history
 
 async function initGraph() {
   cy = cytoscape({
@@ -562,9 +554,13 @@ function showPanel(nodeData) {
     const other = edge.source().id() === nodeData.id
       ? edge.target() : edge.source();
     const li = document.createElement('li');
-    li.innerHTML =
-      `${other.data('label')} ` +
-      `<span class="rel-type">${edge.data('label')}</span>`;
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = other.data('label') + ' ';
+    const relSpan = document.createElement('span');
+    relSpan.className = 'rel-type';
+    relSpan.textContent = edge.data('label');
+    li.appendChild(nameSpan);
+    li.appendChild(relSpan);
     li.onclick = () => exploreEntity(other.id());
     list.appendChild(li);
   });

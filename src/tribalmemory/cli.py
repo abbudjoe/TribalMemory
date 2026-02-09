@@ -601,6 +601,61 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     mcp_main()
 
 
+def cmd_token(action: str) -> int:
+    """Manage API authentication token.
+
+    Args:
+        action: One of 'generate', 'rotate', 'show'.
+
+    Returns:
+        Exit code (0 = success, 1 = error).
+    """
+    from .auth import generate_token, save_token, load_token
+
+    if action == "show":
+        token = load_token()
+        if token:
+            # Show only prefix + last 8 chars for security
+            masked = token[:3] + "..." + token[-8:]
+            print(f"Current token: {masked}")
+            print(f"Full token in: ~/.tribal-memory/.env")
+        else:
+            print("No API token configured.")
+            print("Run 'tribalmemory token generate' to create one.")
+        return 0
+
+    if action == "generate":
+        existing = load_token()
+        if existing:
+            print("⚠️  A token already exists. Use 'tribalmemory token rotate' to replace it.")
+            return 1
+
+        token = generate_token()
+        path = save_token(token)
+        print(f"🔑 API token generated and saved to {path}")
+        print(f"   Token: {token}")
+        print()
+        print("Set this in your client/plugin configuration.")
+        print("The server will require this token for all API requests.")
+        return 0
+
+    if action == "rotate":
+        old_token = load_token()
+        token = generate_token()
+        path = save_token(token)
+        if old_token:
+            print(f"🔄 Token rotated. New token saved to {path}")
+        else:
+            print(f"🔑 Token generated (none existed). Saved to {path}")
+        print(f"   New token: {token}")
+        print()
+        print("Update your client/plugin configuration with the new token.")
+        return 0
+
+    print(f"Unknown action: {action}")
+    return 1
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -654,6 +709,16 @@ def main() -> None:
         help="Service action to perform",
     )
 
+    # token
+    token_parser = subparsers.add_parser(
+        "token", help="Manage API authentication token"
+    )
+    token_parser.add_argument(
+        "action",
+        choices=["generate", "rotate", "show"],
+        help="Token action: generate (create new), rotate (replace), show (display current)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -665,6 +730,8 @@ def main() -> None:
     elif args.command == "service":
         from .service import cmd_service
         sys.exit(cmd_service(args.action))
+    elif args.command == "token":
+        sys.exit(cmd_token(args.action))
     else:
         parser.print_help()
         sys.exit(1)

@@ -1,0 +1,228 @@
+"""Token-based authentication middleware for TribalMemory API.
+
+Security properties:
+- 32-byte random token (256 bits entropy), prefixed with 'tm_'
+- Constant-time comparison (no timing attacks)
+- Rate limiting on failed auth attempts
+- Token stored in ~/.tribal-memory/.env with 600 permissions
+"""
+
+import hashlib
+import hmac
+import logging
+import os
+import secrets
+import time
+from pathlib import Path
+from typing import Optional
+
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger("tribalmemory.auth")
+
+# Token prefix for easy identification
+TOKEN_PREFIX = "tm_"
+
+# Rate limiting: max failures before cooldown
+MAX_FAILURES = 10
+COOLDOWN_SECONDS = 60
+
+
+def generate_token() -> str:
+    """Generate a new API token.
+
+    Returns:
+        Token string with 'tm_' prefix and 32 random hex bytes.
+    """
+    return f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+
+
+def save_token(token: str, env_path: Optional[Path] = None) -> Path:
+    """Save token to .env file with secure permissions.
+
+    Args:
+        token: The API token to save.
+        env_path: Path to .env file. Defaults to ~/.tribal-memory/.env.
+
+    Returns:
+        Path where the token was saved.
+    """
+    if env_path is None:
+        env_path = Path("~/.tribal-memory/.env").expanduser()
+
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read existing env vars (preserve other settings)
+    existing: dict[str, str] = {}
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    existing[key.strip()] = value.strip()
+
+    # Update token
+    existing["TRIBAL_MEMORY_API_TOKEN"] = token
+
+    # Write back
+    with open(env_path, "w") as f:
+        f.write("# TribalMemory configuration\n")
+        f.write("# This file contains sensitive credentials.\n")
+        for key, value in existing.items():
+            f.write(f"{key}={value}\n")
+
+    # Set secure permissions (owner read/write only)
+    os.chmod(env_path, 0o600)
+
+    return env_path
+
+
+def load_token(env_path: Optional[Path] = None) -> Optional[str]:
+    """Load token from .env file.
+
+    Args:
+        env_path: Path to .env file. Defaults to ~/.tribal-memory/.env.
+
+    Returns:
+        Token string, or None if not found.
+    """
+    if env_path is None:
+        env_path = Path("~/.tribal-memory/.env").expanduser()
+
+    if not env_path.exists():
+        return None
+
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("TRIBAL_MEMORY_API_TOKEN="):
+                return line.split("=", 1)[1].strip()
+
+    return None
+
+
+def _constant_time_compare(a: str, b: str) -> bool:
+    """Compare two strings in constant time to prevent timing attacks."""
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """FastAPI middleware for bearer token authentication.
+
+    Checks Authorization header on all requests except:
+    - GET /health (always public)
+    - GET /docs, /openapi.json (API docs)
+    - OPTIONS (CORS preflight)
+
+    When no token is configured (legacy mode), logs a warning
+    but allows requests through.
+    """
+
+    # Paths that never require auth
+    PUBLIC_PATHS = frozenset({
+        "/health",
+        "/v1/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/",
+    })
+
+    def __init__(self, app, token: Optional[str] = None):
+        super().__init__(app)
+        self.token = token
+        self._failure_count: dict[str, int] = {}
+        self._cooldown_until: dict[str, float] = {}
+
+        if not token:
+            logger.warning(
+                "No API token configured. Server is running without authentication. "
+                "Run 'tribalmemory token generate' to secure your instance."
+            )
+
+    def _is_public_path(self, path: str) -> bool:
+        """Check if path is public (no auth required)."""
+        return path in self.PUBLIC_PATHS
+
+    def _is_rate_limited(self, client_ip: str) -> bool:
+        """Check if client is rate-limited due to failed attempts."""
+        cooldown = self._cooldown_until.get(client_ip, 0)
+        if time.time() < cooldown:
+            return True
+
+        # Clear expired cooldown
+        if cooldown > 0 and time.time() >= cooldown:
+            self._failure_count.pop(client_ip, None)
+            self._cooldown_until.pop(client_ip, None)
+
+        return False
+
+    def _record_failure(self, client_ip: str) -> None:
+        """Record a failed auth attempt and apply rate limiting if needed."""
+        count = self._failure_count.get(client_ip, 0) + 1
+        self._failure_count[client_ip] = count
+
+        if count >= MAX_FAILURES:
+            self._cooldown_until[client_ip] = time.time() + COOLDOWN_SECONDS
+            logger.warning(
+                "Rate limit triggered for %s (%d failures). "
+                "Cooldown for %ds.",
+                client_ip,
+                count,
+                COOLDOWN_SECONDS,
+            )
+
+    def _clear_failures(self, client_ip: str) -> None:
+        """Clear failure count on successful auth."""
+        self._failure_count.pop(client_ip, None)
+        self._cooldown_until.pop(client_ip, None)
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """Check authentication before passing to route handler."""
+        # Allow preflight requests
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # Allow public paths
+        if self._is_public_path(request.url.path):
+            return await call_next(request)
+
+        # No token configured = legacy mode (allow all)
+        if not self.token:
+            return await call_next(request)
+
+        # Check rate limiting
+        client_ip = request.client.host if request.client else "unknown"
+        if self._is_rate_limited(client_ip):
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "Too many failed authentication attempts. "
+                    f"Try again in {COOLDOWN_SECONDS} seconds."
+                },
+            )
+
+        # Extract token from Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            provided_token = auth_header[7:]
+        else:
+            provided_token = ""
+
+        # Validate token
+        if not provided_token or not _constant_time_compare(
+            provided_token, self.token
+        ):
+            self._record_failure(client_ip)
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid or missing API token."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Auth success
+        self._clear_failures(client_ip)
+        return await call_next(request)

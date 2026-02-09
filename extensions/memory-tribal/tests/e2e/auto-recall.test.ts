@@ -86,12 +86,10 @@ describe("/remember command (E2E)", () => {
   });
 
   it("rejects empty /remember content via regex", () => {
-    // The plugin checks rememberContent.length > 0 before storing
     const REMEMBER_RE = /^(?:\[[^\]]*\]\s*)?\/remember\s+(.+)$/is;
 
-    // "/remember " with trailing space but no content — regex requires .+
+    // Regex requires at least one character after /remember
     expect("/remember ".match(REMEMBER_RE)).toBeNull();
-    // "/remember" with no space
     expect("/remember".match(REMEMBER_RE)).toBeNull();
   });
 
@@ -148,9 +146,9 @@ describe("Auto-recall (E2E)", () => {
     expect(contents.some((c) => c.includes("Rust"))).toBe(true);
   });
 
-  it("returns valid response for short prompts", async () => {
+  it("server returns valid response for short queries (plugin would skip)", async () => {
     // The plugin returns early for prompts < 5 chars (plugin-side skip).
-    // Server still responds fine.
+    // This test validates the server still responds correctly.
     const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
@@ -191,8 +189,10 @@ describe("Auto-recall (E2E)", () => {
     );
 
     expectValidRecallResponse(recalled);
-    // High min_relevance + unrelated query = fewer results
-    expect(recalled.body.results.length).toBeLessThanOrEqual(10);
+    // All returned results must meet the min_relevance threshold
+    for (const result of recalled.body.results) {
+      expect(result.similarity_score).toBeGreaterThanOrEqual(0.8);
+    }
   });
 
   it("returns empty results gracefully for no matches", async () => {

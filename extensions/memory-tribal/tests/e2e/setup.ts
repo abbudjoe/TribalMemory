@@ -63,7 +63,11 @@ export interface StoreResponse {
   error?: string;
 }
 
-/** Delay constant for waiting on indexing after stores. */
+/**
+ * Delay after storing memories before recall queries.
+ * LanceDB requires time for vector indexing to complete before newly
+ * stored memories appear in recall results.
+ */
 export const INDEX_DELAY_MS = 500;
 
 /**

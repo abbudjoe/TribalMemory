@@ -61,17 +61,18 @@ describe("Auto-capture (E2E)", () => {
   });
 
   it("rejects invalid sourceType with 422", async () => {
-    const response = await rawPost(env.baseUrl, "/v1/remember", {
+    const response = await rawPost<{ detail?: string }>(env.baseUrl, "/v1/remember", {
       content: "test content for invalid source",
       source_type: "deliberate", // Invalid — the original bug
     });
 
     expect(response.status).toBe(422);
+    expect(response.body.detail).toBeDefined();
   });
 
-  it("handles short content (server accepts, plugin filters)", async () => {
-    // The plugin's shouldCapture() filters short content (<10 chars)
-    // but the server itself accepts any content
+  it("server accepts short content (plugin would filter)", async () => {
+    // The plugin's shouldCapture() filters short content (<10 chars).
+    // This test validates the server accepts any content length.
     const result = await env.client.remember("ok", {
       sourceType: "auto_capture",
     });

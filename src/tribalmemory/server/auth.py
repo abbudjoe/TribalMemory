@@ -241,6 +241,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         self._rate_limit_path = rate_limit_path
         self._max_tracked_ips = MAX_TRACKED_IPS
 
+        # Serialize concurrent saves to rate-limits.json
+        self._save_lock: Optional[asyncio.Lock] = None
+
         # Load persisted rate limit state
         self._failure_count, self._cooldown_until = (
             load_rate_limit_state(rate_limit_path)
@@ -301,14 +304,17 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 COOLDOWN_SECONDS,
             )
             # Persist to disk without blocking event loop.
-            # Pass shallow copies to avoid RuntimeError from
-            # concurrent dict mutation in the background thread.
-            await asyncio.to_thread(
-                save_rate_limit_state,
-                dict(self._failure_count),
-                dict(self._cooldown_until),
-                self._rate_limit_path,
-            )
+            # Lock serializes concurrent saves; shallow copies
+            # prevent RuntimeError from dict mutation in thread.
+            if self._save_lock is None:
+                self._save_lock = asyncio.Lock()
+            async with self._save_lock:
+                await asyncio.to_thread(
+                    save_rate_limit_state,
+                    dict(self._failure_count),
+                    dict(self._cooldown_until),
+                    self._rate_limit_path,
+                )
 
     def _clear_failures(self, client_ip: str) -> None:
         """Clear failure count on successful auth."""

@@ -3,6 +3,7 @@
 Provides both LanceDB (persistent) and in-memory storage options.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -43,31 +44,62 @@ class LanceDBVectorStore(IVectorStore):
         self._db = None
         self._table = None
         self._initialized = False
+        self._init_lock: Optional[asyncio.Lock] = None
     
     async def _ensure_initialized(self):
-        """Lazily initialize database connection."""
+        """Lazily initialize database connection.
+
+        LanceDB operations (connect, open_table) are synchronous and can
+        block for seconds on large datasets.  Run them in a thread so the
+        async event loop stays responsive.
+
+        Uses double-checked locking to prevent concurrent initialization
+        from racing (two coroutines both seeing _initialized=False).
+        The lock is created lazily to avoid requiring a running event loop
+        at construction time.
+        """
         if self._initialized:
             return
+
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+
+        async with self._init_lock:
+            if self._initialized:
+                return
+            db, table = await asyncio.to_thread(self._sync_init)
+            # Assign in event loop thread so writes are immediately
+            # visible to other coroutines without memory barrier issues.
+            self._db = db
+            self._table = table
+            self._initialized = True
+
+    def _sync_init(self):
+        """Synchronous initialization — called via asyncio.to_thread.
         
+        Returns (db, table) tuple; caller assigns to instance variables
+        in the event loop thread for thread-safe visibility.
+        """
         try:
             import lancedb
         except ImportError:
             raise ImportError("LanceDB not installed. Run: pip install lancedb")
-        
+
         if self.db_uri:
-            self._db = lancedb.connect(self.db_uri, api_key=self.api_key)
+            db = lancedb.connect(self.db_uri, api_key=self.api_key)
         elif self.db_path:
             self.db_path.mkdir(parents=True, exist_ok=True)
-            self._db = lancedb.connect(str(self.db_path))
+            db = lancedb.connect(str(self.db_path))
         else:
             raise ValueError("Either db_path or db_uri must be provided")
-        
-        if self.TABLE_NAME in self._db.table_names():
-            self._table = self._db.open_table(self.TABLE_NAME)
+
+        if self.TABLE_NAME in db.table_names():
+            table = db.open_table(self.TABLE_NAME)
         else:
-            self._table = self._create_table()
-        
-        self._initialized = True
+            self._db = db  # Needed temporarily for _create_table()
+            table = self._create_table()
+
+        return db, table
     
     def _create_table(self) -> "lancedb.table.Table":
         """Create the memories table with the defined schema."""
@@ -128,7 +160,7 @@ class LanceDBVectorStore(IVectorStore):
                 "deleted": False,
             }
             
-            self._table.add([row])
+            await asyncio.to_thread(self._table.add, [row])
             return StoreResult(success=True, memory_id=entry.id)
             
         except Exception as e:
@@ -145,12 +177,15 @@ class LanceDBVectorStore(IVectorStore):
         
         start = time.perf_counter()
         
-        results = (
-            self._table.search(query_embedding)
-            .where("deleted = false")
-            .limit(limit * 2)
-            .to_list()
-        )
+        def _search():
+            return (
+                self._table.search(query_embedding)
+                .where("deleted = false")
+                .limit(limit * 2)
+                .to_list()
+            )
+
+        results = await asyncio.to_thread(_search)
         
         elapsed_ms = (time.perf_counter() - start) * 1000
         
@@ -186,15 +221,20 @@ class LanceDBVectorStore(IVectorStore):
     async def get(self, memory_id: str) -> Optional[MemoryEntry]:
         await self._ensure_initialized()
         
-        # Sanitize memory_id to prevent SQL injection
-        safe_id = self._sanitize_id(memory_id)
+        try:
+            safe_id = self._sanitize_id(memory_id)
+        except ValueError:
+            return None
         
-        results = (
-            self._table.search()
-            .where(f"id = '{safe_id}' AND deleted = false")
-            .limit(1)
-            .to_list()
-        )
+        def _get():
+            return (
+                self._table.search()
+                .where(f"id = '{safe_id}' AND deleted = false")
+                .limit(1)
+                .to_list()
+            )
+
+        results = await asyncio.to_thread(_get)
         
         if not results:
             return None
@@ -203,14 +243,18 @@ class LanceDBVectorStore(IVectorStore):
     async def delete(self, memory_id: str) -> bool:
         await self._ensure_initialized()
         
-        # Sanitize memory_id to prevent SQL injection
-        safe_id = self._sanitize_id(memory_id)
+        try:
+            safe_id = self._sanitize_id(memory_id)
+        except ValueError:
+            return False
         
         try:
-            self._table.update(
-                where=f"id = '{safe_id}'",
-                values={"deleted": True, "updated_at": datetime.utcnow().isoformat()}
-            )
+            def _delete():
+                self._table.update(
+                    where=f"id = '{safe_id}'",
+                    values={"deleted": True, "updated_at": datetime.utcnow().isoformat()}
+                )
+            await asyncio.to_thread(_delete)
             return True
         except Exception:
             return False
@@ -224,7 +268,8 @@ class LanceDBVectorStore(IVectorStore):
         import re
         # UUID pattern: only allow alphanumeric and hyphens
         if not re.match(r'^[a-zA-Z0-9\-]+$', memory_id):
-            raise ValueError(f"Invalid memory_id format: {memory_id[:20]}...")
+            preview = memory_id[:20] + ("..." if len(memory_id) > 20 else "")
+            raise ValueError(f"Invalid memory_id format: {preview}")
         return memory_id
     
     async def list(
@@ -235,12 +280,15 @@ class LanceDBVectorStore(IVectorStore):
     ) -> list[MemoryEntry]:
         await self._ensure_initialized()
         
-        results = (
-            self._table.search()
-            .where("deleted = false")
-            .limit(limit + offset)
-            .to_list()
-        )
+        def _list():
+            return (
+                self._table.search()
+                .where("deleted = false")
+                .limit(limit + offset)
+                .to_list()
+            )
+
+        results = await asyncio.to_thread(_list)
         
         entries = [self._row_to_entry(row) for row in results[offset:offset + limit]]
         
@@ -254,60 +302,89 @@ class LanceDBVectorStore(IVectorStore):
         return len(entries)
 
     async def get_stats(self) -> dict:
-        """Compute stats natively over LanceDB rows.
+        """Compute stats over LanceDB metadata columns.
 
-        Iterates rows in pages to avoid loading all embeddings into
-        RAM. Only the metadata columns are read.
+        Uses ``to_arrow()`` to read only the metadata columns (no vector
+        data) in a single pass, then aggregates in Python.  All LanceDB
+        I/O is offloaded to a thread so the event loop stays responsive.
         """
         await self._ensure_initialized()
 
-        by_source: dict[str, int] = {}
-        by_instance: dict[str, int] = {}
-        by_tag: dict[str, int] = {}
-        total = 0
-        corrections = 0
+        def _compute_stats() -> dict:
+            by_source: dict[str, int] = {}
+            by_instance: dict[str, int] = {}
+            by_tag: dict[str, int] = {}
+            total = 0
+            corrections = 0
 
-        page_size = 1000
-        offset = 0
-        while True:
-            rows = (
-                self._table.search()
-                .where("deleted = false")
-                .select(["source_type", "source_instance", "tags",
-                         "supersedes"])
-                .limit(page_size + offset)
-                .to_list()
-            )
-            page = rows[offset:]
-            if not page:
-                break
+            # Read only metadata columns — avoids loading embeddings
+            metadata_cols = ["source_type", "source_instance", "tags",
+                             "supersedes", "deleted"]
+            try:
+                table = self._table.to_arrow(columns=metadata_cols)
+            except (TypeError, AttributeError):
+                import logging
+                logging.warning(
+                    "LanceDB version doesn't support to_arrow(columns=...), "
+                    "using slower search-based fallback for get_stats()"
+                )
+                table = self._table.search().select(
+                    ["source_type", "source_instance", "tags", "supersedes"]
+                ).where("deleted = false").limit(100_000).to_list()
+                for row in table:
+                    total += 1
+                    src = row.get("source_type", "unknown")
+                    by_source[src] = by_source.get(src, 0) + 1
+                    inst = row.get("source_instance", "unknown")
+                    by_instance[inst] = by_instance.get(inst, 0) + 1
+                    tags = json.loads(row.get("tags", "[]"))
+                    for tag in tags:
+                        by_tag[tag] = by_tag.get(tag, 0) + 1
+                    if row.get("supersedes"):
+                        corrections += 1
+                return {
+                    "total_memories": total,
+                    "by_source_type": by_source,
+                    "by_tag": by_tag,
+                    "by_instance": by_instance,
+                    "corrections": corrections,
+                }
 
-            for row in page:
+            # Fast path: iterate Arrow columns directly
+            deleted_col = table.column("deleted")
+            source_type_col = table.column("source_type")
+            source_instance_col = table.column("source_instance")
+            tags_col = table.column("tags")
+            supersedes_col = table.column("supersedes")
+
+            for i in range(len(table)):
+                if deleted_col[i].as_py():
+                    continue
                 total += 1
-                src = row.get("source_type", "unknown")
+
+                src = source_type_col[i].as_py() or "unknown"
                 by_source[src] = by_source.get(src, 0) + 1
 
-                inst = row.get("source_instance", "unknown")
+                inst = source_instance_col[i].as_py() or "unknown"
                 by_instance[inst] = by_instance.get(inst, 0) + 1
 
-                tags = json.loads(row.get("tags", "[]"))
-                for tag in tags:
+                raw_tags = tags_col[i].as_py() or "[]"
+                for tag in json.loads(raw_tags):
                     by_tag[tag] = by_tag.get(tag, 0) + 1
 
-                if row.get("supersedes"):
+                sup = supersedes_col[i].as_py()
+                if sup:
                     corrections += 1
 
-            if len(page) < page_size:
-                break
-            offset += page_size
+            return {
+                "total_memories": total,
+                "by_source_type": by_source,
+                "by_tag": by_tag,
+                "by_instance": by_instance,
+                "corrections": corrections,
+            }
 
-        return {
-            "total_memories": total,
-            "by_source_type": by_source,
-            "by_tag": by_tag,
-            "by_instance": by_instance,
-            "corrections": corrections,
-        }
+        return await asyncio.to_thread(_compute_stats)
 
     def _row_to_entry(self, row: dict) -> MemoryEntry:
         return MemoryEntry(

@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tribalmemory = ["server/static/*"]
+
 [project]
 name = "tribalmemory"
 version = "0.7.3"

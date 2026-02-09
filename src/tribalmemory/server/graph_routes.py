@@ -174,10 +174,13 @@ async def neighborhood(
         # Entity might exist but have no relationships.
         # Use exact-name search to avoid substring false matches
         # (e.g. "Python" matching "Python SDK").
+        # Over-fetch to handle substring matches, then
+        # filter for exact name. If 200 isn't enough,
+        # the entity is extremely unlikely to exist.
         found, _ = await asyncio.to_thread(
             graph.list_entities,
             search=entity_name,
-            limit=50,
+            limit=200,
         )
         exact = [
             e for e in found if e["name"] == entity_name

@@ -99,7 +99,8 @@ async def lifespan(app: FastAPI):
 
     search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"
     logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")
-    logger.info(f"Session store initialized (retention: {config.server.session_retention_days} days)")
+    retention = config.server.session_retention_days
+    logger.info(f"Session store initialized (retention: {retention} days)")
 
     # Start background session cleanup task
     cleanup_task = asyncio.create_task(
@@ -137,7 +138,12 @@ async def _session_cleanup_loop(
             await asyncio.sleep(cleanup_interval)
             deleted = await session_store.cleanup(retention_days=retention_days)
             if deleted > 0:
-                logger.info(f"Session cleanup: deleted {deleted} expired chunks (retention: {retention_days} days)")
+                logger.info(
+                    "Session cleanup: deleted %d expired chunks "
+                    "(retention: %d days)",
+                    deleted,
+                    retention_days,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -170,10 +176,12 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     # Precedence: environment variable > .env file > no token (legacy mode)
     api_token = os.environ.get("TRIBAL_MEMORY_API_TOKEN") or load_token()
     if api_token:
-        logger.info(
-            "API token loaded from %s",
-            "environment variable" if os.environ.get("TRIBAL_MEMORY_API_TOKEN") else "~/.tribal-memory/.env",
+        source = (
+            "environment variable"
+            if os.environ.get("TRIBAL_MEMORY_API_TOKEN")
+            else "~/.tribal-memory/.env"
         )
+        logger.info("API token loaded from %s", source)
     app.add_middleware(TokenAuthMiddleware, token=api_token)
 
     # CORS middleware (localhost only)

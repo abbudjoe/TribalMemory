@@ -283,7 +283,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         if mcp_command == "tribalmemory-mcp":
             print("⚠️  Could not find tribalmemory-mcp on PATH or in ~/.local/bin")
             print("   Claude Desktop needs the absolute path to the binary.")
-            print("   After installing with pipx/uv, run: tribalmemory init --claude-desktop --force")
+            print(
+                "   After installing with pipx/uv, run: "
+                "tribalmemory init --claude-desktop --force"
+            )
             print()
 
     # Create config directory
@@ -499,7 +502,10 @@ def _resolve_mcp_command() -> str:
 def _get_claude_desktop_config_path() -> Path:
     """Get the platform-appropriate Claude Desktop config path."""
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+        return (
+            Path.home() / "Library" / "Application Support"
+            / "Claude" / "claude_desktop_config.json"
+        )
     elif sys.platform == "win32":
         return Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
     else:

@@ -3,12 +3,13 @@
 Security properties:
 - 32-byte random token (256 bits entropy), prefixed with 'tm_'
 - Constant-time comparison (no timing attacks)
-- Rate limiting on failed auth attempts
+- Rate limiting on failed auth attempts (persisted to disk)
 - Token stored in ~/.tribal-memory/.env with 600 permissions
 """
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -105,6 +106,89 @@ def load_token(env_path: Optional[Path] = None) -> Optional[str]:
     return None
 
 
+def _default_rate_limit_path() -> Path:
+    """Return default path for rate limit state persistence."""
+    return Path("~/.tribal-memory/rate-limits.json").expanduser()
+
+
+def save_rate_limit_state(
+    failure_count: dict[str, int],
+    cooldown_until: dict[str, float],
+    path: Optional[Path] = None,
+) -> None:
+    """Persist rate limit state to disk.
+
+    Only saves IPs that are currently in cooldown to avoid
+    persisting stale data.
+
+    Args:
+        failure_count: Per-IP failure counts.
+        cooldown_until: Per-IP cooldown expiry timestamps.
+        path: File path. Defaults to ~/.tribal-memory/rate-limits.json.
+    """
+    if path is None:
+        path = _default_rate_limit_path()
+
+    now = time.time()
+    # Only persist IPs with active cooldowns
+    active: dict[str, dict] = {}
+    for ip, until in cooldown_until.items():
+        if until > now:
+            active[ip] = {
+                "failures": failure_count.get(ip, 0),
+                "cooldown_until": until,
+            }
+
+    if not active:
+        # Remove file if no active cooldowns
+        if path.exists():
+            path.unlink()
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(active, f)
+    os.chmod(path, 0o600)
+
+
+def load_rate_limit_state(
+    path: Optional[Path] = None,
+) -> tuple[dict[str, int], dict[str, float]]:
+    """Load rate limit state from disk.
+
+    Returns only entries with active (non-expired) cooldowns.
+
+    Args:
+        path: File path. Defaults to ~/.tribal-memory/rate-limits.json.
+
+    Returns:
+        Tuple of (failure_count, cooldown_until) dicts.
+    """
+    if path is None:
+        path = _default_rate_limit_path()
+
+    failure_count: dict[str, int] = {}
+    cooldown_until: dict[str, float] = {}
+
+    if not path.exists():
+        return failure_count, cooldown_until
+
+    try:
+        with open(path) as f:
+            data = json.load(f)
+
+        now = time.time()
+        for ip, entry in data.items():
+            until = entry.get("cooldown_until", 0)
+            if until > now:
+                failure_count[ip] = entry.get("failures", 0)
+                cooldown_until[ip] = until
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load rate limit state: %s", e)
+
+    return failure_count, cooldown_until
+
+
 def _constant_time_compare(a: str, b: str) -> bool:
     """Compare two strings in constant time to prevent timing attacks."""
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
@@ -132,12 +216,26 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/",
     })
 
-    def __init__(self, app, token: Optional[str] = None):
+    def __init__(
+        self,
+        app,
+        token: Optional[str] = None,
+        rate_limit_path: Optional[Path] = None,
+    ):
         super().__init__(app)
         self.token = token
-        self._failure_count: dict[str, int] = {}
-        self._cooldown_until: dict[str, float] = {}
+        self._rate_limit_path = rate_limit_path
         self._max_tracked_ips = MAX_TRACKED_IPS
+
+        # Load persisted rate limit state
+        self._failure_count, self._cooldown_until = (
+            load_rate_limit_state(rate_limit_path)
+        )
+        if self._failure_count:
+            logger.info(
+                "Loaded %d rate-limited IPs from disk",
+                len(self._failure_count),
+            )
 
         if not token:
             logger.warning(
@@ -165,7 +263,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     def _record_failure(self, client_ip: str) -> None:
         """Record a failed auth attempt and apply rate limiting if needed."""
         # Evict oldest entry if tracking too many IPs (memory safety)
-        if len(self._failure_count) >= self._max_tracked_ips and client_ip not in self._failure_count:
+        at_capacity = len(self._failure_count) >= self._max_tracked_ips
+        is_new_ip = client_ip not in self._failure_count
+        if at_capacity and is_new_ip:
             oldest_ip = next(iter(self._failure_count))
             self._failure_count.pop(oldest_ip, None)
             self._cooldown_until.pop(oldest_ip, None)
@@ -174,13 +274,21 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         self._failure_count[client_ip] = count
 
         if count >= MAX_FAILURES:
-            self._cooldown_until[client_ip] = time.time() + COOLDOWN_SECONDS
+            self._cooldown_until[client_ip] = (
+                time.time() + COOLDOWN_SECONDS
+            )
             logger.warning(
                 "Rate limit triggered for %s (%d failures). "
                 "Cooldown for %ds.",
                 client_ip,
                 count,
                 COOLDOWN_SECONDS,
+            )
+            # Persist to disk on cooldown trigger
+            save_rate_limit_state(
+                self._failure_count,
+                self._cooldown_until,
+                self._rate_limit_path,
             )
 
     def _clear_failures(self, client_ip: str) -> None:
@@ -225,7 +333,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             self._record_failure(client_ip)
             return JSONResponse(
                 status_code=401,
-                content={"error": "Missing API token. Include 'Authorization: Bearer <token>' header."},
+                content={
+                    "error": "Missing API token. "
+                    "Include 'Authorization: Bearer <token>' header."
+                },
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -239,4 +350,10 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         # Auth success
         self._clear_failures(client_ip)
+        logger.info(
+            "Auth success: %s %s from %s",
+            request.method,
+            request.url.path,
+            client_ip,
+        )
         return await call_next(request)

@@ -2127,3 +2127,114 @@ class GraphStore:
             ).fetchall()
             
             return [row['memory_id'] for row in rows]
+
+    # =====================================================================
+    # Graph visualization helpers (Issue #165)
+    # =====================================================================
+
+    def get_graph_stats(self) -> dict:
+        """Get high-level graph statistics.
+
+        Returns:
+            Dict with entity_count, relationship_count,
+            entity_types, relationship_types.
+        """
+        with self._lock:
+            entity_count = self._conn.execute(
+                "SELECT COUNT(*) FROM entities"
+            ).fetchone()[0]
+
+            rel_count = self._conn.execute(
+                "SELECT COUNT(*) FROM relationships"
+            ).fetchone()[0]
+
+            type_rows = self._conn.execute(
+                "SELECT entity_type, COUNT(*) as cnt "
+                "FROM entities GROUP BY entity_type"
+            ).fetchall()
+            entity_types = {
+                r["entity_type"]: r["cnt"]
+                for r in type_rows
+            }
+
+            rel_type_rows = self._conn.execute(
+                "SELECT relation_type, COUNT(*) as cnt "
+                "FROM relationships "
+                "GROUP BY relation_type"
+            ).fetchall()
+            rel_types = {
+                r["relation_type"]: r["cnt"]
+                for r in rel_type_rows
+            }
+
+        return {
+            "entity_count": entity_count,
+            "relationship_count": rel_count,
+            "entity_types": entity_types,
+            "relationship_types": rel_types,
+        }
+
+    def list_entities(
+        self,
+        offset: int = 0,
+        limit: int = 50,
+        entity_type: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> tuple[list[dict], int]:
+        """List entities with pagination and filters.
+
+        Returns:
+            (entities, total_count) where each entity is a dict
+            with name, entity_type, memory_count.
+        """
+        with self._lock:
+            where_clauses: list[str] = []
+            params: list = []
+
+            if entity_type:
+                where_clauses.append(
+                    "e.entity_type = ?"
+                )
+                params.append(entity_type)
+
+            if search:
+                where_clauses.append("e.name LIKE ?")
+                params.append(f"%{search}%")
+
+            where_sql = ""
+            if where_clauses:
+                where_sql = (
+                    "WHERE "
+                    + " AND ".join(where_clauses)
+                )
+
+            total = self._conn.execute(
+                "SELECT COUNT(*) "
+                f"FROM entities e {where_sql}",
+                params,
+            ).fetchone()[0]
+
+            rows = self._conn.execute(
+                f"""
+                SELECT e.name, e.entity_type,
+                    COUNT(em.memory_id) as mem_count
+                FROM entities e
+                LEFT JOIN entity_memories em
+                    ON e.id = em.entity_id
+                {where_sql}
+                GROUP BY e.id, e.name, e.entity_type
+                ORDER BY mem_count DESC, e.name
+                LIMIT ? OFFSET ?
+                """,
+                params + [limit, offset],
+            ).fetchall()
+
+        entities = [
+            {
+                "name": r["name"],
+                "entity_type": r["entity_type"],
+                "memory_count": r["mem_count"],
+            }
+            for r in rows
+        ]
+        return entities, total

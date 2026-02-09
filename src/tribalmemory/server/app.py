@@ -215,7 +215,10 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
                 status_code=404,
                 detail="Graph UI not found",
             )
-        return HTMLResponse(html_path.read_text())
+        content = await asyncio.to_thread(
+            html_path.read_text,
+        )
+        return HTMLResponse(content)
 
     # Root endpoint
     @app.get("/")

@@ -107,7 +107,7 @@ async def graph_stats(
 @router.get("/entities", response_model=EntityListResponse)
 async def list_entities(
     offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, ge=1, le=500),
+    limit: int = Query(default=50, ge=1, le=100),
     entity_type: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     service: TribalMemoryService = Depends(
@@ -147,6 +147,18 @@ async def neighborhood(
     ),
 ) -> NeighborhoodResponse:
     """Explore the neighborhood around an entity."""
+    entity_name = entity_name.strip()
+    if not entity_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Entity name is required",
+        )
+    if len(entity_name) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Entity name too long",
+        )
+
     graph = _get_graph(service)
 
     connected = await asyncio.to_thread(
@@ -157,20 +169,37 @@ async def neighborhood(
     )
 
     if not connected:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Entity '{entity_name}' not found",
+        # Entity might exist but have no relationships.
+        # Check if it exists at all via list_entities.
+        found, _ = await asyncio.to_thread(
+            graph.list_entities,
+            search=entity_name,
+            limit=1,
         )
+        if not found or found[0]["name"] != entity_name:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Entity '{entity_name}' not found",
+            )
+        # Return isolated node with no edges
+        from ..services.graph_store import Entity
+        connected = [
+            Entity(
+                name=found[0]["name"],
+                entity_type=found[0]["entity_type"],
+            ),
+        ]
 
     entity_names = {e.name for e in connected}
 
-    # Get memory counts + edges in thread
-    def _build_neighborhood():
-        memory_counts: dict[str, int] = {}
-        for e in connected:
-            mems = graph.get_memories_for_entity(e.name)
-            memory_counts[e.name] = len(mems)
+    # Batch memory counts (single query, not N+1)
+    memory_counts = await asyncio.to_thread(
+        graph.get_memory_counts_batch,
+        list(entity_names),
+    )
 
+    # Get edges between neighborhood nodes in thread
+    def _collect_edges():
         edges: list[RelationshipEdge] = []
         seen: set[tuple[str, str, str]] = set()
         for e in connected:
@@ -191,11 +220,9 @@ async def neighborhood(
                             target=r.target,
                             relation_type=r.relation_type,
                         ))
-        return memory_counts, edges
+        return edges
 
-    memory_counts, edges = await asyncio.to_thread(
-        _build_neighborhood,
-    )
+    edges = await asyncio.to_thread(_collect_edges)
 
     nodes = [
         EntityNode(

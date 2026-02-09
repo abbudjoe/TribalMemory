@@ -263,7 +263,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
     def _is_public_path(self, path: str) -> bool:
         """Check if path is public (no auth required)."""
-        return path in self.PUBLIC_PATHS
+        if path in self.PUBLIC_PATHS:
+            return True
+        # Static assets (vendored JS/CSS) are always public
+        if path.startswith("/static/"):
+            return True
+        return False
 
     def _is_rate_limited(self, client_ip: str) -> bool:
         """Check if client is rate-limited due to failed attempts."""

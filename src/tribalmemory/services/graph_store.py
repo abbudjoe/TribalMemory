@@ -2128,6 +2128,34 @@ class GraphStore:
             
             return [row['memory_id'] for row in rows]
 
+    def get_memory_counts_batch(
+        self, entity_names: list[str],
+    ) -> dict[str, int]:
+        """Get memory counts for multiple entities in one query.
+
+        Args:
+            entity_names: Entity names to look up.
+
+        Returns:
+            Dict mapping entity name → memory count.
+        """
+        if not entity_names:
+            return {}
+        with self._lock:
+            placeholders = ",".join("?" * len(entity_names))
+            rows = self._conn.execute(
+                f"""
+                SELECT e.name, COUNT(em.memory_id) as cnt
+                FROM entities e
+                LEFT JOIN entity_memories em
+                    ON e.id = em.entity_id
+                WHERE e.name IN ({placeholders})
+                GROUP BY e.name
+                """,
+                entity_names,
+            ).fetchall()
+        return {r["name"]: r["cnt"] for r in rows}
+
     # =====================================================================
     # Graph visualization helpers (Issue #165)
     # =====================================================================

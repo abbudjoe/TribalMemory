@@ -23,21 +23,28 @@ knowledge graph that forms as your agents store memories.
 
 ## Features
 
-- **Entity search** — Find entities by name (debounced,
-  max 200 characters)
-- **Type filtering** — Filter by entity type (person,
-  technology, service, etc.)
+- **Entity search** — Find entities by name
+- **Type filtering** — Filter by entity type
+  (e.g., person, technology, service)
 - **Neighborhood exploration** — Click a node to see its
   connections; double-click to expand further
 - **Multi-hop traversal** — Explore up to 3 hops from
   any entity
 - **Dark theme** — Matches modern developer tools
-- **Offline-capable** — Cytoscape.js is vendored locally,
-  no CDN dependency
+- **No external dependencies** — Cytoscape.js is bundled
+  locally, no CDN required
 
 ## API Endpoints
 
-The visualization is powered by three REST endpoints:
+The visualization is powered by three REST endpoints.
+Entity names in URL paths must be URL-encoded
+(e.g., `Albert Einstein` → `Albert%20Einstein`).
+
+**Response codes (all endpoints):**
+- `200 OK` — Success
+- `401 Unauthorized` — Invalid or missing bearer token
+- `400 Bad Request` — Invalid parameters
+- `404 Not Found` — Entity not found (neighborhood only)
 
 ### GET /v1/graph/stats
 
@@ -47,8 +54,8 @@ Returns high-level graph statistics.
 {
   "entity_count": 142,
   "relationship_count": 89,
-  "entity_types": {"person": 12, "technology": 45, ...},
-  "relationship_types": {"uses": 30, "knows": 15, ...}
+  "entity_types": {"person": 12, "technology": 45},
+  "relationship_types": {"uses": 30, "knows": 15}
 }
 ```
 
@@ -58,10 +65,11 @@ Paginated entity listing with optional filters.
 
 **Parameters:**
 - `offset` (int, default 0) — Pagination offset
-- `limit` (int, 1–100, default 50) — Page size
+- `limit` (int, 1–100, default 50) — Values outside
+  this range return 422
 - `entity_type` (string, optional) — Filter by type
 - `search` (string, optional, max 200 chars) — Name
-  substring search
+  substring search; returns 422 if exceeded
 
 ```json
 {
@@ -74,6 +82,9 @@ Paginated entity listing with optional filters.
   "limit": 50
 }
 ```
+
+The `memory_count` field indicates how many memories
+reference this entity.
 
 ### GET /v1/graph/neighborhood/{entity_name}
 
@@ -116,14 +127,15 @@ endpoints require a valid bearer token:
 ## Architecture
 
 ```
-Browser → /graph (HTML + Cytoscape.js)
-       → /v1/graph/stats (auth required)
-       → /v1/graph/entities (auth required)
-       → /v1/graph/neighborhood/{name} (auth required)
-       ↓
-   GraphStore (SQLite)
-       ↓
-   entities, relationships, entity_memories tables
+Browser
+  ├── GET /graph (HTML + Cytoscape.js)
+  ├── GET /v1/graph/stats (auth required)
+  ├── GET /v1/graph/entities (auth required)
+  └── GET /v1/graph/neighborhood/{name} (auth required)
+        ↓
+    GraphStore (SQLite)
+        ↓
+    entities, relationships, entity_memories tables
 ```
 
 All database queries run in `asyncio.to_thread()` to avoid

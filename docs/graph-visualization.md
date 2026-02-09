@@ -43,7 +43,10 @@ Entity names in URL paths must be URL-encoded
 **Response codes (all endpoints):**
 - `200 OK` — Success
 - `401 Unauthorized` — Invalid or missing bearer token
-- `400 Bad Request` — Invalid parameters
+- `422 Unprocessable Entity` — Invalid query parameters
+  (e.g., limit out of range, search too long)
+- `400 Bad Request` — Empty or oversized entity name
+  (neighborhood endpoint only)
 - `404 Not Found` — Entity not found (neighborhood only)
 
 ### GET /v1/graph/stats

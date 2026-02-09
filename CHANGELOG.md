@@ -5,6 +5,36 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-09 ([PyPI](https://pypi.org/project/tribalmemory/0.8.0/))
+
+### Added
+- **Token authentication** — Bearer token auth for all API endpoints. `tm_`-prefixed tokens with 256-bit entropy, constant-time comparison, rate limiting (10 failures → 60s cooldown per IP), persistent rate limit state, audit logging. Legacy mode (no token configured) preserves backward compatibility. CLI: `tribalmemory token generate/rotate/show`. (#164)
+- **Knowledge graph visualization** — Built-in web UI at `/graph` powered by Cytoscape.js. Interactive neighborhood exploration with search, type filters, multi-hop traversal (up to 3 hops), dark theme. API endpoints: `/v1/graph/stats`, `/v1/graph/entities`, `/v1/graph/neighborhood/{name}`. (#165)
+- **Graph API** — Three new REST endpoints for programmatic graph exploration with pagination, filtering, and batch memory counts.
+- `get_entity_by_exact_name()` — Direct exact-name entity lookup on GraphStore (no false positives from substring matching).
+- `get_memory_counts_batch()` — Batch memory counts with SQLite variable limit chunking (stays under 999-param limit).
+- `get_graph_stats()` and `list_entities()` — Public GraphStore methods for visualization.
+- Static assets bundled in pip package (`server/static/*` in pyproject.toml).
+- `docs/graph-visualization.md` — Complete guide for graph UI and API.
+- `docs/authentication.md` — Comprehensive auth setup guide.
+- 82 auth tests (43 unit + 25 integration + 14 E2E).
+- 15 graph visualization tests + 2 GraphStore tests.
+
+### Security
+- Token auth middleware with per-IP rate limiting and cooldown.
+- Persistent rate limit state (`~/.tribal-memory/rate-limits.json`, 600 perms).
+- `asyncio.Lock` serializes concurrent rate limit file writes.
+- Thread-safe dict copies prevent `RuntimeError` in background persistence.
+- Graph UI tokens entered via login form only — never in URLs (prevents Referer/history leaks).
+- All user input rendered with `textContent` (XSS prevention).
+- Entity name validation (empty, max length 500).
+- URL parameters properly encoded (`encodeURIComponent`).
+
+### Fixed
+- Auth logging: `logger.info` → `logger.debug` for successful auth (reduces production log noise).
+
+---
+
 ## [0.7.3] - 2026-02-09 ([PyPI](https://pypi.org/project/tribalmemory/0.7.3/))
 
 ### Added

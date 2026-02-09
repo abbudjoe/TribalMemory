@@ -54,20 +54,23 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 3. Push branch, open PR
 4. **Post PR comment: `@claude review this PR`** ← REQUIRED, DO NOT SKIP  
    ⚠️ **Note:** This is a comment on the PR (not the commit message)
-5. **Wait 5 minutes, then check PR for review comments**
-6. **Address ALL comments from the review** (every single item)
-7. Commit fixes, **push**
-8. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
-9. **Wait 5 minutes, check for new review comments**
-10. Issues remaining? → Go to step 6 (address all comments again)
-11. When clean: Comment `@abbudjoe ready for merge`
+5. **Post PR comment: `@codex review this PR`** ← REQUIRED, DO NOT SKIP
+6. **Wait 5 minutes, then check PR for review comments from both reviewers**
+7. **Address ALL comments from both reviews** (every single item)
+8. Commit fixes, **push**
+9. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
+10. **Post PR comment: `@codex review this PR`** ← REQUIRED AFTER EVERY PUSH
+11. **Wait 5 minutes, check for new review comments**
+12. Issues remaining? → Go to step 7 (address all comments again)
+13. When clean: Comment `@abbudjoe ready for merge`
 12. Joe reviews and merges
 
 **CRITICAL:**
 - ❌ No direct commits to main (except hotfixes approved by Joe)
 - ❌ No merges without Claude Code review
 - ❌ No skipping the `@claude review this PR` comment (required after EVERY push)
-- ❌ Do NOT put `@claude review this PR` in commit messages
+- ❌ No skipping the `@codex review this PR` comment (required after EVERY push)
+- ❌ Do NOT put review trigger comments in commit messages
 - ❌ Do NOT rely on automatic GitHub Action triggers
 - ❌ Do NOT skip review items marked "low priority", "nice to have", or "suggestion"
 - ✅ The comment must be **standalone** on the PR (not combined with other text)

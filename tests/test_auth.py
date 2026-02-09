@@ -16,7 +16,9 @@ from tribalmemory.server.auth import (
     TokenAuthMiddleware,
     _constant_time_compare,
     generate_token,
+    load_rate_limit_state,
     load_token,
+    save_rate_limit_state,
     save_token,
 )
 
@@ -115,10 +117,20 @@ class TestConstantTimeCompare:
 # ---------------------------------------------------------------------------
 
 
-def _create_test_app(token=None):
+def _create_test_app(token=None, rate_limit_path=None):
     """Create a minimal FastAPI app with auth middleware for testing."""
+    import tempfile
     app = FastAPI()
-    app.add_middleware(TokenAuthMiddleware, token=token)
+    # Use isolated rate limit path to prevent test state leaking
+    if rate_limit_path is None:
+        rate_limit_path = Path(
+            tempfile.mkdtemp()
+        ) / "rate-limits.json"
+    app.add_middleware(
+        TokenAuthMiddleware,
+        token=token,
+        rate_limit_path=rate_limit_path,
+    )
 
     @app.get("/health")
     async def health():
@@ -342,3 +354,204 @@ class TestAuthMiddleware:
         from tribalmemory.server.auth import MAX_TRACKED_IPS
         assert MAX_TRACKED_IPS > 0
         assert MAX_TRACKED_IPS <= 100000
+
+
+# ---------------------------------------------------------------------------
+# Rate limit persistence
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitPersistence:
+    """Tests for rate limit state persistence to disk."""
+
+    def test_save_and_load_round_trip(self, tmp_path):
+        """Persisted rate limit state survives save/load cycle."""
+        path = tmp_path / "rate-limits.json"
+        future = time.time() + 3600  # 1 hour from now
+
+        save_rate_limit_state(
+            {"1.2.3.4": 10, "5.6.7.8": 5},
+            {"1.2.3.4": future, "5.6.7.8": future},
+            path,
+        )
+
+        failures, cooldowns = load_rate_limit_state(path)
+        assert failures["1.2.3.4"] == 10
+        assert failures["5.6.7.8"] == 5
+        assert cooldowns["1.2.3.4"] == future
+        assert cooldowns["5.6.7.8"] == future
+
+    def test_expired_cooldowns_not_loaded(self, tmp_path):
+        """Expired cooldowns are filtered out on load."""
+        path = tmp_path / "rate-limits.json"
+        past = time.time() - 100  # already expired
+        future = time.time() + 3600
+
+        save_rate_limit_state(
+            {"expired": 10, "active": 10},
+            {"expired": past, "active": future},
+            path,
+        )
+
+        # Re-write to include expired entry (save filters it out,
+        # so we write directly for this test)
+        import json
+        with open(path, "w") as f:
+            json.dump({
+                "expired_ip": {
+                    "failures": 10,
+                    "cooldown_until": past,
+                },
+                "active_ip": {
+                    "failures": 10,
+                    "cooldown_until": future,
+                },
+            }, f)
+
+        failures, cooldowns = load_rate_limit_state(path)
+        assert "expired_ip" not in failures
+        assert "active_ip" in failures
+        assert failures["active_ip"] == 10
+
+    def test_nonexistent_file_returns_empty(self, tmp_path):
+        """Loading from nonexistent file returns empty dicts."""
+        path = tmp_path / "nonexistent.json"
+        failures, cooldowns = load_rate_limit_state(path)
+        assert failures == {}
+        assert cooldowns == {}
+
+    def test_corrupted_file_returns_empty(self, tmp_path):
+        """Corrupted JSON file returns empty dicts (graceful)."""
+        path = tmp_path / "rate-limits.json"
+        with open(path, "w") as f:
+            f.write("not valid json{{{")
+
+        failures, cooldowns = load_rate_limit_state(path)
+        assert failures == {}
+        assert cooldowns == {}
+
+    def test_save_removes_file_when_no_active(self, tmp_path):
+        """File is cleaned up when no active cooldowns exist."""
+        path = tmp_path / "rate-limits.json"
+        past = time.time() - 100
+
+        # First create the file with active entry
+        future = time.time() + 3600
+        save_rate_limit_state(
+            {"1.2.3.4": 10},
+            {"1.2.3.4": future},
+            path,
+        )
+        assert path.exists()
+
+        # Now save with only expired entries
+        save_rate_limit_state(
+            {"1.2.3.4": 10},
+            {"1.2.3.4": past},
+            path,
+        )
+        assert not path.exists()
+
+    def test_save_sets_secure_permissions(self, tmp_path):
+        """Rate limit file should have 600 permissions."""
+        path = tmp_path / "rate-limits.json"
+        future = time.time() + 3600
+
+        save_rate_limit_state(
+            {"1.2.3.4": 10},
+            {"1.2.3.4": future},
+            path,
+        )
+
+        perms = oct(path.stat().st_mode)[-3:]
+        assert perms == "600"
+
+    def test_middleware_loads_persisted_state(self, tmp_path):
+        """Middleware picks up persisted rate limits on init."""
+        path = tmp_path / "rate-limits.json"
+        future = time.time() + 3600
+
+        # Persist a cooldown for testclient's IP
+        save_rate_limit_state(
+            {"testclient": MAX_FAILURES},
+            {"testclient": future},
+            path,
+        )
+
+        # Create app with the persisted state
+        app = _create_test_app(
+            token="tm_secret",
+            rate_limit_path=path,
+        )
+        client = TestClient(app)
+
+        # Should be immediately rate-limited
+        response = client.get(
+            "/v1/stats",
+            headers={"Authorization": "Bearer tm_secret"},
+        )
+        assert response.status_code == 429
+
+    def test_middleware_persists_on_cooldown(self, tmp_path):
+        """Middleware writes state to disk when cooldown triggers."""
+        path = tmp_path / "rate-limits.json"
+        app = _create_test_app(
+            token="tm_secret",
+            rate_limit_path=path,
+        )
+        client = TestClient(app)
+
+        assert not path.exists()
+
+        # Trigger rate limiting
+        for _ in range(MAX_FAILURES):
+            client.get(
+                "/v1/stats",
+                headers={"Authorization": "Bearer tm_wrong"},
+            )
+
+        # State should be persisted
+        assert path.exists()
+        failures, cooldowns = load_rate_limit_state(path)
+        assert len(failures) > 0
+
+
+# ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLogging:
+    """Tests for auth audit logging."""
+
+    def test_successful_auth_logged(self, tmp_path, caplog):
+        """Successful authentication should be logged at INFO."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="tribalmemory.auth"):
+            app = _create_test_app(token="tm_secret")
+            client = TestClient(app)
+            client.get(
+                "/v1/stats",
+                headers={"Authorization": "Bearer tm_secret"},
+            )
+
+        assert any(
+            "Auth success" in r.message and "/v1/stats" in r.message
+            for r in caplog.records
+        )
+
+    def test_failed_auth_not_logged_as_success(self, tmp_path, caplog):
+        """Failed auth should NOT produce success log."""
+        import logging
+        with caplog.at_level(logging.INFO, logger="tribalmemory.auth"):
+            app = _create_test_app(token="tm_secret")
+            client = TestClient(app)
+            client.get(
+                "/v1/stats",
+                headers={"Authorization": "Bearer tm_wrong"},
+            )
+
+        assert not any(
+            "Auth success" in r.message
+            for r in caplog.records
+        )

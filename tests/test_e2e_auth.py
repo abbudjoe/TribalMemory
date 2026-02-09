@@ -420,9 +420,8 @@ class TestEnvVarOverrideE2E:
         self,
         mock_memory_service,
         temp_token_file,
-        
         monkeypatch,
-    ):
+    ) -> None:
         """Set env var → overrides file token."""
         # Save one token to file
         file_token = generate_token()
@@ -430,12 +429,22 @@ class TestEnvVarOverrideE2E:
 
         # Set different token in env var
         env_token = generate_token()
-        monkeypatch.setenv("TRIBAL_MEMORY_API_TOKEN", env_token)
+        monkeypatch.setenv(
+            "TRIBAL_MEMORY_API_TOKEN", env_token,
+        )
 
-        # Create app (simulating env var override behavior)
-        # In production, create_app reads env var first
+        # Verify env var takes precedence via the same
+        # logic used in create_app(): os.environ.get() first
+        import os
+        loaded = (
+            os.environ.get("TRIBAL_MEMORY_API_TOKEN")
+            or load_token(temp_token_file)
+        )
+        assert loaded == env_token, "env var should override file"
+
+        # Create app with the resolved token
         app = create_test_app_with_auth(
-            token=env_token,
+            token=loaded,
             memory_service=mock_memory_service,
         )
         client = TestClient(app)

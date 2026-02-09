@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tribalmemory = ["server/static/*"]
+tribalmemory = ["server/static/*", "server/static/**/*"]
 
 [project]
 name = "tribalmemory"

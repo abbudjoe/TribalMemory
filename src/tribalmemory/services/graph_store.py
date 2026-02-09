@@ -2128,6 +2128,39 @@ class GraphStore:
             
             return [row['memory_id'] for row in rows]
 
+    def get_entity_by_exact_name(
+        self, name: str,
+    ) -> Optional[dict]:
+        """Look up a single entity by exact name.
+
+        Args:
+            name: Exact entity name to find.
+
+        Returns:
+            Dict with name, entity_type, memory_count
+            or None if not found.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT e.name, e.entity_type,
+                    COUNT(em.memory_id) as mem_count
+                FROM entities e
+                LEFT JOIN entity_memories em
+                    ON e.id = em.entity_id
+                WHERE e.name = ?
+                GROUP BY e.id, e.name, e.entity_type
+                """,
+                (name,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "name": row["name"],
+            "entity_type": row["entity_type"],
+            "memory_count": row["mem_count"],
+        }
+
     def get_memory_counts_batch(
         self, entity_names: list[str],
     ) -> dict[str, int]:

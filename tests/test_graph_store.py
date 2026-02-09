@@ -261,3 +261,31 @@ class TestGraphStoreIntegration:
         
         assert "mem-pg" in all_memories
         assert "mem-pgb" in all_memories
+
+    def test_get_entity_by_exact_name(
+        self, graph_store,
+    ):
+        """Exact name lookup returns one entity."""
+        graph_store.add_entity(
+            Entity("Python", "technology"), "m-1",
+        )
+        graph_store.add_entity(
+            Entity("Python SDK", "library"), "m-2",
+        )
+
+        result = graph_store.get_entity_by_exact_name(
+            "Python",
+        )
+        assert result is not None
+        assert result["name"] == "Python"
+        assert result["entity_type"] == "technology"
+        assert result["memory_count"] >= 1
+
+    def test_get_entity_by_exact_name_missing(
+        self, graph_store,
+    ):
+        """Exact name lookup returns None when absent."""
+        result = graph_store.get_entity_by_exact_name(
+            "NonExistent",
+        )
+        assert result is None

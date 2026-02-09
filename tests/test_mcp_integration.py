@@ -294,6 +294,39 @@ class TestMCPErrorHandling:
         }))
         assert "results" in result
 
+    @pytest.mark.asyncio
+    async def test_remember_blank_project_returns_error(self, mcp_app):
+        """Blank project should return error, not crash."""
+        for blank in ["", "  ", "\t"]:
+            result = _parse(await mcp_app.call_tool("tribal_remember", {
+                "content": "Valid content",
+                "project": blank,
+            }))
+            assert result["success"] is False
+            assert "blank" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_remember_with_project_adds_tag(self, mcp_app):
+        """MCP remember with project should add project:<name> tag."""
+        result = _parse(await mcp_app.call_tool("tribal_remember", {
+            "content": "MCP project scoping test memory",
+            "source_type": "user_explicit",
+            "project": "  my-app  ",  # whitespace should be stripped
+        }))
+        assert result["success"] is True
+
+        # Recall and verify tag
+        recall = _parse(await mcp_app.call_tool("tribal_recall", {
+            "query": "MCP project scoping test",
+            "min_relevance": 0.0,
+        }))
+        found = False
+        for r in recall["results"]:
+            if "project:my-app" in r.get("tags", []):
+                found = True
+                break
+        assert found, "Expected project:my-app tag in recall results"
+
 
 # ---------------------------------------------------------------------------
 # Test: Tag Filtering

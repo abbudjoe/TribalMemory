@@ -93,11 +93,18 @@ async def remember(
 ) -> StoreResponse:
     """Store a new memory."""
     try:
+        # Merge project tag into tags list
+        tags = list(request.tags or [])
+        if request.project:
+            project_tag = f"project:{request.project}"
+            if project_tag not in tags:
+                tags.append(project_tag)
+
         result = await service.remember(
             content=request.content,
             source_type=_convert_source_type(request.source_type),
             context=request.context,
-            tags=request.tags,
+            tags=tags or None,
             skip_dedup=request.skip_dedup,
         )
 
@@ -139,11 +146,18 @@ async def remember_batch(
     async def process_memory(mem: RememberRequest) -> StoreResponse:
         """Process a single memory, handling exceptions."""
         try:
+            # Merge project tag into tags list (same as single remember)
+            tags = list(mem.tags or [])
+            if mem.project:
+                project_tag = f"project:{mem.project}"
+                if project_tag not in tags:
+                    tags.append(project_tag)
+
             result = await service.remember(
                 content=mem.content,
                 source_type=_convert_source_type(mem.source_type),
                 context=mem.context,
-                tags=mem.tags,
+                tags=tags or None,
                 skip_dedup=mem.skip_dedup,
             )
             return StoreResponse(
@@ -188,14 +202,26 @@ async def recall(
     try:
         start_time = time.time()
 
+        # Over-fetch when project filter is active to compensate for
+        # post-filter losses, then truncate to requested limit.
+        fetch_limit = request.limit * 3 if request.project else request.limit
+
         results = await service.recall(
             query=request.query,
-            limit=request.limit,
+            limit=fetch_limit,
             min_relevance=request.min_relevance,
             tags=request.tags,
             after=request.after,
             before=request.before,
         )
+
+        # Post-filter by project (AND with tag filter, not OR).
+        # May return fewer than `limit` if insufficient matches exist.
+        if request.project:
+            project_tag = f"project:{request.project}"
+            results = [
+                r for r in results if project_tag in r.memory.tags
+            ][:request.limit]
 
         total_time_ms = (time.time() - start_time) * 1000
 

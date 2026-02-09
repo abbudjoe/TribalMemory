@@ -120,9 +120,11 @@ After 10 failures from the same IP, the server returns `429 Too Many
 Requests` for 60 seconds. A successful authentication clears the
 failure count for that IP.
 
-Rate limit state is in-memory only and resets on server restart.
-The server tracks up to 10,000 unique IPs to prevent unbounded
-memory growth.
+Rate limit state is persisted to `~/.tribal-memory/rate-limits.json`
+(600 permissions) and survives server restarts. Only active cooldowns
+are saved; expired entries are auto-cleaned on load, and the file is
+removed when no cooldowns exist. The server tracks up to 10,000
+unique IPs to prevent unbounded memory growth.
 
 ## HTTPS / Transport Security
 

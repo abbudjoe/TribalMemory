@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TribalMemory — Knowledge Graph</title>
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --purple: #bc8cff;
+    --orange: #d29922;
+    --red: #f85149;
+    --pink: #f778ba;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Helvetica, Arial, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  header .stats {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-left: auto;
+  }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    align-items: center;
+  }
+  input, select, button {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+  input:focus, select:focus {
+    border-color: var(--accent);
+  }
+  button {
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-weight: 500;
+  }
+  button:hover { opacity: 0.85; }
+  button.secondary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  #search { width: 220px; }
+  #cy {
+    flex: 1;
+    background: var(--bg);
+  }
+  .panel {
+    position: absolute;
+    right: 16px;
+    top: 110px;
+    width: 280px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: none;
+    z-index: 10;
+    max-height: calc(100vh - 130px);
+    overflow-y: auto;
+  }
+  .panel.open { display: block; }
+  .panel h3 {
+    font-size: 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel .close {
+    margin-left: auto;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 18px;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .panel .type-badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .panel .meta {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .panel .connections {
+    list-style: none;
+    font-size: 13px;
+  }
+  .panel .connections li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .panel .connections li:hover {
+    color: var(--accent);
+  }
+  .panel .connections .rel-type {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .legend {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    align-items: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    z-index: 100;
+    display: none;
+  }
+  .toast.show { display: block; }
+  #auth-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 12px;
+  }
+  #auth-form input { width: 300px; }
+</style>
+</head>
+<body>
+
+<!-- Auth screen -->
+<div id="auth-form">
+  <h2>🧠 TribalMemory Graph</h2>
+  <p style="color: var(--text-dim); font-size: 13px;">
+    Enter your API token to explore the knowledge graph
+  </p>
+  <input type="password" id="token-input"
+    placeholder="tm_..." autocomplete="off">
+  <button onclick="authenticate()">Connect</button>
+  <p id="auth-error" style="color: var(--red); font-size: 12px;
+    display: none;"></p>
+</div>
+
+<!-- Main UI (hidden until auth) -->
+<div id="main-ui" style="display: none; height: 100vh;
+  display: none; flex-direction: column;">
+  <header>
+    <span style="font-size: 20px;">🧠</span>
+    <h1>Knowledge Graph</h1>
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-dot"
+          style="background: var(--accent);"></span>
+        person
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"
+          style="background: var(--green);"></span>
+        technology
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"
+          style="background: var(--purple);"></span>
+        concept
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"
+          style="background: var(--orange);"></span>
+        service
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot"
+          style="background: var(--pink);"></span>
+        other
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="toolbar">
+    <input type="text" id="search"
+      placeholder="Search entities...">
+    <select id="type-filter">
+      <option value="">All types</option>
+    </select>
+    <label style="font-size: 13px; color: var(--text-dim);">
+      Hops:
+      <select id="hops">
+        <option value="1" selected>1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </label>
+    <button class="secondary" onclick="resetView()">
+      Reset
+    </button>
+    <button class="secondary" onclick="fitGraph()">
+      Fit
+    </button>
+  </div>
+
+  <div id="cy"></div>
+
+  <div class="panel" id="detail-panel">
+    <h3>
+      <span id="panel-name"></span>
+      <span class="type-badge" id="panel-type"></span>
+      <button class="close" onclick="closePanel()">×</button>
+    </h3>
+    <div class="meta" id="panel-meta"></div>
+    <p style="font-size: 12px; color: var(--text-dim);
+      margin-bottom: 6px;">Connections:</p>
+    <ul class="connections" id="panel-connections"></ul>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TYPE_COLORS = {
+  person: '#58a6ff',
+  technology: '#3fb950',
+  concept: '#bc8cff',
+  service: '#d29922',
+  data: '#f85149',
+  organization: '#f778ba',
+};
+const DEFAULT_COLOR = '#f778ba';
+
+let cy = null;
+let apiToken = '';
+
+function getColor(type) {
+  return TYPE_COLORS[type] || DEFAULT_COLOR;
+}
+
+function toast(msg, ms = 2000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), ms);
+}
+
+async function apiFetch(path) {
+  const res = await fetch('/v1/graph' + path, {
+    headers: { 'Authorization': 'Bearer ' + apiToken },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+async function authenticate() {
+  const input = document.getElementById('token-input');
+  const err = document.getElementById('auth-error');
+  apiToken = input.value.trim();
+
+  if (!apiToken) {
+    err.textContent = 'Token required';
+    err.style.display = 'block';
+    return;
+  }
+
+  try {
+    await apiFetch('/stats');
+    err.style.display = 'none';
+    document.getElementById('auth-form').style.display = 'none';
+    const mainUI = document.getElementById('main-ui');
+    mainUI.style.display = 'flex';
+    initGraph();
+  } catch (e) {
+    err.textContent = 'Authentication failed';
+    err.style.display = 'block';
+    apiToken = '';
+  }
+}
+
+document.getElementById('token-input')
+  .addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') authenticate();
+  });
+
+// Check URL param for token
+const urlToken = new URLSearchParams(
+  window.location.search
+).get('token');
+if (urlToken) {
+  document.getElementById('token-input').value = urlToken;
+  // Remove token from URL for security
+  history.replaceState(null, '', '/graph');
+  authenticate();
+}
+
+async function initGraph() {
+  cy = cytoscape({
+    container: document.getElementById('cy'),
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'label': 'data(label)',
+          'background-color': 'data(color)',
+          'color': '#e6edf3',
+          'text-valign': 'bottom',
+          'text-margin-y': 6,
+          'font-size': 11,
+          'width': 'data(size)',
+          'height': 'data(size)',
+          'border-width': 0,
+          'text-outline-color': '#0d1117',
+          'text-outline-width': 2,
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 3,
+          'border-color': '#ffffff',
+        },
+      },
+      {
+        selector: 'node.focal',
+        style: {
+          'border-width': 3,
+          'border-color': '#ffffff',
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          'width': 1.5,
+          'line-color': '#30363d',
+          'target-arrow-color': '#30363d',
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          'arrow-scale': 0.8,
+          'label': 'data(label)',
+          'font-size': 9,
+          'color': '#8b949e',
+          'text-rotation': 'autorotate',
+          'text-outline-color': '#0d1117',
+          'text-outline-width': 1.5,
+        },
+      },
+      {
+        selector: 'edge:selected',
+        style: {
+          'line-color': '#58a6ff',
+          'target-arrow-color': '#58a6ff',
+          'width': 2.5,
+        },
+      },
+    ],
+    layout: { name: 'preset' },
+    minZoom: 0.2,
+    maxZoom: 5,
+  });
+
+  cy.on('tap', 'node', (e) => {
+    const node = e.target;
+    showPanel(node.data());
+  });
+
+  cy.on('dbltap', 'node', (e) => {
+    const name = e.target.data('id');
+    exploreEntity(name);
+  });
+
+  cy.on('tap', (e) => {
+    if (e.target === cy) closePanel();
+  });
+
+  // Load stats
+  const stats = await apiFetch('/stats');
+  document.getElementById('stats').textContent =
+    `${stats.entity_count} entities · ` +
+    `${stats.relationship_count} relationships`;
+
+  // Populate type filter
+  const select = document.getElementById('type-filter');
+  for (const [type, count] of
+    Object.entries(stats.entity_types)
+      .sort((a, b) => b[1] - a[1])) {
+    const opt = document.createElement('option');
+    opt.value = type;
+    opt.textContent = `${type} (${count})`;
+    select.appendChild(opt);
+  }
+
+  // Load initial view — top entities
+  await loadTopEntities();
+}
+
+async function loadTopEntities() {
+  toast('Loading graph...');
+  const data = await apiFetch('/entities?limit=30');
+
+  if (data.entities.length === 0) {
+    toast('No entities found', 3000);
+    return;
+  }
+
+  // Pick the top entity and explore it
+  await exploreEntity(data.entities[0].name);
+}
+
+async function exploreEntity(name) {
+  const hops = document.getElementById('hops').value;
+  toast(`Exploring ${name}...`);
+
+  try {
+    const data = await apiFetch(
+      `/neighborhood/${encodeURIComponent(name)}?hops=${hops}`
+    );
+    renderGraph(data);
+  } catch (e) {
+    toast('Entity not found', 2000);
+  }
+}
+
+function renderGraph(data) {
+  cy.elements().remove();
+
+  const elements = [];
+
+  for (const node of data.nodes) {
+    const size = Math.max(
+      20, Math.min(60, 20 + node.memory_count * 3)
+    );
+    elements.push({
+      group: 'nodes',
+      data: {
+        id: node.name,
+        label: node.name,
+        type: node.entity_type,
+        color: getColor(node.entity_type),
+        size: size,
+        memoryCount: node.memory_count,
+      },
+    });
+  }
+
+  for (const edge of data.edges) {
+    elements.push({
+      group: 'edges',
+      data: {
+        id: `${edge.source}-${edge.relation_type}-${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        label: edge.relation_type,
+      },
+    });
+  }
+
+  cy.add(elements);
+
+  // Mark focal node
+  const focal = cy.getElementById(data.focal);
+  if (focal.length) focal.addClass('focal');
+
+  // Layout
+  cy.layout({
+    name: 'cose',
+    animate: true,
+    animationDuration: 500,
+    nodeRepulsion: 8000,
+    idealEdgeLength: 120,
+    gravity: 0.25,
+    padding: 40,
+    randomize: true,
+  }).run();
+
+  toast(
+    `${data.nodes.length} nodes · ${data.edges.length} edges`,
+    2000
+  );
+}
+
+function showPanel(nodeData) {
+  const panel = document.getElementById('detail-panel');
+  document.getElementById('panel-name').textContent =
+    nodeData.label;
+
+  const badge = document.getElementById('panel-type');
+  badge.textContent = nodeData.type;
+  badge.style.background = getColor(nodeData.type);
+  badge.style.color = '#fff';
+
+  document.getElementById('panel-meta').textContent =
+    `${nodeData.memoryCount} memories`;
+
+  // Get connections from graph
+  const node = cy.getElementById(nodeData.id);
+  const edges = node.connectedEdges();
+  const list = document.getElementById('panel-connections');
+  list.innerHTML = '';
+
+  edges.forEach((edge) => {
+    const other = edge.source().id() === nodeData.id
+      ? edge.target() : edge.source();
+    const li = document.createElement('li');
+    li.innerHTML =
+      `${other.data('label')} ` +
+      `<span class="rel-type">${edge.data('label')}</span>`;
+    li.onclick = () => exploreEntity(other.id());
+    list.appendChild(li);
+  });
+
+  panel.classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('detail-panel')
+    .classList.remove('open');
+}
+
+function resetView() {
+  loadTopEntities();
+  closePanel();
+}
+
+function fitGraph() {
+  if (cy) cy.fit(40);
+}
+
+// Search
+let searchTimeout;
+document.getElementById('search')
+  .addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(async () => {
+      const q = e.target.value.trim();
+      if (q.length < 2) return;
+
+      const data = await apiFetch(
+        `/entities?search=${encodeURIComponent(q)}&limit=10`
+      );
+      if (data.entities.length > 0) {
+        exploreEntity(data.entities[0].name);
+      }
+    }, 300);
+  });
+
+// Type filter
+document.getElementById('type-filter')
+  .addEventListener('change', async (e) => {
+    const type = e.target.value;
+    const url = type
+      ? `/entities?entity_type=${type}&limit=20`
+      : '/entities?limit=30';
+    const data = await apiFetch(url);
+    if (data.entities.length > 0) {
+      exploreEntity(data.entities[0].name);
+    }
+  });
+</script>
+</body>
+</html>

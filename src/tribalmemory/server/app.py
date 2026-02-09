@@ -19,6 +19,7 @@ from ..services.session_store import (
 )
 from .auth import TokenAuthMiddleware, load_token
 from .config import TribalMemoryConfig
+from .graph_routes import router as graph_router
 from .routes import router
 
 # Global service instance (set during lifespan)
@@ -198,6 +199,23 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
 
     # Include routes
     app.include_router(router)
+    app.include_router(graph_router)
+
+    # Serve graph UI
+    static_dir = Path(__file__).parent / "static"
+
+    @app.get("/graph")
+    async def graph_ui():
+        """Serve the knowledge graph explorer."""
+        from fastapi.responses import HTMLResponse
+        html_path = static_dir / "graph.html"
+        if not html_path.exists():
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=404,
+                detail="Graph UI not found",
+            )
+        return HTMLResponse(html_path.read_text())
 
     # Root endpoint
     @app.get("/")
@@ -206,6 +224,7 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
             "service": "tribal-memory",
             "version": "0.1.0",
             "docs": "/docs",
+            "graph": "/graph",
         }
 
     return app

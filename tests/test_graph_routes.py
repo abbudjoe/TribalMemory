@@ -245,6 +245,45 @@ class TestNeighborhoodValidation:
         assert data["edges"] == []
 
 
+    def test_isolated_entity_exact_match(
+        self, tmp_path,
+    ) -> None:
+        """Exact-name lookup should not miss entities
+        when many substring matches exist."""
+        from tribalmemory.services.graph_store import Entity
+        service = create_memory_service(
+            instance_id="test-exact",
+            db_path=str(tmp_path / "exact-db"),
+        )
+        app_module._memory_service = service
+        app_module._instance_id = "test-exact"
+
+        graph = service.graph_store
+        # Add target entity (isolated)
+        graph.add_entity(
+            Entity("AI", "concept"), "mem-x",
+        )
+        # Add many substring matches to verify
+        # exact lookup isn't fooled by pagination
+        for i in range(50):
+            graph.add_entity(
+                Entity(f"AI System {i}", "technology"),
+                f"mem-{i}",
+            )
+
+        app = FastAPI()
+        app.include_router(main_router)
+        app.include_router(router)
+        client = TestClient(app)
+
+        resp = client.get("/v1/graph/neighborhood/AI")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["focal"] == "AI"
+        assert len(data["nodes"]) == 1
+        assert data["nodes"][0]["name"] == "AI"
+
+
 class TestGraphUI:
     """Test /graph HTML endpoint."""
 
@@ -257,3 +296,27 @@ class TestGraphUI:
         assert resp.status_code == 200
         assert "cytoscape" in resp.text.lower()
         assert "Knowledge Graph" in resp.text
+
+
+class TestStaticAssets:
+    """Verify static assets are packaged correctly."""
+
+    def test_static_files_exist(self) -> None:
+        """Static files must exist alongside server code."""
+        import importlib.resources as resources
+        import tribalmemory.server as srv
+        srv_dir = (
+            resources.files(srv) / "static"
+        )
+        assert srv_dir.is_dir(), (
+            "server/static/ directory missing — "
+            "check pyproject.toml package-data"
+        )
+        graph_html = srv_dir / "graph.html"
+        cytoscape_js = srv_dir / "cytoscape.min.js"
+        assert graph_html.is_file(), (
+            "graph.html missing from static/"
+        )
+        assert cytoscape_js.is_file(), (
+            "cytoscape.min.js missing from static/"
+        )

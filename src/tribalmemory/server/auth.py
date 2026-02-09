@@ -228,6 +228,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         "/redoc",
         "/openapi.json",
         "/",
+        "/graph",
     })
 
     def __init__(

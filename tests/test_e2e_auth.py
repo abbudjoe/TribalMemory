@@ -145,7 +145,7 @@ def create_test_app_with_auth(
 class TestTokenFlowE2E:
     """Test complete token generation, save, and auth flow."""
 
-    async def test_token_flow_end_to_end(
+    def test_token_flow_end_to_end(
         self, mock_memory_service, temp_token_file
     ):
         """Generate token → save → start server → auth requests."""
@@ -178,7 +178,7 @@ class TestTokenFlowE2E:
 class TestRejectionFlowE2E:
     """Test auth rejection scenarios."""
 
-    async def test_request_without_token_rejected(
+    def test_request_without_token_rejected(
         self, mock_memory_service
     ):
         """Server with token → request without token → 401."""
@@ -200,7 +200,7 @@ class TestRejectionFlowE2E:
         assert "Missing API token" in data["error"]
         assert response.headers.get("WWW-Authenticate") == "Bearer"
 
-    async def test_request_with_wrong_token_rejected(
+    def test_request_with_wrong_token_rejected(
         self, mock_memory_service
     ):
         """Server with token → request with wrong token → 401."""
@@ -229,7 +229,7 @@ class TestRejectionFlowE2E:
 class TestLegacyModeE2E:
     """Test server behavior without token (legacy mode)."""
 
-    async def test_legacy_mode_allows_all_requests(
+    def test_legacy_mode_allows_all_requests(
         self, mock_memory_service
     ):
         """Server without token → all requests allowed."""
@@ -253,7 +253,7 @@ class TestLegacyModeE2E:
 class TestPublicPathsE2E:
     """Test public endpoints that never require auth."""
 
-    async def test_health_endpoints_public(
+    def test_health_endpoints_public(
         self, mock_memory_service
     ):
         """Health endpoints accessible without auth even with token."""
@@ -275,7 +275,7 @@ class TestPublicPathsE2E:
 class TestRememberWithAuthE2E:
     """Test /v1/remember endpoint with authentication."""
 
-    async def test_remember_with_valid_token_succeeds(
+    def test_remember_with_valid_token_succeeds(
         self, mock_memory_service
     ):
         """POST /v1/remember with valid token → success."""
@@ -304,7 +304,7 @@ class TestRememberWithAuthE2E:
 class TestRecallWithAuthE2E:
     """Test /v1/recall endpoint with authentication."""
 
-    async def test_recall_with_valid_token_succeeds(
+    def test_recall_with_valid_token_succeeds(
         self, mock_memory_service
     ):
         """POST /v1/recall with valid token → success."""
@@ -337,7 +337,7 @@ class TestRecallWithAuthE2E:
 class TestRateLimitingE2E:
     """Test rate limiting on failed auth attempts."""
 
-    async def test_rate_limiting_triggers_on_bad_tokens(
+    def test_rate_limiting_triggers_on_bad_tokens(
         self, mock_memory_service
     ):
         """10 bad tokens → 429 on 11th."""
@@ -374,7 +374,7 @@ class TestRateLimitingE2E:
 class TestTokenRotationE2E:
     """Test token rotation flow."""
 
-    async def test_token_rotation_old_fails_new_works(
+    def test_token_rotation_old_fails_new_works(
         self, mock_memory_service, temp_token_file
     ):
         """Generate → use → rotate → old token fails, new works."""
@@ -431,7 +431,7 @@ class TestTokenRotationE2E:
 class TestEnvVarOverrideE2E:
     """Test TRIBAL_MEMORY_API_TOKEN env var override."""
 
-    async def test_env_var_overrides_file(
+    def test_env_var_overrides_file(
         self,
         mock_memory_service,
         temp_token_file,
@@ -476,7 +476,7 @@ class TestEnvVarOverrideE2E:
 class TestOtherEndpointsWithAuth:
     """Test other API endpoints require auth."""
 
-    async def test_forget_endpoint_requires_auth(
+    def test_forget_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """DELETE /v1/forget/{id} requires auth."""
@@ -499,7 +499,7 @@ class TestOtherEndpointsWithAuth:
         # Should get 200, not 401
         assert response.status_code == 200
 
-    async def test_get_memory_endpoint_requires_auth(
+    def test_get_memory_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """GET /v1/memory/{id} requires auth."""
@@ -522,7 +522,7 @@ class TestOtherEndpointsWithAuth:
         # Should get 404, not 401
         assert response.status_code == 404
 
-    async def test_stats_endpoint_requires_auth(
+    def test_stats_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """GET /v1/stats requires auth."""
@@ -549,7 +549,7 @@ class TestOtherEndpointsWithAuth:
 class TestOptionsRequestsPublic:
     """Test OPTIONS (CORS preflight) never require auth."""
 
-    async def test_options_request_public(
+    def test_options_request_public(
         self, mock_memory_service
     ):
         """OPTIONS requests should not require auth."""

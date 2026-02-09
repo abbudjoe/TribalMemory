@@ -566,9 +566,9 @@ class TestAuditLogging:
     """Tests for auth audit logging."""
 
     def test_successful_auth_logged(self, tmp_path, caplog):
-        """Successful authentication should be logged at INFO."""
+        """Successful auth should be logged at DEBUG."""
         import logging
-        with caplog.at_level(logging.INFO, logger="tribalmemory.auth"):
+        with caplog.at_level(logging.DEBUG, logger="tribalmemory.auth"):
             app = _create_test_app(token="tm_secret")
             client = TestClient(app)
             client.get(

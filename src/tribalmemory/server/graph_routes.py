@@ -109,7 +109,9 @@ async def list_entities(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     entity_type: Optional[str] = Query(default=None),
-    search: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(
+        default=None, max_length=200,
+    ),
     service: TribalMemoryService = Depends(
         get_memory_service,
     ),
@@ -170,13 +172,17 @@ async def neighborhood(
 
     if not connected:
         # Entity might exist but have no relationships.
-        # Check if it exists at all via list_entities.
+        # Use exact-name search to avoid substring false matches
+        # (e.g. "Python" matching "Python SDK").
         found, _ = await asyncio.to_thread(
             graph.list_entities,
             search=entity_name,
-            limit=1,
+            limit=50,
         )
-        if not found or found[0]["name"] != entity_name:
+        exact = [
+            e for e in found if e["name"] == entity_name
+        ]
+        if not exact:
             raise HTTPException(
                 status_code=404,
                 detail=f"Entity '{entity_name}' not found",
@@ -185,8 +191,8 @@ async def neighborhood(
         from ..services.graph_store import Entity
         connected = [
             Entity(
-                name=found[0]["name"],
-                entity_type=found[0]["entity_type"],
+                name=exact[0]["name"],
+                entity_type=exact[0]["entity_type"],
             ),
         ]
 

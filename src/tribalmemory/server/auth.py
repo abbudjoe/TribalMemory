@@ -381,7 +381,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
         # Auth success
         self._clear_failures(client_ip)
-        logger.info(
+        logger.debug(
             "Auth success: %s %s from %s",
             request.method,
             request.url.path,

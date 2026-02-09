@@ -201,8 +201,14 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     app.include_router(router)
     app.include_router(graph_router)
 
-    # Serve graph UI
+    # Serve static files + graph UI
+    from fastapi.staticfiles import StaticFiles
     static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount(
+            "/static", StaticFiles(directory=str(static_dir)),
+            name="static",
+        )
 
     @app.get("/graph")
     async def graph_ui():

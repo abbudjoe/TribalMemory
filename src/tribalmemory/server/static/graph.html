@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TribalMemory — Knowledge Graph</title>
-<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="/static/cytoscape.min.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -588,7 +588,8 @@ document.getElementById('search')
   .addEventListener('input', (e) => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(async () => {
-      const q = e.target.value.trim();
+      // SECURITY: limit input length, server also validates
+      const q = e.target.value.trim().slice(0, 200);
       if (q.length < 2) return;
 
       const data = await apiFetch(

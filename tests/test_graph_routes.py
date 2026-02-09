@@ -203,6 +203,48 @@ class TestNeighborhood:
         assert "uses" in edge_types or "connects_to" in edge_types
 
 
+class TestNeighborhoodValidation:
+    """Test neighborhood input validation."""
+
+    def test_empty_entity_name(
+        self, client_with_graph,
+    ) -> None:
+        """Empty entity name returns 400."""
+        resp = client_with_graph.get(
+            "/v1/graph/neighborhood/%20"
+        )
+        assert resp.status_code == 400
+
+    def test_isolated_entity(self, tmp_path) -> None:
+        """Entity with no relationships returns node."""
+        from tribalmemory.services.graph_store import Entity
+        service = create_memory_service(
+            instance_id="test-iso",
+            db_path=str(tmp_path / "iso-db"),
+        )
+        app_module._memory_service = service
+        app_module._instance_id = "test-iso"
+
+        graph = service.graph_store
+        graph.add_entity(
+            Entity("Lonely", "concept"), "mem-x",
+        )
+
+        app = FastAPI()
+        app.include_router(main_router)
+        app.include_router(router)
+        client = TestClient(app)
+
+        resp = client.get(
+            "/v1/graph/neighborhood/Lonely"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["focal"] == "Lonely"
+        assert len(data["nodes"]) == 1
+        assert data["edges"] == []
+
+
 class TestGraphUI:
     """Test /graph HTML endpoint."""
 

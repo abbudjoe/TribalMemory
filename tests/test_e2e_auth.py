@@ -7,6 +7,7 @@ including middleware, routes, and service layer.
 import os
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from fastapi import FastAPI
@@ -26,19 +27,41 @@ from tribalmemory.services.vector_store import InMemoryVectorStore
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+TEST_INSTANCE_ID = "test-e2e-auth"
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
 def clean_rate_limit_state():
-    """Clean up rate limit state before and after each test."""
+    """Clean up rate limit state before and after each test.
+    
+    Note: Each test creates a fresh TokenAuthMiddleware instance,
+    so in-memory rate limit state (_failure_count, _cooldown_until)
+    does not leak between tests. This fixture only cleans the
+    persisted state on disk.
+    """
     rate_limit_path = Path("~/.tribal-memory/rate-limits.json").expanduser()
     if rate_limit_path.exists():
         rate_limit_path.unlink()
     yield
     if rate_limit_path.exists():
         rate_limit_path.unlink()
+
+
+@pytest.fixture(autouse=True)
+def cleanup_app_module():
+    """Clean up module-level state after each test."""
+    yield
+    app_module._memory_service = None
+    app_module._instance_id = None
+    app_module._session_store = None
 
 
 @pytest.fixture
@@ -59,7 +82,7 @@ def mock_memory_service():
     embedding = MockEmbeddingService()
     vector_store = InMemoryVectorStore(embedding)
     service = TribalMemoryService(
-        instance_id="test-e2e-auth",
+        instance_id=TEST_INSTANCE_ID,
         embedding_service=embedding,
         vector_store=vector_store,
     )
@@ -67,13 +90,14 @@ def mock_memory_service():
 
 
 def create_test_app_with_auth(
-    token=None,
-    memory_service=None,
-):
+    token: Optional[str] = None,
+    memory_service: Optional[TribalMemoryService] = None,
+) -> FastAPI:
     """Create a FastAPI app with auth middleware and real routes.
     
     This mimics create_app() but allows passing token directly
-    for testing purposes.
+    for testing purposes. Uses TestClient for simpler test setup
+    while still exercising the full middleware stack.
     """
     app = FastAPI(
         title="Tribal Memory Test",
@@ -82,12 +106,12 @@ def create_test_app_with_auth(
 
     # Set up module-level service for routes
     app_module._memory_service = memory_service
-    app_module._instance_id = "test-e2e-auth"
+    app_module._instance_id = TEST_INSTANCE_ID
     
     # Set up session store (required by some routes)
     from tribalmemory.services.session_store import InMemorySessionStore
     app_module._session_store = InMemorySessionStore(
-        instance_id="test-e2e-auth",
+        instance_id=TEST_INSTANCE_ID,
         embedding_service=memory_service.embedding_service,
         vector_store=memory_service.vector_store,
     )
@@ -121,7 +145,7 @@ def create_test_app_with_auth(
 class TestTokenFlowE2E:
     """Test complete token generation, save, and auth flow."""
 
-    def test_token_flow_end_to_end(
+    async def test_token_flow_end_to_end(
         self, mock_memory_service, temp_token_file
     ):
         """Generate token → save → start server → auth requests."""
@@ -149,17 +173,12 @@ class TestTokenFlowE2E:
         assert response.status_code == 200
         assert response.json()["success"] is True
 
-    def teardown_method(self):
-        """Clean up module-level state after each test."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestRejectionFlowE2E:
     """Test auth rejection scenarios."""
 
-    def test_request_without_token_rejected(
+    async def test_request_without_token_rejected(
         self, mock_memory_service
     ):
         """Server with token → request without token → 401."""
@@ -181,7 +200,7 @@ class TestRejectionFlowE2E:
         assert "Missing API token" in data["error"]
         assert response.headers.get("WWW-Authenticate") == "Bearer"
 
-    def test_request_with_wrong_token_rejected(
+    async def test_request_with_wrong_token_rejected(
         self, mock_memory_service
     ):
         """Server with token → request with wrong token → 401."""
@@ -205,17 +224,12 @@ class TestRejectionFlowE2E:
         assert "error" in data
         assert "Invalid API token" in data["error"]
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestLegacyModeE2E:
     """Test server behavior without token (legacy mode)."""
 
-    def test_legacy_mode_allows_all_requests(
+    async def test_legacy_mode_allows_all_requests(
         self, mock_memory_service
     ):
         """Server without token → all requests allowed."""
@@ -234,17 +248,12 @@ class TestLegacyModeE2E:
         assert response.status_code == 200
         assert response.json()["success"] is True
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestPublicPathsE2E:
     """Test public endpoints that never require auth."""
 
-    def test_health_endpoints_public(
+    async def test_health_endpoints_public(
         self, mock_memory_service
     ):
         """Health endpoints accessible without auth even with token."""
@@ -261,17 +270,12 @@ class TestPublicPathsE2E:
         data = response.json()
         assert data["status"] == "ok"
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestRememberWithAuthE2E:
     """Test /v1/remember endpoint with authentication."""
 
-    def test_remember_with_valid_token_succeeds(
+    async def test_remember_with_valid_token_succeeds(
         self, mock_memory_service
     ):
         """POST /v1/remember with valid token → success."""
@@ -295,17 +299,12 @@ class TestRememberWithAuthE2E:
         assert data["success"] is True
         assert "memory_id" in data
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestRecallWithAuthE2E:
     """Test /v1/recall endpoint with authentication."""
 
-    def test_recall_with_valid_token_succeeds(
+    async def test_recall_with_valid_token_succeeds(
         self, mock_memory_service
     ):
         """POST /v1/recall with valid token → success."""
@@ -333,17 +332,12 @@ class TestRecallWithAuthE2E:
         data = response.json()
         assert "results" in data
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestRateLimitingE2E:
     """Test rate limiting on failed auth attempts."""
 
-    def test_rate_limiting_triggers_on_bad_tokens(
+    async def test_rate_limiting_triggers_on_bad_tokens(
         self, mock_memory_service
     ):
         """10 bad tokens → 429 on 11th."""
@@ -375,17 +369,12 @@ class TestRateLimitingE2E:
         assert "error" in data
         assert "Too many failed" in data["error"]
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestTokenRotationE2E:
     """Test token rotation flow."""
 
-    def test_token_rotation_old_fails_new_works(
+    async def test_token_rotation_old_fails_new_works(
         self, mock_memory_service, temp_token_file
     ):
         """Generate → use → rotate → old token fails, new works."""
@@ -437,17 +426,12 @@ class TestTokenRotationE2E:
         )
         assert response.status_code == 200
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestEnvVarOverrideE2E:
     """Test TRIBAL_MEMORY_API_TOKEN env var override."""
 
-    def test_env_var_overrides_file(
+    async def test_env_var_overrides_file(
         self,
         mock_memory_service,
         temp_token_file,
@@ -487,17 +471,12 @@ class TestEnvVarOverrideE2E:
         )
         assert response.status_code == 200
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestOtherEndpointsWithAuth:
     """Test other API endpoints require auth."""
 
-    def test_forget_endpoint_requires_auth(
+    async def test_forget_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """DELETE /v1/forget/{id} requires auth."""
@@ -520,7 +499,7 @@ class TestOtherEndpointsWithAuth:
         # Should get 200, not 401
         assert response.status_code == 200
 
-    def test_get_memory_endpoint_requires_auth(
+    async def test_get_memory_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """GET /v1/memory/{id} requires auth."""
@@ -543,7 +522,7 @@ class TestOtherEndpointsWithAuth:
         # Should get 404, not 401
         assert response.status_code == 404
 
-    def test_stats_endpoint_requires_auth(
+    async def test_stats_endpoint_requires_auth(
         self, mock_memory_service
     ):
         """GET /v1/stats requires auth."""
@@ -565,17 +544,12 @@ class TestOtherEndpointsWithAuth:
         )
         assert response.status_code == 200
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None
 
 
 class TestOptionsRequestsPublic:
     """Test OPTIONS (CORS preflight) never require auth."""
 
-    def test_options_request_public(
+    async def test_options_request_public(
         self, mock_memory_service
     ):
         """OPTIONS requests should not require auth."""
@@ -591,8 +565,3 @@ class TestOptionsRequestsPublic:
         # Should not return 401
         assert response.status_code != 401
 
-    def teardown_method(self):
-        """Clean up module-level state."""
-        app_module._memory_service = None
-        app_module._instance_id = None
-        app_module._session_store = None

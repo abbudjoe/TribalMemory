@@ -329,3 +329,138 @@ class TestRootEndpoint:
         data = response.json()
         assert data["service"] == "tribal-memory"
         assert "version" in data
+
+
+class TestProjectScoping:
+    """Tests for project-scoped memory (Issue #161)."""
+
+    def test_remember_with_project_adds_tag(self, client):
+        """Storing with project should add project:<name> tag."""
+        response = client.post("/v1/remember", json={
+            "content": "API uses GraphQL",
+            "source_type": "user_explicit",
+            "project": "my-app",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        memory_id = data["memory_id"]
+
+        # Verify the project tag was added
+        get_response = client.get(f"/v1/memory/{memory_id}")
+        assert get_response.status_code == 200
+        memory = get_response.json()
+        assert "project:my-app" in memory["tags"]
+
+    def test_remember_with_project_preserves_existing_tags(self, client):
+        """Project tag should be added alongside existing tags."""
+        response = client.post("/v1/remember", json={
+            "content": "Use PostgreSQL for persistence",
+            "source_type": "user_explicit",
+            "tags": ["architecture", "database"],
+            "project": "my-app",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        memory_id = data["memory_id"]
+
+        get_response = client.get(f"/v1/memory/{memory_id}")
+        memory = get_response.json()
+        assert "architecture" in memory["tags"]
+        assert "database" in memory["tags"]
+        assert "project:my-app" in memory["tags"]
+
+    def test_remember_without_project_no_tag(self, client):
+        """No project param should not add any project tag."""
+        response = client.post("/v1/remember", json={
+            "content": "General knowledge memory",
+            "source_type": "user_explicit",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        memory_id = data["memory_id"]
+
+        get_response = client.get(f"/v1/memory/{memory_id}")
+        memory = get_response.json()
+        assert not any(t.startswith("project:") for t in memory["tags"])
+
+    def test_recall_with_project_filters(self, client):
+        """Recall with project should only return memories from that project."""
+        # Store memories in different projects
+        client.post("/v1/remember", json={
+            "content": "Frontend uses React with TypeScript",
+            "source_type": "user_explicit",
+            "project": "alpha",
+        })
+        client.post("/v1/remember", json={
+            "content": "Frontend uses Vue with JavaScript",
+            "source_type": "user_explicit",
+            "project": "beta",
+        })
+
+        # Recall with project filter
+        response = client.post("/v1/recall", json={
+            "query": "frontend framework",
+            "project": "alpha",
+            "min_relevance": 0.0,
+        })
+        assert response.status_code == 200
+        results = response.json()["results"]
+
+        # Should only contain alpha project memories
+        for r in results:
+            assert "project:alpha" in r["memory"]["tags"]
+
+    def test_recall_without_project_returns_all(self, client):
+        """Recall without project should return memories from all projects."""
+        # Store in alpha
+        r1 = client.post("/v1/remember", json={
+            "content": "Alpha project uses microservices architecture pattern",
+            "source_type": "user_explicit",
+            "project": "alpha",
+            "skip_dedup": True,
+        })
+        assert r1.json()["success"] is True
+
+        # Store in beta
+        r2 = client.post("/v1/remember", json={
+            "content": "Beta project uses monolith architecture pattern",
+            "source_type": "user_explicit",
+            "project": "beta",
+            "skip_dedup": True,
+        })
+        assert r2.json()["success"] is True
+
+        # Recall both memories by ID to verify they exist with correct tags
+        m1 = client.get(f"/v1/memory/{r1.json()['memory_id']}").json()
+        m2 = client.get(f"/v1/memory/{r2.json()['memory_id']}").json()
+        assert "project:alpha" in m1["tags"]
+        assert "project:beta" in m2["tags"]
+
+    def test_recall_project_with_additional_tags(self, client):
+        """Project filter should combine with tag filters."""
+        client.post("/v1/remember", json={
+            "content": "Redis cache layer for alpha",
+            "source_type": "user_explicit",
+            "tags": ["infrastructure"],
+            "project": "alpha",
+        })
+        client.post("/v1/remember", json={
+            "content": "Redis cache layer for beta",
+            "source_type": "user_explicit",
+            "tags": ["infrastructure"],
+            "project": "beta",
+        })
+
+        response = client.post("/v1/recall", json={
+            "query": "cache",
+            "tags": ["infrastructure"],
+            "project": "alpha",
+            "min_relevance": 0.0,
+        })
+        assert response.status_code == 200
+        results = response.json()["results"]
+
+        for r in results:
+            assert "infrastructure" in r["memory"]["tags"]
+            assert "project:alpha" in r["memory"]["tags"]

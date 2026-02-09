@@ -136,6 +136,7 @@ def create_server() -> FastMCP:
         context: Optional[str] = None,
         tags: Optional[list[str]] = None,
         skip_dedup: bool = False,
+        project: Optional[str] = None,
     ) -> str:
         """Store a new memory with semantic deduplication.
 
@@ -148,6 +149,8 @@ def create_server() -> FastMCP:
             context: Additional context about when/why this was captured
             tags: Categorization tags for filtering (e.g., ["preferences", "work"])
             skip_dedup: If True, store even if a similar memory exists
+            project: Project scope (e.g., "my-app"). Adds a "project:<name>" tag
+                for filtering memories by project context.
 
         Returns:
             JSON with: success, memory_id, duplicate_of (if rejected), error
@@ -171,11 +174,18 @@ def create_server() -> FastMCP:
         }
         source = source_map.get(source_type, MemorySource.AUTO_CAPTURE)
 
+        # Merge project tag
+        merged_tags = list(tags) if tags else []
+        if project:
+            project_tag = f"project:{project}"
+            if project_tag not in merged_tags:
+                merged_tags.append(project_tag)
+
         result = await service.remember(
             content=content,
             source_type=source,
             context=context,
-            tags=tags,
+            tags=merged_tags or None,
             skip_dedup=skip_dedup,
         )
 
@@ -195,6 +205,7 @@ def create_server() -> FastMCP:
         sources: str = "memories",
         after: Optional[str] = None,
         before: Optional[str] = None,
+        project: Optional[str] = None,
     ) -> str:
         """Search memories and/or session transcripts by semantic similarity.
 
@@ -206,6 +217,7 @@ def create_server() -> FastMCP:
             sources: What to search - "memories" (default), "sessions", or "all"
             after: Only include memories with events on/after this date (ISO or natural language)
             before: Only include memories with events on/before this date (ISO or natural language)
+            project: Filter to memories in this project scope (matches "project:<name>" tag)
 
         Returns:
             JSON with: results (list of memories/chunks with similarity scores), query, count
@@ -245,6 +257,11 @@ def create_server() -> FastMCP:
                 after=after,
                 before=before,
             )
+            # Post-filter by project (AND with tag filter, not OR)
+            if project:
+                project_tag = f"project:{project}"
+                memory_results = [r for r in memory_results if project_tag in r.memory.tags]
+
             all_results.extend([
                 {
                     "type": "memory",

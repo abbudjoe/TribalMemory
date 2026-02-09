@@ -54,6 +54,11 @@ class RememberRequest(BaseModel):
         default=False,
         description="If True, store even if similar memory exists"
     )
+    project: Optional[str] = Field(
+        default=None,
+        description="Project scope for this memory (e.g., 'my-app'). "
+        "Automatically adds a 'project:<name>' tag for filtering."
+    )
 
 
 class RecallRequest(BaseModel):
@@ -81,6 +86,11 @@ class RecallRequest(BaseModel):
     before: Optional[str] = Field(
         default=None,
         description="Only include memories with events on/before this date (ISO or natural language)"
+    )
+    project: Optional[str] = Field(
+        default=None,
+        description="Filter to memories in this project scope. "
+        "Matches the 'project:<name>' tag added during storage."
     )
 
     @field_validator("query")

@@ -93,11 +93,18 @@ async def remember(
 ) -> StoreResponse:
     """Store a new memory."""
     try:
+        # Merge project tag into tags list
+        tags = list(request.tags) if request.tags else []
+        if request.project:
+            project_tag = f"project:{request.project}"
+            if project_tag not in tags:
+                tags.append(project_tag)
+
         result = await service.remember(
             content=request.content,
             source_type=_convert_source_type(request.source_type),
             context=request.context,
-            tags=request.tags,
+            tags=tags or None,
             skip_dedup=request.skip_dedup,
         )
 
@@ -196,6 +203,11 @@ async def recall(
             after=request.after,
             before=request.before,
         )
+
+        # Post-filter by project (AND with tag filter, not OR)
+        if request.project:
+            project_tag = f"project:{request.project}"
+            results = [r for r in results if project_tag in r.memory.tags]
 
         total_time_ms = (time.time() - start_time) * 1000
 

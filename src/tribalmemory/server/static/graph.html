@@ -606,7 +606,7 @@ document.getElementById('type-filter')
   .addEventListener('change', async (e) => {
     const type = e.target.value;
     const url = type
-      ? `/entities?entity_type=${type}&limit=20`
+      ? `/entities?entity_type=${encodeURIComponent(type)}&limit=20`
       : '/entities?limit=30';
     const data = await apiFetch(url);
     if (data.entities.length > 0) {

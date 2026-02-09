@@ -372,6 +372,7 @@ The server is the single source of truth. Each agent connects as an instance. Me
 - **Semantic search** — Find memories by meaning, not keywords
 - **Cross-agent sharing** — Memories from one agent are available to all
 - **Graph search** — Entity extraction + relationship traversal
+- **Graph visualization** — [Built-in web UI](docs/graph-visualization.md) to explore your knowledge graph at `/graph`
 - **Hybrid retrieval** — Vector + BM25 keyword search combined
 - **Zero cloud** — Local ONNX embeddings via FastEmbed, no API keys needed
 - **Batch ingestion** — Store up to 1000 memories in a single request

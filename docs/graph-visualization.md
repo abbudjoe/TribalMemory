@@ -1,0 +1,131 @@
+# Knowledge Graph Visualization
+
+TribalMemory includes a built-in web UI for exploring the
+knowledge graph that forms as your agents store memories.
+
+## Quick Start
+
+1. **Start the server** (with or without auth):
+
+   ```bash
+   tribalmemory serve
+   ```
+
+2. **Open the graph UI** in your browser:
+
+   ```
+   http://127.0.0.1:18790/graph
+   ```
+
+3. **If token auth is enabled**, enter your token in the
+   login form. The token is never sent via URL — only
+   through the login form for security.
+
+## Features
+
+- **Entity search** — Find entities by name (debounced,
+  max 200 characters)
+- **Type filtering** — Filter by entity type (person,
+  technology, service, etc.)
+- **Neighborhood exploration** — Click a node to see its
+  connections; double-click to expand further
+- **Multi-hop traversal** — Explore up to 3 hops from
+  any entity
+- **Dark theme** — Matches modern developer tools
+- **Offline-capable** — Cytoscape.js is vendored locally,
+  no CDN dependency
+
+## API Endpoints
+
+The visualization is powered by three REST endpoints:
+
+### GET /v1/graph/stats
+
+Returns high-level graph statistics.
+
+```json
+{
+  "entity_count": 142,
+  "relationship_count": 89,
+  "entity_types": {"person": 12, "technology": 45, ...},
+  "relationship_types": {"uses": 30, "knows": 15, ...}
+}
+```
+
+### GET /v1/graph/entities
+
+Paginated entity listing with optional filters.
+
+**Parameters:**
+- `offset` (int, default 0) — Pagination offset
+- `limit` (int, 1–100, default 50) — Page size
+- `entity_type` (string, optional) — Filter by type
+- `search` (string, optional, max 200 chars) — Name
+  substring search
+
+```json
+{
+  "entities": [
+    {"name": "Python", "entity_type": "technology",
+     "memory_count": 12}
+  ],
+  "total": 142,
+  "offset": 0,
+  "limit": 50
+}
+```
+
+### GET /v1/graph/neighborhood/{entity_name}
+
+Explore the neighborhood around a specific entity.
+
+**Parameters:**
+- `hops` (int, 1–3, default 1) — Traversal depth
+
+```json
+{
+  "focal": "Python",
+  "hops": 1,
+  "nodes": [
+    {"name": "Python", "entity_type": "technology",
+     "memory_count": 12},
+    {"name": "FastAPI", "entity_type": "technology",
+     "memory_count": 5}
+  ],
+  "edges": [
+    {"source": "FastAPI", "target": "Python",
+     "relation_type": "uses"}
+  ]
+}
+```
+
+## Authentication
+
+When token auth is configured, the graph UI and API
+endpoints require a valid bearer token:
+
+- The `/graph` page itself is a **public path** (serves
+  the HTML/JS)
+- All `/v1/graph/*` API calls require the token via
+  `Authorization: Bearer <token>` header
+- The UI handles this through a login form — enter your
+  token once and it's stored in memory for the session
+- **Tokens are never passed in URLs** to prevent leakage
+  via Referer headers or browser history
+
+## Architecture
+
+```
+Browser → /graph (HTML + Cytoscape.js)
+       → /v1/graph/stats (auth required)
+       → /v1/graph/entities (auth required)
+       → /v1/graph/neighborhood/{name} (auth required)
+       ↓
+   GraphStore (SQLite)
+       ↓
+   entities, relationships, entity_memories tables
+```
+
+All database queries run in `asyncio.to_thread()` to avoid
+blocking the event loop. Batch queries prevent N+1 problems
+when loading memory counts for neighborhood nodes.

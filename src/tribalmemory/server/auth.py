@@ -300,11 +300,13 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
                 count,
                 COOLDOWN_SECONDS,
             )
-            # Persist to disk without blocking event loop
+            # Persist to disk without blocking event loop.
+            # Pass shallow copies to avoid RuntimeError from
+            # concurrent dict mutation in the background thread.
             await asyncio.to_thread(
                 save_rate_limit_state,
-                self._failure_count,
-                self._cooldown_until,
+                dict(self._failure_count),
+                dict(self._cooldown_until),
                 self._rate_limit_path,
             )
 

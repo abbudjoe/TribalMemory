@@ -610,7 +610,7 @@ def cmd_token(action: str) -> int:
     Returns:
         Exit code (0 = success, 1 = error).
     """
-    from .auth import generate_token, save_token, load_token
+    from .server.auth import generate_token, save_token, load_token
 
     if action == "show":
         token = load_token()
@@ -635,8 +635,9 @@ def cmd_token(action: str) -> int:
         print(f"🔑 API token generated and saved to {path}")
         print(f"   Token: {token}")
         print()
-        print("Set this in your client/plugin configuration.")
-        print("The server will require this token for all API requests.")
+        print("⚠️  This is the only time the full token is displayed.")
+        print("   Store it securely. Use 'tribalmemory token show' to see a masked version.")
+        print("   The server will require this token for all API requests.")
         return 0
 
     if action == "rotate":
@@ -649,7 +650,8 @@ def cmd_token(action: str) -> int:
             print(f"🔑 Token generated (none existed). Saved to {path}")
         print(f"   New token: {token}")
         print()
-        print("Update your client/plugin configuration with the new token.")
+        print("⚠️  This is the only time the full token is displayed.")
+        print("   Update your client/plugin configuration with the new token.")
         return 0
 
     print(f"Unknown action: {action}")

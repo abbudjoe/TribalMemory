@@ -28,6 +28,7 @@ TOKEN_PREFIX = "tm_"
 # Rate limiting: max failures before cooldown
 MAX_FAILURES = 10
 COOLDOWN_SECONDS = 60
+MAX_TRACKED_IPS = 10000  # Prevent unbounded memory growth
 
 
 def generate_token() -> str:
@@ -136,6 +137,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         self.token = token
         self._failure_count: dict[str, int] = {}
         self._cooldown_until: dict[str, float] = {}
+        self._max_tracked_ips = MAX_TRACKED_IPS
 
         if not token:
             logger.warning(
@@ -162,6 +164,12 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
     def _record_failure(self, client_ip: str) -> None:
         """Record a failed auth attempt and apply rate limiting if needed."""
+        # Evict oldest entry if tracking too many IPs (memory safety)
+        if len(self._failure_count) >= self._max_tracked_ips and client_ip not in self._failure_count:
+            oldest_ip = next(iter(self._failure_count))
+            self._failure_count.pop(oldest_ip, None)
+            self._cooldown_until.pop(oldest_ip, None)
+
         count = self._failure_count.get(client_ip, 0) + 1
         self._failure_count[client_ip] = count
 
@@ -213,13 +221,19 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             provided_token = ""
 
         # Validate token
-        if not provided_token or not _constant_time_compare(
-            provided_token, self.token
-        ):
+        if not provided_token:
             self._record_failure(client_ip)
             return JSONResponse(
                 status_code=401,
-                content={"error": "Invalid or missing API token."},
+                content={"error": "Missing API token. Include 'Authorization: Bearer <token>' header."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not _constant_time_compare(provided_token, self.token):
+            self._record_failure(client_ip)
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid API token."},
                 headers={"WWW-Authenticate": "Bearer"},
             )
 

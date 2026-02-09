@@ -167,8 +167,13 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     app.state.config = config
 
     # Token authentication middleware
-    # Load token from env file or environment variable
+    # Precedence: environment variable > .env file > no token (legacy mode)
     api_token = os.environ.get("TRIBAL_MEMORY_API_TOKEN") or load_token()
+    if api_token:
+        logger.info(
+            "API token loaded from %s",
+            "environment variable" if os.environ.get("TRIBAL_MEMORY_API_TOKEN") else "~/.tribal-memory/.env",
+        )
     app.add_middleware(TokenAuthMiddleware, token=api_token)
 
     # CORS middleware (localhost only)

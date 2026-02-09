@@ -7,7 +7,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { startTestServer, type TestEnvironment, rawPost } from "./setup";
+import {
+  startTestServer,
+  type TestEnvironment,
+  type RecallResponse,
+  rawPost,
+  expectValidRecallResponse,
+  INDEX_DELAY_MS,
+} from "./setup";
 
 let env: TestEnvironment;
 
@@ -34,12 +41,13 @@ describe("Auto-capture (E2E)", () => {
     expect(result.memoryId).toBeTruthy();
 
     // Verify retrievable
-    const recalled = await rawPost<{ results: Array<{ memory: { content: string } }> }>(
+    await new Promise((r) => setTimeout(r, INDEX_DELAY_MS));
+    const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
       { query: "frontend framework preference React Vue", limit: 5 },
     );
-    expect(recalled.status).toBe(200);
+    expectValidRecallResponse(recalled);
     expect(recalled.body.results.some((r) => r.memory.content.includes("React"))).toBe(true);
   });
 
@@ -50,10 +58,9 @@ describe("Auto-capture (E2E)", () => {
     });
 
     expect(result.memoryId).toBeTruthy();
-    // sourceType "auto_capture" is a valid enum — should succeed without 422
   });
 
-  it("rejects invalid sourceType", async () => {
+  it("rejects invalid sourceType with 422", async () => {
     const response = await rawPost(env.baseUrl, "/v1/remember", {
       content: "test content for invalid source",
       source_type: "deliberate", // Invalid — the original bug
@@ -62,13 +69,12 @@ describe("Auto-capture (E2E)", () => {
     expect(response.status).toBe(422);
   });
 
-  it("handles short/trivial content", async () => {
+  it("handles short content (server accepts, plugin filters)", async () => {
     // The plugin's shouldCapture() filters short content (<10 chars)
-    // But the server itself should still accept it
+    // but the server itself accepts any content
     const result = await env.client.remember("ok", {
       sourceType: "auto_capture",
     });
-    // Server accepts any content — filtering is plugin-side
     expect(result.memoryId).toBeTruthy();
   });
 
@@ -85,12 +91,8 @@ describe("Auto-capture (E2E)", () => {
   it("deduplicates identical auto-captured content", async () => {
     const content = `dedup-capture-${Date.now()}: the deploy script uses Docker Compose`;
 
-    const first = await env.client.remember(content, {
-      sourceType: "auto_capture",
-    });
-    const second = await env.client.remember(content, {
-      sourceType: "auto_capture",
-    });
+    const first = await env.client.remember(content, { sourceType: "auto_capture" });
+    const second = await env.client.remember(content, { sourceType: "auto_capture" });
 
     expect(first.memoryId).toBeTruthy();
     expect(second.memoryId || second.duplicateOf).toBeTruthy();
@@ -126,43 +128,43 @@ describe("Auto-capture (E2E)", () => {
 
 describe("memory_search proxy (E2E)", () => {
   beforeAll(async () => {
-    // Seed some memories for search tests
+    // Seed memories for search tests
     const memories = [
-      "The database uses PostgreSQL 15 in production",
-      "Staging environment runs on port 3001",
-      "CI/CD pipeline uses GitHub Actions with 4 parallel jobs",
-      "The API rate limit is 100 requests per minute",
+      { content: "The database uses PostgreSQL 15 in production", tags: ["infrastructure"] },
+      { content: "Staging environment runs on port 3001", tags: ["infrastructure"] },
+      { content: "CI/CD pipeline uses GitHub Actions with 4 parallel jobs", tags: ["infrastructure"] },
+      { content: "The API rate limit is 100 requests per minute", tags: ["infrastructure"] },
     ];
 
-    for (const content of memories) {
-      await env.client.remember(content, {
+    for (const m of memories) {
+      await env.client.remember(m.content, {
         sourceType: "user_explicit",
-        tags: ["infrastructure"],
+        tags: m.tags,
       });
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, INDEX_DELAY_MS));
   });
 
   it("searches and returns relevant results", async () => {
-    const recalled = await rawPost<{ results: Array<{ memory: { content: string }; similarity_score: number }> }>(
+    const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
       { query: "what database do we use", limit: 5 },
     );
 
-    expect(recalled.status).toBe(200);
+    expectValidRecallResponse(recalled);
     expect(recalled.body.results.length).toBeGreaterThan(0);
     expect(recalled.body.results.some((r) => r.memory.content.includes("PostgreSQL"))).toBe(true);
   });
 
-  it("returns scores with results", async () => {
-    const recalled = await rawPost<{ results: Array<{ similarity_score: number }> }>(
+  it("returns numeric scores with results", async () => {
+    const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
       { query: "database", limit: 5 },
     );
 
-    expect(recalled.status).toBe(200);
+    expectValidRecallResponse(recalled);
     for (const r of recalled.body.results) {
       expect(typeof r.similarity_score).toBe("number");
       expect(r.similarity_score).toBeGreaterThan(0);
@@ -170,13 +172,13 @@ describe("memory_search proxy (E2E)", () => {
   });
 
   it("filters by tags", async () => {
-    const recalled = await rawPost<{ results: Array<{ memory: { content: string; tags: string[] } }> }>(
+    const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
       { query: "infrastructure", limit: 10, tags: ["infrastructure"] },
     );
 
-    expect(recalled.status).toBe(200);
+    expectValidRecallResponse(recalled);
     for (const r of recalled.body.results) {
       expect(r.memory.tags).toContain("infrastructure");
     }
@@ -188,19 +190,17 @@ describe("memory_search proxy (E2E)", () => {
 // ============================================================================
 
 describe("memory_feedback (E2E)", () => {
-  it("server accepts recall requests (feedback is plugin-side)", async () => {
-    // memory_feedback is tracked in the plugin, not the server
-    // But the server should handle recall without issues
-    const recalled = await rawPost<{ results: Array<{ memory: { id: string } }> }>(
+  it("recall results include memory IDs for feedback tracking", async () => {
+    const recalled = await rawPost<RecallResponse>(
       env.baseUrl,
       "/v1/recall",
       { query: "test feedback query", limit: 3 },
     );
 
-    expect(recalled.status).toBe(200);
-    // Each result should have a memory_id that could be used for feedback
+    expectValidRecallResponse(recalled);
     for (const r of recalled.body.results) {
       expect(r.memory.id).toBeTruthy();
+      expect(typeof r.memory.id).toBe("string");
     }
   });
 });
@@ -210,14 +210,14 @@ describe("memory_feedback (E2E)", () => {
 // ============================================================================
 
 describe("memory_metrics (E2E)", () => {
-  it("server health endpoint responds", async () => {
+  it("server health endpoint responds with ok status", async () => {
     const res = await fetch(`${env.baseUrl}/v1/health`);
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { status: string };
     expect(data.status).toBe("ok");
   });
 
-  it("server stats endpoint responds", async () => {
+  it("server stats endpoint returns memory count", async () => {
     const res = await fetch(`${env.baseUrl}/v1/stats`);
     expect(res.ok).toBe(true);
     const data = (await res.json()) as { total_memories: number };
@@ -232,8 +232,8 @@ describe("memory_metrics (E2E)", () => {
 
 describe("Token budget behavior (E2E)", () => {
   it("stores content of various sizes", async () => {
-    // Token budget is enforced plugin-side (truncation before sending to server)
-    // Verify server handles various content sizes
+    // Token budget is enforced plugin-side (truncation before sending to server).
+    // Verify server handles various content sizes without errors.
     const sizes = [10, 100, 500, 1000];
 
     for (const size of sizes) {
@@ -274,7 +274,7 @@ describe("Concurrent operations (E2E)", () => {
     ];
 
     const promises = queries.map((q) =>
-      rawPost<{ results: Array<unknown> }>(env.baseUrl, "/v1/recall", {
+      rawPost<RecallResponse>(env.baseUrl, "/v1/recall", {
         query: q,
         limit: 3,
       }),
@@ -282,8 +282,7 @@ describe("Concurrent operations (E2E)", () => {
 
     const results = await Promise.all(promises);
     for (const r of results) {
-      expect(r.status).toBe(200);
-      expect(Array.isArray(r.body.results)).toBe(true);
+      expectValidRecallResponse(r);
     }
   });
 
@@ -295,14 +294,13 @@ describe("Concurrent operations (E2E)", () => {
     );
 
     const recallPromises = Array.from({ length: 5 }, (_, i) =>
-      rawPost<{ results: Array<unknown> }>(env.baseUrl, "/v1/recall", {
+      rawPost<RecallResponse>(env.baseUrl, "/v1/recall", {
         query: `mixed operation ${i}`,
         limit: 3,
       }),
     );
 
     const allResults = await Promise.all([...storePromises, ...recallPromises]);
-    // All should succeed without errors
     expect(allResults.length).toBe(10);
   });
 });

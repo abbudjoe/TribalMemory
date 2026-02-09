@@ -10,6 +10,7 @@
  *   await env.cleanup();
  */
 
+import { expect } from "vitest";
 import { TribalClient } from "../../src/tribal-client";
 import { spawn, type ChildProcess } from "child_process";
 import { mkdtempSync, rmSync } from "fs";
@@ -31,12 +32,74 @@ export type SourceType = (typeof VALID_SOURCE_TYPES)[number];
 /** Recall result structure from /v1/recall endpoint. */
 export interface RecallResult {
   memory: {
+    id: string;
     content: string;
     tags: string[];
-    memory_id: string;
+    source_type: string;
+    created_at: string;
+    updated_at: string;
+    source_instance: string;
+    context: string | null;
+    confidence: number;
+    supersedes: string | null;
   };
   similarity_score: number;
-  retrieval_time_ms?: number;
+  retrieval_time_ms: number;
+}
+
+/** Full recall response from /v1/recall. */
+export interface RecallResponse {
+  results: RecallResult[];
+  query: string;
+  total_time_ms: number;
+  error?: string;
+}
+
+/** Store response from /v1/remember. */
+export interface StoreResponse {
+  success: boolean;
+  memory_id?: string;
+  duplicate_of?: string | null;
+  error?: string;
+}
+
+/** Delay constant for waiting on indexing after stores. */
+export const INDEX_DELAY_MS = 500;
+
+/**
+ * Validate a recall response has the expected structure.
+ */
+export function expectValidRecallResponse(res: { status: number; body: RecallResponse }) {
+  expect(res.status).toBe(200);
+  expect(res.body.results).toBeDefined();
+  expect(Array.isArray(res.body.results)).toBe(true);
+  expect(res.body.query).toBeDefined();
+  expect(typeof res.body.query).toBe("string");
+  expect(res.body.total_time_ms).toBeDefined();
+  expect(typeof res.body.total_time_ms).toBe("number");
+  expect(res.body.total_time_ms).toBeGreaterThanOrEqual(0);
+}
+
+/**
+ * Seed a test server with standard memories for recall tests.
+ */
+export async function seedStandardMemories(client: TribalClient) {
+  const memories = [
+    { content: "Joe's favorite programming language is Rust", tags: ["preference"] },
+    { content: "The project deadline is March 15, 2026", tags: ["deadline", "project"] },
+    { content: "Luna is Joe's dog, a golden retriever", tags: ["personal", "pet"] },
+    { content: "TribalMemory uses FastEmbed with bge-small-en-v1.5 for embeddings", tags: ["architecture"] },
+    { content: "Joe prefers afternoon meetings, never before noon", tags: ["preference", "schedule"] },
+  ];
+
+  for (const m of memories) {
+    await client.remember(m.content, {
+      sourceType: "user_explicit",
+      tags: m.tags,
+    });
+  }
+
+  await new Promise((r) => setTimeout(r, INDEX_DELAY_MS));
 }
 
 export interface TestEnvironment {

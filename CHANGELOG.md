@@ -5,6 +5,22 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-02-09 ([PyPI](https://pypi.org/project/tribalmemory/0.7.3/))
+
+### Added
+- **Project-scoped memory** — New `project` parameter on store and recall APIs. Memories are tagged with `project:<name>` for multi-project isolation. (#161)
+- **Cross-project deduplication** — Same content in different projects is allowed; dedup only rejects within the same project.
+- **Over-fetch strategy** — Project-filtered recalls fetch 3× the limit internally, then post-filter, to reduce missed results.
+- **Project validation** — Project names are stripped and validated (rejects blank values) on both HTTP and MCP endpoints.
+- **Batch project support** — `/v1/remember/batch` correctly applies project tags to each memory.
+- 14 new tests for project scoping (12 HTTP + 2 MCP)
+
+### Fixed
+- **LanceDB sync I/O deadlock at scale** — All LanceDB operations (connect, open_table, search, add, update) now wrapped in `asyncio.to_thread()`. Prevents event loop blocking with 10K+ memories. (#159)
+- **O(n²) `get_stats()` performance** — Replaced search-based pagination with `to_arrow(columns=...)` metadata scan.
+
+---
+
 ## [0.7.2] - 2026-02-08 ([PyPI](https://pypi.org/project/tribalmemory/0.7.2/))
 
 ### Fixed

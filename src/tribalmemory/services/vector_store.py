@@ -44,6 +44,7 @@ class LanceDBVectorStore(IVectorStore):
         self._db = None
         self._table = None
         self._initialized = False
+        self._init_lock = asyncio.Lock()
     
     async def _ensure_initialized(self):
         """Lazily initialize database connection.
@@ -51,11 +52,20 @@ class LanceDBVectorStore(IVectorStore):
         LanceDB operations (connect, open_table) are synchronous and can
         block for seconds on large datasets.  Run them in a thread so the
         async event loop stays responsive.
+
+        Uses double-checked locking to prevent concurrent initialization
+        from racing (two coroutines both seeing _initialized=False).
         """
         if self._initialized:
             return
 
-        await asyncio.to_thread(self._sync_init)
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await asyncio.to_thread(self._sync_init)
+            # Set flag in event loop thread (not in worker thread) so
+            # the write is immediately visible to other coroutines.
+            self._initialized = True
 
     def _sync_init(self):
         """Synchronous initialization — called via asyncio.to_thread."""
@@ -76,8 +86,6 @@ class LanceDBVectorStore(IVectorStore):
             self._table = self._db.open_table(self.TABLE_NAME)
         else:
             self._table = self._create_table()
-
-        self._initialized = True
     
     def _create_table(self) -> "lancedb.table.Table":
         """Create the memories table with the defined schema."""
@@ -199,8 +207,10 @@ class LanceDBVectorStore(IVectorStore):
     async def get(self, memory_id: str) -> Optional[MemoryEntry]:
         await self._ensure_initialized()
         
-        # Sanitize memory_id to prevent SQL injection
-        safe_id = self._sanitize_id(memory_id)
+        try:
+            safe_id = self._sanitize_id(memory_id)
+        except ValueError:
+            return None
         
         def _get():
             return (
@@ -219,8 +229,10 @@ class LanceDBVectorStore(IVectorStore):
     async def delete(self, memory_id: str) -> bool:
         await self._ensure_initialized()
         
-        # Sanitize memory_id to prevent SQL injection
-        safe_id = self._sanitize_id(memory_id)
+        try:
+            safe_id = self._sanitize_id(memory_id)
+        except ValueError:
+            return False
         
         try:
             def _delete():
@@ -296,7 +308,11 @@ class LanceDBVectorStore(IVectorStore):
             try:
                 table = self._table.to_arrow(columns=metadata_cols)
             except (TypeError, AttributeError):
-                # Fallback: older LanceDB versions may not support columns kwarg
+                import logging
+                logging.warning(
+                    "LanceDB version doesn't support to_arrow(columns=...), "
+                    "using slower search-based fallback for get_stats()"
+                )
                 table = self._table.search().select(
                     ["source_type", "source_instance", "tags", "supersedes"]
                 ).where("deleted = false").limit(100_000).to_list()

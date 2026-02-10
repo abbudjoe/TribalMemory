@@ -3,6 +3,7 @@
 Tests progressive summarization, full regeneration, and integration with the remember() flow.
 """
 
+import asyncio
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
@@ -773,6 +774,9 @@ async def test_remember_integration_with_episodes(episode_store, mock_vector_sto
     # Call remember
     result = await service.remember("Test memory content")
     
+    # Let the background task run
+    await asyncio.sleep(0.1)
+    
     # Verify remember succeeded
     assert result.success
     
@@ -818,6 +822,9 @@ async def test_remember_integration_no_episode_match(episode_store, mock_vector_
     )
     
     result = await service.remember("Test content")
+    
+    # Let the background task run
+    await asyncio.sleep(0.1)
     
     # Verify remember succeeded
     assert result.success

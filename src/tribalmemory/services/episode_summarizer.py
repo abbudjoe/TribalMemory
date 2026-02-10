@@ -162,22 +162,33 @@ Status: <status>"""
                 )
                 return
             
-            # Store summary as MemoryEntry in vector store
+            # Store summary as MemoryEntry in vector store, then update episode.
+            # If storage fails, episode metadata is NOT updated (atomic).
             summary_memory_id = await self._store_summary_memory(
                 episode, summary
             )
             
-            # Update episode with new summary
-            self.episode_store.update_episode(
-                episode_id,
-                summary=summary,
-                summary_memory_id=summary_memory_id,
-            )
-            
-            # Mark memories as summarized
-            self.episode_store.mark_memories_summarized(
-                episode_id, unsummarized_ids
-            )
+            try:
+                # Update episode with new summary
+                self.episode_store.update_episode(
+                    episode_id,
+                    summary=summary,
+                    summary_memory_id=summary_memory_id,
+                )
+                
+                # Mark memories as summarized
+                self.episode_store.mark_memories_summarized(
+                    episode_id, unsummarized_ids
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to update episode metadata for %s after "
+                    "summary storage; summary memory %s may be orphaned: %s",
+                    _format_id(episode_id),
+                    _format_id(summary_memory_id),
+                    e,
+                )
+                raise
             
             logger.info(
                 "Updated summary for episode %s (%d new memories)",
@@ -230,24 +241,34 @@ Status: <status>"""
                 )
                 return
             
-            # Store summary as MemoryEntry in vector store
+            # Store summary, then update episode metadata atomically
             summary_memory_id = await self._store_summary_memory(
                 episode, summary
             )
             
-            # Update episode with new summary
-            self.episode_store.update_episode(
-                episode_id,
-                summary=summary,
-                summary_memory_id=summary_memory_id,
-            )
-            
-            # Mark all memories as summarized
-            all_memory_ids = self.episode_store.get_episode_memories(episode_id)
-            if all_memory_ids:
-                self.episode_store.mark_memories_summarized(
-                    episode_id, all_memory_ids
+            try:
+                self.episode_store.update_episode(
+                    episode_id,
+                    summary=summary,
+                    summary_memory_id=summary_memory_id,
                 )
+                
+                all_memory_ids = self.episode_store.get_episode_memories(
+                    episode_id
+                )
+                if all_memory_ids:
+                    self.episode_store.mark_memories_summarized(
+                        episode_id, all_memory_ids
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to update episode metadata for %s after "
+                    "summary storage; summary memory %s may be orphaned: %s",
+                    _format_id(episode_id),
+                    _format_id(summary_memory_id),
+                    e,
+                )
+                raise
             
             logger.info(
                 "Regenerated summary for episode %s (%d total memories)",

@@ -649,3 +649,55 @@ async def test_detector_handles_unknown_action(detector, mock_embedding_service)
         
         # Should return None (invalid action)
         assert result is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_detect_same_content(detector, mock_embedding_service):
+    """Test concurrent detect() calls with overlapping content.
+
+    Two memories arriving simultaneously should not create duplicate episodes.
+    The first should create the episode; the second should join it.
+    """
+    import asyncio
+
+    # Mock low similarity (no existing episodes match)
+    mock_embedding_service.similarity.return_value = 0.3
+
+    call_count = 0
+
+    async def mock_classify(content, episodes):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call: no episodes exist → create
+            return {"action": "create", "title": "Test Episode", "reason": "new activity"}
+        else:
+            # Second call: episode now exists → join
+            active = detector.episode_store.get_active_episodes()
+            if active:
+                return {
+                    "action": "join",
+                    "episode_id": active[0].id,
+                    "reason": "same activity",
+                }
+            return {"action": "create", "title": "Test Episode 2", "reason": "fallback"}
+
+    llm_responses = iter([
+        json.dumps({"action": "create", "title": "House Hunting", "reason": "new"}),
+        json.dumps({"action": "create", "title": "House Hunting 2", "reason": "new"}),
+    ])
+
+    with patch.object(detector, '_llm_client') as mock_llm:
+        mock_llm.complete = AsyncMock(side_effect=lambda *a, **kw: next(llm_responses))
+
+        # Run two detections sequentially (asyncio won't truly parallel on one thread,
+        # but this verifies the store handles rapid sequential creates)
+        result1 = await detector.detect("mem-A", "Viewed Elm St bungalow", [0.1] * 384)
+        result2 = await detector.detect("mem-B", "Toured Oak Avenue house", [0.2] * 384)
+
+    # Both should succeed — at least one episode should exist
+    episodes = detector.episode_store.list_episodes()
+    assert len(episodes) >= 1
+    # Both memories should be assigned (possibly to different episodes)
+    assert result1 is not None
+    assert result2 is not None

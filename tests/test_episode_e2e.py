@@ -11,7 +11,6 @@ network calls and costs.
 
 import asyncio
 import json
-import sqlite3
 import pytest
 import time
 from datetime import datetime, timedelta
@@ -409,7 +408,13 @@ async def test_episode_auto_close(
     old_date = (datetime.utcnow() - timedelta(days=15)).isoformat()
     real_episode_store.set_updated_at(episode.id, old_date)
 
+    # Verify the timestamp was actually set to something old
     episode = real_episode_store.get_episode(episode.id)
+    age_days = (datetime.utcnow() - episode.updated_at).days
+    assert age_days >= 14, (
+        f"Expected episode to be at least 14 days old after set_updated_at, "
+        f"got {age_days} days old (updated_at: {episode.updated_at})"
+    )
     assert episode.status == "active", "Episode should still be active before cleanup"
 
     mock_llm_client.complete = AsyncMock(
@@ -773,8 +778,12 @@ async def test_multiple_episodes_independent(
     memories_a = real_episode_store.get_episode_memories(episode_a.id)
     memories_b = real_episode_store.get_episode_memories(episode_b.id)
 
-    assert len(memories_a) == 2
-    assert len(memories_b) == 3
+    assert len(memories_a) == 2, (
+        f"Episode A should have 2 associated memories, got {len(memories_a)}"
+    )
+    assert len(memories_b) == 3, (
+        f"Episode B should have 3 associated memories, got {len(memories_b)}"
+    )
     assert "memory-a1" in memories_a, "Episode A should contain memory-a1"
     assert "memory-b1" in memories_b, "Episode B should contain memory-b1"
     assert "memory-a1" not in memories_b, "Episode B should NOT contain memory-a1"

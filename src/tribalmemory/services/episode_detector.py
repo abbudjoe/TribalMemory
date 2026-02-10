@@ -102,6 +102,9 @@ class LLMClient:
         else:
             self.api_key = None
         
+        # Anthropic API version (configurable)
+        self.anthropic_version = os.environ.get("ANTHROPIC_API_VERSION", "2024-01-01")
+        
         # Resolve base URL
         if base_url:
             self.base_url = base_url
@@ -170,17 +173,20 @@ class LLMClient:
                 response = await client.post(url, json=payload, headers=headers)
                 
                 if response.status_code != 200:
+                    # Truncate error message to avoid exposing sensitive data
+                    error_text = response.text[:200] if response.text else "No error message"
                     raise Exception(
-                        f"LLM API error {response.status_code}: {response.text}"
+                        f"LLM API error {response.status_code}: {error_text}"
                     )
                 
-                data = await response.json()
+                data = response.json()
                 return data["choices"][0]["message"]["content"]
             
             except (httpx.TimeoutException, asyncio.TimeoutError) as e:
                 raise Exception(f"LLM request timed out: {e}")
             except Exception as e:
-                if "LLM" in str(e):
+                # Re-raise if already an LLM exception (avoid double-wrapping)
+                if isinstance(e, Exception) and "LLM" in str(e):
                     raise
                 raise Exception(f"LLM API error: {e}")
     
@@ -195,7 +201,7 @@ class LLMClient:
         
         headers = {
             "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
+            "anthropic-version": self.anthropic_version,
             "content-type": "application/json",
         }
         
@@ -215,17 +221,20 @@ class LLMClient:
                 response = await client.post(url, json=payload, headers=headers)
                 
                 if response.status_code != 200:
+                    # Truncate error message to avoid exposing sensitive data
+                    error_text = response.text[:200] if response.text else "No error message"
                     raise Exception(
-                        f"LLM API error {response.status_code}: {response.text}"
+                        f"LLM API error {response.status_code}: {error_text}"
                     )
                 
-                data = await response.json()
+                data = response.json()
                 return data["content"][0]["text"]
             
             except (httpx.TimeoutException, asyncio.TimeoutError) as e:
                 raise Exception(f"LLM request timed out: {e}")
             except Exception as e:
-                if "LLM" in str(e):
+                # Re-raise if already an LLM exception (avoid double-wrapping)
+                if isinstance(e, Exception) and "LLM" in str(e):
                     raise
                 raise Exception(f"LLM API error: {e}")
 
@@ -406,6 +415,15 @@ Rules:
             
             # Calculate similarity
             similarity = self.embedding_service.similarity(embedding, summary_embedding)
+            
+            # Validate similarity (must be between 0.0 and 1.0)
+            if similarity is None or not (0.0 <= similarity <= 1.0):
+                logger.warning(
+                    "Invalid similarity value %.3f for episode %s, skipping",
+                    similarity if similarity is not None else float('nan'),
+                    episode.id[:8]
+                )
+                continue
             
             if similarity > best_similarity:
                 best_similarity = similarity

@@ -123,7 +123,8 @@ async def test_llm_client_openai_completion():
     }
     
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value.json.return_value = mock_response
+        # json() is a regular method, not async
+        mock_post.return_value.json = Mock(return_value=mock_response)
         mock_post.return_value.status_code = 200
         
         result = await client.complete("Test prompt")
@@ -142,7 +143,8 @@ async def test_llm_client_openai_json_mode():
     }
     
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value.json.return_value = mock_response
+        # json() is a regular method, not async
+        mock_post.return_value.json = Mock(return_value=mock_response)
         mock_post.return_value.status_code = 200
         
         result = await client.complete("Test prompt", json_mode=True)
@@ -163,7 +165,8 @@ async def test_llm_client_anthropic_completion():
     }
     
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value.json.return_value = mock_response
+        # json() is a regular method, not async
+        mock_post.return_value.json = Mock(return_value=mock_response)
         mock_post.return_value.status_code = 200
         
         result = await client.complete("Test prompt")

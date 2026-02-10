@@ -175,9 +175,13 @@ class EpisodeStore:
                     ON episodes(status, updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_episode_memories_memory 
                     ON episode_memories(memory_id);
+                CREATE INDEX IF NOT EXISTS idx_episode_summary_memory
+                    ON episodes(summary_memory_id);
             """)
             self._conn.commit()
     
+    MAX_TITLE_LENGTH = 500
+
     def create_episode(
         self,
         title: str,
@@ -186,12 +190,22 @@ class EpisodeStore:
         """Create a new episode.
         
         Args:
-            title: Episode title.
+            title: Episode title (max 500 chars).
             metadata: Optional metadata dictionary.
         
         Returns:
             Created Episode object.
+        
+        Raises:
+            ValueError: If title is empty or exceeds MAX_TITLE_LENGTH.
         """
+        if not title or not title.strip():
+            raise ValueError("Episode title cannot be empty")
+        if len(title) > self.MAX_TITLE_LENGTH:
+            raise ValueError(
+                f"Episode title too long ({len(title)} chars, max "
+                f"{self.MAX_TITLE_LENGTH})"
+            )
         episode = Episode(
             id=str(uuid.uuid4()),
             title=title,

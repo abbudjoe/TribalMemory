@@ -106,10 +106,11 @@ class EpisodeConfig:
             raise ValueError("active_window_days must be >= 1")
         if self.max_active_episodes < 1:
             raise ValueError("max_active_episodes must be >= 1")
+        # "mock" is allowed for testing only — not intended for production configs
         if self.summarizer_provider not in ("openai", "anthropic", "ollama", "mock"):
             raise ValueError(
                 f"Invalid summarizer_provider: {self.summarizer_provider}. "
-                f"Valid: openai, anthropic, ollama, mock"
+                f"Valid: openai, anthropic, ollama, mock (test only)"
             )
         if not 0.0 <= self.summarizer_temperature <= 2.0:
             raise ValueError("summarizer_temperature must be 0.0-2.0")

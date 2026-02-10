@@ -182,13 +182,12 @@ class LLMClient:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
             
-            except (httpx.TimeoutException, asyncio.TimeoutError) as e:
-                raise Exception(f"LLM request timed out: {e}")
+            except (httpx.TimeoutException, asyncio.TimeoutError):
+                raise Exception("LLM request timed out")
             except Exception as e:
-                # Re-raise if already an LLM exception (avoid double-wrapping)
-                if isinstance(e, Exception) and "LLM" in str(e):
+                if "LLM" in str(e):
                     raise
-                raise Exception(f"LLM API error: {e}")
+                raise Exception(f"LLM API error: {type(e).__name__}") from e
     
     async def _complete_anthropic(
         self,
@@ -230,13 +229,12 @@ class LLMClient:
                 data = response.json()
                 return data["content"][0]["text"]
             
-            except (httpx.TimeoutException, asyncio.TimeoutError) as e:
-                raise Exception(f"LLM request timed out: {e}")
+            except (httpx.TimeoutException, asyncio.TimeoutError):
+                raise Exception("LLM request timed out")
             except Exception as e:
-                # Re-raise if already an LLM exception (avoid double-wrapping)
-                if isinstance(e, Exception) and "LLM" in str(e):
+                if "LLM" in str(e):
                     raise
-                raise Exception(f"LLM API error: {e}")
+                raise Exception(f"LLM API error: {type(e).__name__}") from e
 
 
 # ============================================================================
@@ -511,9 +509,11 @@ Rules:
                 )
             episodes_text = "\n".join(episodes_lines)
         
+        # Sanitize content to mitigate prompt injection
+        sanitized = content.replace("{", "{{").replace("}", "}}")
         return self.CLASSIFY_PROMPT.format(
             episodes=episodes_text,
-            content=content,
+            content=sanitized,
         )
     
     async def _check_retroactive_memories(
@@ -524,7 +524,11 @@ Rules:
         """Check recent memories for retroactive assignment.
         
         When a new episode is created, check if recent memories should be
-        assigned to it. This is a placeholder for future implementation.
+        assigned to it.
+        
+        TODO: Implement in Phase 3 with vector store integration.
+        Requires querying recent memories and classifying them against
+        the new episode via LLM.
         
         Args:
             episode_id: Newly created episode ID.
@@ -533,7 +537,4 @@ Rules:
         Returns:
             List of memory IDs retroactively assigned.
         """
-        # TODO: Implement retroactive memory check
-        # Would require access to vector store to query recent memories
-        # and classify them against the new episode
         return []

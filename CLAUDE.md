@@ -54,22 +54,19 @@ Every feature needs tests. Every bug fix needs a failing regression test first.
 3. Push branch, open PR
 4. **Post PR comment: `@claude review this PR`** ← REQUIRED, DO NOT SKIP  
    ⚠️ **Note:** This is a comment on the PR (not the commit message)
-5. **Post PR comment: `@codex review this PR`** ← REQUIRED, DO NOT SKIP
-6. **Wait 5 minutes, then check PR for review comments from both reviewers**
-7. **Address ALL comments from both reviews** (every single item)
-8. Commit fixes, **push**
-9. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
-10. **Post PR comment: `@codex review this PR`** ← REQUIRED AFTER EVERY PUSH
-11. **Wait 5 minutes, check for new review comments**
-12. Issues remaining? → Go to step 7 (address all comments again)
-13. When clean: Comment `@abbudjoe ready for merge`
+5. **Wait 5 minutes, then check PR for review comments**
+6. **Address ALL comments from the review** (every single item)
+7. Commit fixes, **push**
+8. **Post PR comment: `@claude review this PR`** ← REQUIRED AFTER EVERY PUSH
+9. **Wait 5 minutes, check for new review comments**
+10. Issues remaining? → Go to step 6 (address all comments again)
+11. When clean: Comment `@abbudjoe ready for merge`
 12. Joe reviews and merges
 
 **CRITICAL:**
 - ❌ No direct commits to main (except hotfixes approved by Joe)
 - ❌ No merges without Claude Code review
 - ❌ No skipping the `@claude review this PR` comment (required after EVERY push)
-- ❌ No skipping the `@codex review this PR` comment (required after EVERY push)
 - ❌ Do NOT put review trigger comments in commit messages
 - ❌ Do NOT rely on automatic GitHub Action triggers
 - ❌ Do NOT skip review items marked "low priority", "nice to have", or "suggestion"
@@ -112,3 +109,20 @@ TribalMemory/
 4. ✅ New tests for new features
 5. ✅ Documentation updated if needed
 6. ✅ `@claude review this PR` comment posted
+
+## Epic Branch Workflow
+
+For large features, we use an epic branch pattern:
+
+1. Epic branch created from `main` (e.g., `feature/episode-memories`)
+2. Sub-branches created from the epic branch (e.g., `ep/phase-1-storage`)
+3. Sub-PRs target the **epic branch** (not main)
+4. Each sub-PR goes through full `@claude review this PR` review cycle
+5. Sub-PRs are merged into the epic branch after review passes
+6. Final PR: epic branch → main, reviewed and merged by Joe
+
+**Sub-PRs to epic branches:**
+- Same review rules apply (TDD, `@claude review`, address all items)
+- CI runs on all PRs regardless of target branch
+- Merge is allowed without Joe's approval (since it's not main)
+- Use `gh pr merge --squash` for clean history on the epic branch

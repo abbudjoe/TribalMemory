@@ -6,8 +6,12 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import uuid
+
+if TYPE_CHECKING:
+    from .episode_detector import EpisodeDetector
+    from .episode_summarizer import EpisodeSummarizer
 
 from ..interfaces import (
     IMemoryService,
@@ -64,6 +68,8 @@ class TribalMemoryService(IMemoryService):
         graph_store: Optional[GraphStore] = None,
         graph_enabled: bool = True,
         lazy_spacy: bool = True,
+        episode_detector: Optional["EpisodeDetector"] = None,
+        episode_summarizer: Optional["EpisodeSummarizer"] = None,
     ):
         self.instance_id = instance_id
         self.embedding_service = embedding_service
@@ -106,6 +112,10 @@ class TribalMemoryService(IMemoryService):
             exact_threshold=dedup_exact_threshold,
             near_threshold=dedup_near_threshold,
         )
+        
+        # Episode detection and summarization (optional)
+        self.episode_detector = episode_detector
+        self.episode_summarizer = episode_summarizer
     
     async def remember(
         self,
@@ -198,6 +208,28 @@ class TribalMemoryService(IMemoryService):
                 )
             else:
                 self._extract_and_store_temporal(content, entry)
+        
+        # Episode detection and summarization (non-blocking, failure-tolerant)
+        if result.success and self.episode_detector and self.episode_summarizer:
+            try:
+                episode_id = await self.episode_detector.detect(
+                    entry.id, content, embedding
+                )
+                if episode_id:
+                    # Memory was assigned to an episode, update its summary
+                    await self.episode_summarizer.update_summary(episode_id)
+                    logger.debug(
+                        "Memory %s assigned to episode %s",
+                        entry.id[:8],
+                        episode_id[:8],
+                    )
+            except Exception as e:
+                # Never fail remember() due to episode processing errors
+                logger.warning(
+                    "Episode processing failed for %s: %s",
+                    entry.id[:8],
+                    e,
+                )
 
         return result
 

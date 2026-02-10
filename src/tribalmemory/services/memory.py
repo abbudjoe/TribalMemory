@@ -6,8 +6,12 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import uuid
+
+if TYPE_CHECKING:
+    from .episode_detector import EpisodeDetector
+    from .episode_summarizer import EpisodeSummarizer
 
 from ..interfaces import (
     IMemoryService,

@@ -39,6 +39,7 @@ class EpisodeConfig:
         max_active_episodes: Maximum concurrent active episodes.
         summarizer_model: LLM model for summary generation.
         summarizer_provider: LLM provider ("openai", "anthropic", "ollama").
+        summarizer_temperature: Temperature for summary generation (0.0-2.0).
         full_regen_interval: Full summary regeneration every N memories.
         max_llm_calls_per_memory: Max LLM calls per remember() invocation.
         monthly_cost_ceiling: Pause episode processing if monthly cost exceeded.
@@ -50,6 +51,7 @@ class EpisodeConfig:
     max_active_episodes: int = 20
     summarizer_model: str = "gpt-4o-mini"
     summarizer_provider: str = "openai"  # "openai", "anthropic", "ollama"
+    summarizer_temperature: float = 0.3
     full_regen_interval: int = 10
     max_llm_calls_per_memory: int = 2
     monthly_cost_ceiling: float = 5.0

@@ -23,6 +23,18 @@ from .episode_store import Episode, EpisodeStore
 logger = logging.getLogger(__name__)
 
 
+def _format_id(id_: Optional[str]) -> str:
+    """Format ID for logging (first 8 chars or 'None').
+    
+    Args:
+        id_: ID string to format.
+    
+    Returns:
+        First 8 characters of ID, or 'None' if ID is None.
+    """
+    return id_[:8] if id_ else "None"
+
+
 class EpisodeSummarizer:
     """Generate and maintain episode summaries.
     
@@ -169,15 +181,25 @@ Status: <status>"""
             
             logger.info(
                 "Updated summary for episode %s (%d new memories)",
-                episode_id[:8],
+                _format_id(episode_id),
                 len(unsummarized_ids),
             )
         
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError) as e:
+            # Log with traceback for debugging
             logger.error(
                 "Failed to update summary for episode %s: %s",
-                episode_id[:8],
+                episode_id[:8] if episode_id else "None",
                 e,
+                exc_info=True,
+            )
+        except Exception as e:
+            # Catch unexpected errors but log with traceback
+            logger.error(
+                "Unexpected error updating summary for episode %s: %s",
+                episode_id[:8] if episode_id else "None",
+                e,
+                exc_info=True,
             )
     
     async def _progressive_update(
@@ -202,7 +224,7 @@ Status: <status>"""
                 new_memories.append(memory.content)
         
         if not new_memories:
-            return episode.summary
+            return episode.summary or ""
         
         # Build prompt
         prompt = self.PROGRESSIVE_PROMPT.format(
@@ -210,8 +232,10 @@ Status: <status>"""
             new_memories="\n".join(f"- {m}" for m in new_memories),
         )
         
-        # Call LLM
-        summary = await self.llm_client.complete(prompt, temperature=0.3)
+        # Call LLM with configured temperature
+        summary = await self.llm_client.complete(
+            prompt, temperature=self.config.summarizer_temperature
+        )
         return summary.strip()
     
     async def _full_regeneration(self, episode: Episode) -> str:
@@ -238,21 +262,18 @@ Status: <status>"""
                 all_memories.append(f"[{timestamp}] {memory.content}")
         
         if not all_memories:
-            return episode.summary
-        
-        # Build date range
-        date_range = self._format_date_range(episode)
+            return episode.summary or ""
         
         # Build prompt
         prompt = self.FULL_REGEN_PROMPT.format(
             title=episode.title,
             all_memories="\n".join(all_memories),
-            date_range=date_range,
-            status=episode.status,
         )
         
-        # Call LLM
-        summary = await self.llm_client.complete(prompt, temperature=0.3)
+        # Call LLM with configured temperature
+        summary = await self.llm_client.complete(
+            prompt, temperature=self.config.summarizer_temperature
+        )
         return summary.strip()
     
     async def _store_summary_memory(
@@ -311,12 +332,9 @@ Status: <status>"""
             result = await self.vector_store.store(summary_memory)
         
         if not result.success:
-            logger.error(
-                "Failed to store summary memory: %s",
-                result.error,
-            )
-            # Return existing ID or generate new one
-            return episode.summary_memory_id or str(uuid.uuid4())
+            error_msg = f"Failed to store summary memory: {result.error}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         return result.memory_id
     
@@ -362,14 +380,15 @@ Status: <status>"""
                     
                     logger.info(
                         "Closed stale episode %s with final summary",
-                        episode_id[:8],
+                        _format_id(episode_id),
                     )
             
             except Exception as e:
                 logger.error(
                     "Failed to generate final summary for episode %s: %s",
-                    episode_id[:8],
+                    _format_id(episode_id),
                     e,
+                    exc_info=True,
                 )
         
         return stale_ids

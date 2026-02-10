@@ -3,7 +3,6 @@
 Tests progressive summarization, full regeneration, and integration with the remember() flow.
 """
 
-import json
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
@@ -68,7 +67,7 @@ def mock_llm_client():
     return client
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def episode_store(tmp_path):
     """Episode store with temporary database."""
     db_path = tmp_path / "test_episodes.db"
@@ -501,7 +500,7 @@ async def test_llm_failure_handled_gracefully(summarizer, episode_store, mock_ve
 
 @pytest.mark.asyncio
 async def test_vector_store_failure_handled(summarizer, episode_store, mock_vector_store):
-    """Test vector store failure is handled gracefully."""
+    """Test vector store failure is handled gracefully (logged but episode not updated)."""
     episode = episode_store.create_episode("Test")
     memory_id = "mem-1"
     episode_store.add_memory(episode.id, memory_id)
@@ -519,12 +518,12 @@ async def test_vector_store_failure_handled(summarizer, episode_store, mock_vect
         return_value=StoreResult(success=False, error="Storage failed")
     )
     
-    # Should not raise exception
+    # Should not raise exception (caught in outer try/except)
     await summarizer.update_summary(episode.id)
     
-    # Episode summary should still be updated (best effort)
+    # Episode summary should NOT be updated when storage fails (prevents data loss)
     updated_episode = episode_store.get_episode(episode.id)
-    assert updated_episode.summary == "Summary"
+    assert updated_episode.summary == ""  # Still empty due to storage failure
 
 
 @pytest.mark.asyncio

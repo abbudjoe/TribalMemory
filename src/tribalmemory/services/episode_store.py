@@ -394,6 +394,28 @@ class EpisodeStore:
         
         return self.get_episode(episode_id)
     
+    def set_updated_at(self, episode_id: str, updated_at: str) -> None:
+        """Set the updated_at timestamp for an episode.
+        
+        Test helper for simulating stale episodes without breaking
+        encapsulation by accessing private SQLite connections.
+        
+        Args:
+            episode_id: Episode UUID.
+            updated_at: ISO-8601 timestamp string.
+            
+        Raises:
+            ValueError: If episode not found.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE episodes SET updated_at = ? WHERE id = ?",
+                (updated_at, episode_id)
+            )
+            self._conn.commit()
+            if cursor.rowcount == 0:
+                raise ValueError(f"Episode {episode_id} not found")
+    
     def delete_episode(self, episode_id: str) -> bool:
         """Delete an episode.
         

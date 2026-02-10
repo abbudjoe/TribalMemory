@@ -80,6 +80,49 @@ class SearchConfig:
 
 
 @dataclass
+class EpisodeConfig:
+    """Episode detection and summarization configuration."""
+    enabled: bool = False
+    detector_strategy: str = "hybrid"  # "embedding", "llm", "hybrid"
+    embedding_similarity_threshold: float = 0.75
+    active_window_days: int = 14
+    max_active_episodes: int = 20
+    summarizer_model: str = "gpt-4o-mini"
+    summarizer_provider: str = "openai"  # "openai", "anthropic", "ollama"
+    summarizer_temperature: float = 0.3
+    full_regen_interval: int = 10
+    max_llm_calls_per_memory: int = 2
+    monthly_cost_ceiling: float = 5.0
+
+    def __post_init__(self):
+        if self.detector_strategy not in ("embedding", "llm", "hybrid"):
+            raise ValueError(
+                f"Invalid detector_strategy: {self.detector_strategy}. "
+                f"Valid: embedding, llm, hybrid"
+            )
+        if not 0.0 <= self.embedding_similarity_threshold <= 1.0:
+            raise ValueError("embedding_similarity_threshold must be 0.0-1.0")
+        if self.active_window_days < 1:
+            raise ValueError("active_window_days must be >= 1")
+        if self.max_active_episodes < 1:
+            raise ValueError("max_active_episodes must be >= 1")
+        # "mock" is allowed for testing only — not intended for production configs
+        if self.summarizer_provider not in ("openai", "anthropic", "ollama", "mock"):
+            raise ValueError(
+                f"Invalid summarizer_provider: {self.summarizer_provider}. "
+                f"Valid: openai, anthropic, ollama, mock (test only)"
+            )
+        if not 0.0 <= self.summarizer_temperature <= 2.0:
+            raise ValueError("summarizer_temperature must be 0.0-2.0")
+        if self.full_regen_interval < 1:
+            raise ValueError("full_regen_interval must be >= 1")
+        if self.max_llm_calls_per_memory < 0:
+            raise ValueError("max_llm_calls_per_memory must be >= 0")
+        if self.monthly_cost_ceiling < 0:
+            raise ValueError("monthly_cost_ceiling must be >= 0")
+
+
+@dataclass
 class TribalMemoryConfig:
     """Full service configuration."""
     instance_id: str = "default"
@@ -87,6 +130,7 @@ class TribalMemoryConfig:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    episodes: EpisodeConfig = field(default_factory=EpisodeConfig)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "TribalMemoryConfig":
@@ -107,6 +151,7 @@ class TribalMemoryConfig:
         embedding_data = data.get("embedding", {})
         server_data = data.get("server", {})
         search_data = data.get("search", {})
+        episodes_data = data.get("episodes", {})
 
         return cls(
             instance_id=data.get("instance_id", "default"),
@@ -114,6 +159,7 @@ class TribalMemoryConfig:
             embedding=EmbeddingConfig(**embedding_data) if embedding_data else EmbeddingConfig(),
             server=ServerConfig(**server_data) if server_data else ServerConfig(),
             search=SearchConfig(**search_data) if search_data else SearchConfig(),
+            episodes=EpisodeConfig(**episodes_data) if episodes_data else EpisodeConfig(),
         )
 
     @classmethod

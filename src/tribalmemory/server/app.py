@@ -19,6 +19,7 @@ from ..services.session_store import (
 )
 from .auth import TokenAuthMiddleware, load_token
 from .config import TribalMemoryConfig
+from .episode_routes import router as episode_router
 from .graph_routes import router as graph_router
 from .routes import router
 
@@ -98,6 +99,63 @@ async def lifespan(app: FastAPI):
             vector_store=_memory_service.vector_store,
         )
 
+    # Initialize episode components if enabled
+    if config.episodes.enabled and config.db.path:
+        try:
+            from ..services.episode_store import EpisodeStore
+            from ..services.episode_detector import EpisodeDetector, EpisodeConfig as EpConfig, LLMClient
+            from ..services.episode_summarizer import EpisodeSummarizer
+            
+            episode_db_path = str(Path(config.db.path) / "episodes.db")
+            episode_store = EpisodeStore(episode_db_path)
+            
+            # Convert server config to episode config
+            ep_config = EpConfig(
+                enabled=config.episodes.enabled,
+                detector_strategy=config.episodes.detector_strategy,
+                embedding_similarity_threshold=config.episodes.embedding_similarity_threshold,
+                active_window_days=config.episodes.active_window_days,
+                max_active_episodes=config.episodes.max_active_episodes,
+                summarizer_model=config.episodes.summarizer_model,
+                summarizer_provider=config.episodes.summarizer_provider,
+                summarizer_temperature=config.episodes.summarizer_temperature,
+                full_regen_interval=config.episodes.full_regen_interval,
+                max_llm_calls_per_memory=config.episodes.max_llm_calls_per_memory,
+                monthly_cost_ceiling=config.episodes.monthly_cost_ceiling,
+            )
+            
+            # Create detector
+            episode_detector = EpisodeDetector(
+                episode_store=episode_store,
+                embedding_service=_memory_service.embedding_service,
+                config=ep_config,
+            )
+            
+            # Create LLM client for summarizer
+            llm_client = LLMClient(
+                provider=config.episodes.summarizer_provider,
+                model=config.episodes.summarizer_model,
+            )
+            
+            # Create summarizer
+            episode_summarizer = EpisodeSummarizer(
+                episode_store=episode_store,
+                vector_store=_memory_service.vector_store,
+                embedding_service=_memory_service.embedding_service,
+                llm_client=llm_client,
+                config=ep_config,
+            )
+            
+            # Wire up to service
+            _memory_service.episode_detector = episode_detector
+            _memory_service.episode_summarizer = episode_summarizer
+            
+            logger.info(f"Episode memories enabled (strategy: {config.episodes.detector_strategy})")
+        
+        except Exception as e:
+            logger.warning(f"Failed to initialize episode components: {e}")
+            logger.warning("Episode feature disabled")
+    
     search_mode = "hybrid (vector + BM25)" if config.search.hybrid_enabled else "vector-only"
     logger.info(f"Memory service initialized (db: {config.db.path}, search: {search_mode})")
     retention = config.server.session_retention_days
@@ -200,6 +258,7 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     # Include routes
     app.include_router(router)
     app.include_router(graph_router)
+    app.include_router(episode_router)
 
     # Serve static files + graph UI
     from fastapi.staticfiles import StaticFiles

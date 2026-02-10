@@ -21,6 +21,7 @@ class MemorySource(Enum):
     CORRECTION = "correction"        # Correction to existing memory
     CROSS_INSTANCE = "cross_instance"  # Propagated from another instance
     LEGACY = "legacy"                # Pre-tribal-memory import
+    EPISODE_SUMMARY = "episode_summary"  # Generated episode narrative summary
     UNKNOWN = "unknown"
 
 

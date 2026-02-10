@@ -268,6 +268,24 @@ curl -X POST http://localhost:18790/v1/import \
   -d @backup.json
 ```
 
+## Episode Summaries
+
+Episode summaries are exported as regular memories with
+`source_type = EPISODE_SUMMARY`. They are automatically included
+in exports.
+
+**Important:** Episode metadata (episode ID, status, relationships)
+is **not** included in exports. Only the summary memories themselves
+are exported. This means:
+
+- Episode summaries will appear as searchable memories after import
+- Episode structure (groupings, relationships) is not preserved
+- To preserve full episode data, use database-level backups
+
+For more on episodes, see [episode-memories.md](episode-memories.md).
+
+---
+
 ## Troubleshooting
 
 **Import skips everything:**

@@ -108,6 +108,12 @@ The following paths never require authentication:
 
 `OPTIONS` requests are also allowed without auth for CORS preflight.
 
+**All other routes require authentication**, including:
+- `/v1/remember` — Store memories
+- `/v1/recall` — Search memories
+- `/v1/episodes/**` — Episode management (list, get, create, add, remove, close, regenerate)
+- All other `/v1/` endpoints
+
 ## Rate Limiting
 
 Failed authentication attempts are rate-limited per client IP:

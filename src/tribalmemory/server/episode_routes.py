@@ -389,7 +389,7 @@ async def regenerate_episode_summary(
     Returns:
         Success status.
     """
-    if not service.episode_summarizer:
+    if not service.episode_detector:
         raise HTTPException(status_code=501, detail="Episode feature not enabled")
     
     try:

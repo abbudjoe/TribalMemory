@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
+from tribalmemory import __version__
 
 
 class SourceType(str, Enum):
@@ -231,7 +232,7 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     instance_id: str
     memory_count: int
-    version: str = "0.1.0"
+    version: str = Field(default_factory=lambda: __version__)
 
 
 class StatsResponse(BaseModel):

@@ -63,7 +63,7 @@ That's it! Episodes will now be automatically detected and summarized as you sto
 
 ### Write-Time Detection
 
-When you store a memory with `tribal_store()` or `/v1/remember`, the episode detector runs:
+When you store a memory with `tribal_remember()` or `/v1/remember`, the episode detector runs:
 
 1. **Fast path (embedding similarity)**:
    - Compares the new memory to active episode summaries

@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tribalmemory import __version__
 from ..services import create_memory_service, TribalMemoryService
 from ..services.session_store import (
     SessionStore,
@@ -224,7 +225,7 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     app = FastAPI(
         title="Tribal Memory",
         description="Long-term memory service for AI agents with provenance tracking",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -290,7 +291,7 @@ def create_app(config: Optional[TribalMemoryConfig] = None) -> FastAPI:
     async def root():
         return {
             "service": "tribal-memory",
-            "version": "0.1.0",
+            "version": __version__,
             "docs": "/docs",
             "graph": "/graph",
         }

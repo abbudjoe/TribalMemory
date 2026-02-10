@@ -122,6 +122,12 @@ class EpisodeStore:
         """
         if hasattr(self, '_conn') and self._conn:
             try:
+                # Checkpoint WAL before close (best effort - may fail if DB is locked)
+                try:
+                    self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except sqlite3.OperationalError:
+                    # Database locked, skip checkpoint (SQLite will handle on next access)
+                    pass
                 self._conn.close()
             except sqlite3.ProgrammingError:
                 # Connection already closed
@@ -165,6 +171,8 @@ class EpisodeStore:
                 
                 CREATE INDEX IF NOT EXISTS idx_episode_status ON episodes(status);
                 CREATE INDEX IF NOT EXISTS idx_episode_updated ON episodes(updated_at);
+                CREATE INDEX IF NOT EXISTS idx_episode_status_updated 
+                    ON episodes(status, updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_episode_memories_memory 
                     ON episode_memories(memory_id);
             """)
@@ -290,11 +298,6 @@ class EpisodeStore:
         Raises:
             ValueError: If episode not found.
         """
-        # Get current episode
-        episode = self.get_episode(episode_id)
-        if not episode:
-            raise ValueError(f"Episode {episode_id} not found")
-        
         # Build update query
         update_fields = []
         values = []
@@ -320,6 +323,10 @@ class EpisodeStore:
             values.append(json.dumps(kwargs['metadata']))
         
         if not update_fields:
+            # No fields to update, just verify existence
+            episode = self.get_episode(episode_id)
+            if not episode:
+                raise ValueError(f"Episode {episode_id} not found")
             return episode
         
         # Always update updated_at
@@ -329,11 +336,14 @@ class EpisodeStore:
         values.append(episode_id)
         
         with self._lock:
-            self._conn.execute(
+            cursor = self._conn.execute(
                 f"UPDATE episodes SET {', '.join(update_fields)} WHERE id = ?",
                 values
             )
             self._conn.commit()
+            
+            if cursor.rowcount == 0:
+                raise ValueError(f"Episode {episode_id} not found")
         
         return self.get_episode(episode_id)
     
@@ -349,12 +359,8 @@ class EpisodeStore:
         Raises:
             ValueError: If episode not found.
         """
-        episode = self.get_episode(episode_id)
-        if not episode:
-            raise ValueError(f"Episode {episode_id} not found")
-        
         with self._lock:
-            self._conn.execute(
+            cursor = self._conn.execute(
                 """
                 UPDATE episodes 
                 SET status = ?, closed_at = ?, updated_at = ?
@@ -368,6 +374,9 @@ class EpisodeStore:
                 )
             )
             self._conn.commit()
+            
+            if cursor.rowcount == 0:
+                raise ValueError(f"Episode {episode_id} not found")
         
         return self.get_episode(episode_id)
     
@@ -399,7 +408,7 @@ class EpisodeStore:
             memory_id: Memory UUID.
         
         Returns:
-            True if added, False if already exists.
+            True if newly added, False if already exists.
         """
         with self._lock:
             # Check if already exists
@@ -411,7 +420,7 @@ class EpisodeStore:
                 (episode_id, memory_id)
             )
             if cursor.fetchone():
-                return True  # Already exists, idempotent
+                return False  # Already exists, no action taken
             
             # Add memory
             self._conn.execute(
@@ -518,19 +527,23 @@ class EpisodeStore:
         self,
         episode_id: str,
         memory_ids: List[str]
-    ) -> None:
+    ) -> int:
         """Mark memories as summarized.
         
         Args:
             episode_id: Episode UUID.
             memory_ids: List of memory IDs to mark.
+        
+        Returns:
+            Number of memories actually marked.
         """
         if not memory_ids:
-            return
+            return 0
         
         with self._lock:
+            # Safe: placeholders count is from len(), not user input
             placeholders = ','.join('?' * len(memory_ids))
-            self._conn.execute(
+            cursor = self._conn.execute(
                 f"""
                 UPDATE episode_memories 
                 SET summarized = 1
@@ -539,6 +552,7 @@ class EpisodeStore:
                 [episode_id] + memory_ids
             )
             self._conn.commit()
+            return cursor.rowcount
     
     def get_episode_for_memory(self, memory_id: str) -> Optional[str]:
         """Find which episode owns a memory.
@@ -606,6 +620,7 @@ class EpisodeStore:
             
             if stale_ids:
                 # Close them
+                # Safe: placeholders count is from len(), not user input
                 placeholders = ','.join('?' * len(stale_ids))
                 self._conn.execute(
                     f"""

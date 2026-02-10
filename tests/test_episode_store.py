@@ -1,6 +1,6 @@
 """Tests for EpisodeStore - Episode memory storage layer.
 
-Tests cover:
+Comprehensive test coverage for:
 - CRUD operations (create, get, list, update, delete)
 - Episode-memory associations (add, remove, get, unsummarized tracking)
 - Status transitions (active → closed, stale detection)
@@ -8,6 +8,7 @@ Tests cover:
 - Edge cases (duplicate adds, remove from wrong episode, get non-existent)
 - Thread safety (concurrent operations)
 - Idempotent schema creation
+- Foreign key constraint enforcement
 """
 
 import pytest
@@ -275,8 +276,11 @@ class TestEpisodeMemoryAssociations:
         
         episode = store.create_episode(title="Test Episode")
         
-        store.add_memory(episode.id, "memory-123")
-        store.add_memory(episode.id, "memory-123")  # Duplicate
+        result1 = store.add_memory(episode.id, "memory-123")
+        result2 = store.add_memory(episode.id, "memory-123")  # Duplicate
+        
+        assert result1 is True  # First add succeeds
+        assert result2 is False  # Second add is no-op
         
         retrieved = store.get_episode(episode.id)
         assert retrieved.memory_count == 1  # No duplicates
@@ -415,6 +419,16 @@ class TestEpisodeMemoryAssociations:
         assert store.get_episode_for_memory("memory-1") == ep1.id
         assert store.get_episode_for_memory("memory-2") == ep2.id
         assert store.get_episode_for_memory("nonexistent") is None
+        
+        store.close()
+
+    def test_add_memory_to_nonexistent_episode_raises(self, tmp_path: Path):
+        """Test that foreign key constraints are enforced."""
+        db_path = tmp_path / "test.db"
+        store = EpisodeStore(str(db_path))
+        
+        with pytest.raises(sqlite3.IntegrityError):
+            store.add_memory("nonexistent-episode-id", "memory-123")
         
         store.close()
 

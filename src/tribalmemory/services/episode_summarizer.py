@@ -202,6 +202,76 @@ Status: <status>"""
                 exc_info=True,
             )
     
+    async def regenerate_summary(self, episode_id: str) -> None:
+        """Force full regeneration of episode summary.
+        
+        Rebuilds the summary from all constituent memories, regardless
+        of full_regen_interval. Use for manual corrections or after
+        bulk memory changes.
+        
+        Args:
+            episode_id: Episode UUID.
+        
+        Raises:
+            ValueError: If episode not found.
+        """
+        # Get episode
+        episode = self.episode_store.get_episode(episode_id)
+        if not episode:
+            raise ValueError(f"Episode {episode_id} not found")
+        
+        try:
+            # Force full regeneration
+            summary = await self._full_regeneration(episode)
+            
+            if not summary:
+                logger.warning(
+                    "Summary generation failed for episode %s", episode_id
+                )
+                return
+            
+            # Store summary as MemoryEntry in vector store
+            summary_memory_id = await self._store_summary_memory(
+                episode, summary
+            )
+            
+            # Update episode with new summary
+            self.episode_store.update_episode(
+                episode_id,
+                summary=summary,
+                summary_memory_id=summary_memory_id,
+            )
+            
+            # Mark all memories as summarized
+            all_memory_ids = self.episode_store.get_episode_memories(episode_id)
+            if all_memory_ids:
+                self.episode_store.mark_memories_summarized(
+                    episode_id, all_memory_ids
+                )
+            
+            logger.info(
+                "Regenerated summary for episode %s (%d total memories)",
+                _format_id(episode_id),
+                episode.memory_count,
+            )
+        
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.error(
+                "Failed to regenerate summary for episode %s: %s",
+                episode_id[:8] if episode_id else "None",
+                e,
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                "Unexpected error regenerating summary for episode %s: %s",
+                episode_id[:8] if episode_id else "None",
+                e,
+                exc_info=True,
+            )
+            raise
+    
     async def _progressive_update(
         self,
         episode: Episode,

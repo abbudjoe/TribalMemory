@@ -143,7 +143,12 @@ class LLMClient:
         Raises:
             Exception: On API errors or timeouts.
         """
-        if self.provider == "anthropic":
+        if self.provider == "mock":
+            # Mock provider for testing - returns a simple response
+            if json_mode:
+                return '{"action": "skip", "reason": "mock response"}'
+            return "Mock summary: This is a test episode summarizing the provided memories."
+        elif self.provider == "anthropic":
             return await self._complete_anthropic(prompt, json_mode, temperature)
         else:
             return await self._complete_openai(prompt, json_mode, temperature)

@@ -803,6 +803,431 @@ def create_server() -> FastMCP:
             "error_details": summary.error_details,
         })
 
+    # ========================================================================
+    # Episode Management Tools
+    # ========================================================================
+
+    @mcp.tool()
+    async def tribal_episodes_list(
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> str:
+        """List episodes with optional filtering.
+
+        Args:
+            status: Filter by status (active, closed, archived).
+            limit: Maximum number of results (1-100, default 50).
+
+        Returns:
+            JSON with: episodes (list), count, status (if filtered)
+        """
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "episodes": [],
+                "count": 0,
+                "error": "Episode feature not enabled",
+            })
+        
+        # Clamp limit
+        limit = max(1, min(100, limit))
+        
+        # Validate status
+        if status and status not in ("active", "closed", "archived"):
+            return json.dumps({
+                "episodes": [],
+                "count": 0,
+                "error": f"Invalid status: {status}. Valid: active, closed, archived",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            episodes = episode_store.list_episodes(status=status, limit=limit)
+            
+            result = {
+                "episodes": [
+                    {
+                        "id": ep.id,
+                        "title": ep.title,
+                        "summary": ep.summary[:200] + "..." if len(ep.summary) > 200 else ep.summary,
+                        "status": ep.status,
+                        "memory_count": ep.memory_count,
+                        "created_at": ep.created_at.isoformat(),
+                        "updated_at": ep.updated_at.isoformat(),
+                        "closed_at": ep.closed_at.isoformat() if ep.closed_at else None,
+                    }
+                    for ep in episodes
+                ],
+                "count": len(episodes),
+            }
+            
+            if status:
+                result["status"] = status
+            
+            return json.dumps(result)
+        
+        except Exception as e:
+            return json.dumps({
+                "episodes": [],
+                "count": 0,
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_get(episode_id: str) -> str:
+        """Get episode details with full summary and memory IDs.
+
+        Args:
+            episode_id: Episode UUID (required).
+
+        Returns:
+            JSON with: episode (full details), memory_ids (list)
+        """
+        if not episode_id or not episode_id.strip():
+            return json.dumps({
+                "episode": None,
+                "memory_ids": [],
+                "error": "Episode ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "episode": None,
+                "memory_ids": [],
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            episode = episode_store.get_episode(episode_id)
+            
+            if not episode:
+                return json.dumps({
+                    "episode": None,
+                    "memory_ids": [],
+                    "error": f"Episode {episode_id} not found",
+                })
+            
+            memory_ids = episode_store.get_episode_memories(episode_id)
+            
+            return json.dumps({
+                "episode": {
+                    "id": episode.id,
+                    "title": episode.title,
+                    "summary": episode.summary,
+                    "summary_memory_id": episode.summary_memory_id,
+                    "status": episode.status,
+                    "memory_count": episode.memory_count,
+                    "created_at": episode.created_at.isoformat(),
+                    "updated_at": episode.updated_at.isoformat(),
+                    "closed_at": episode.closed_at.isoformat() if episode.closed_at else None,
+                    "metadata": episode.metadata,
+                },
+                "memory_ids": memory_ids,
+            })
+        
+        except Exception as e:
+            return json.dumps({
+                "episode": None,
+                "memory_ids": [],
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_create(
+        title: str,
+        memory_ids: list[str],
+    ) -> str:
+        """Manually create an episode from existing memories.
+
+        Creates a new episode, adds the specified memories, and triggers
+        initial summary generation.
+
+        Args:
+            title: Episode title (required, non-empty).
+            memory_ids: List of memory IDs to include in the episode.
+
+        Returns:
+            JSON with: success, episode_id, memory_count, error
+        """
+        if not title or not title.strip():
+            return json.dumps({
+                "success": False,
+                "episode_id": None,
+                "memory_count": 0,
+                "error": "Title cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "success": False,
+                "episode_id": None,
+                "memory_count": 0,
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            
+            # Create episode
+            episode = episode_store.create_episode(title.strip())
+            
+            # Add memories
+            added_count = 0
+            for memory_id in memory_ids:
+                if episode_store.add_memory(episode.id, memory_id):
+                    added_count += 1
+            
+            # Trigger initial summary if memories added
+            if added_count > 0 and service.episode_summarizer:
+                try:
+                    await service.episode_summarizer.update_summary(episode.id)
+                except Exception as e:
+                    # Log but don't fail - summary can be regenerated later
+                    logger.warning(f"Failed to generate initial summary for {episode.id}: {e}")
+            
+            return json.dumps({
+                "success": True,
+                "episode_id": episode.id,
+                "memory_count": added_count,
+            })
+        
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "episode_id": None,
+                "memory_count": 0,
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_add(
+        episode_id: str,
+        memory_id: str,
+    ) -> str:
+        """Add a memory to an episode.
+
+        Adds the memory and triggers progressive summary update.
+
+        Args:
+            episode_id: Episode UUID (required).
+            memory_id: Memory UUID to add (required).
+
+        Returns:
+            JSON with: success, error
+        """
+        if not episode_id or not episode_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Episode ID cannot be empty",
+            })
+        
+        if not memory_id or not memory_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Memory ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "success": False,
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            
+            # Verify episode exists
+            episode = episode_store.get_episode(episode_id)
+            if not episode:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Episode {episode_id} not found",
+                })
+            
+            # Add memory
+            added = episode_store.add_memory(episode_id, memory_id)
+            
+            # Trigger summary update if newly added
+            if added and service.episode_summarizer:
+                try:
+                    await service.episode_summarizer.update_summary(episode_id)
+                except Exception as e:
+                    logger.warning(f"Failed to update summary for {episode_id}: {e}")
+            
+            return json.dumps({
+                "success": True,
+            })
+        
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_remove(
+        episode_id: str,
+        memory_id: str,
+    ) -> str:
+        """Remove a memory from an episode.
+
+        Args:
+            episode_id: Episode UUID (required).
+            memory_id: Memory UUID to remove (required).
+
+        Returns:
+            JSON with: success, error
+        """
+        if not episode_id or not episode_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Episode ID cannot be empty",
+            })
+        
+        if not memory_id or not memory_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Memory ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "success": False,
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            
+            # Remove memory
+            removed = episode_store.remove_memory(episode_id, memory_id)
+            
+            if not removed:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Memory {memory_id} not found in episode {episode_id}",
+                })
+            
+            return json.dumps({
+                "success": True,
+            })
+        
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_close(episode_id: str) -> str:
+        """Close an episode.
+
+        Sets status to 'closed', sets closed_at timestamp, and triggers
+        final full summary regeneration.
+
+        Args:
+            episode_id: Episode UUID (required).
+
+        Returns:
+            JSON with: success, error
+        """
+        if not episode_id or not episode_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Episode ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_detector:
+            return json.dumps({
+                "success": False,
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            episode_store = service.episode_detector.episode_store
+            
+            # Close episode
+            episode = episode_store.close_episode(episode_id)
+            
+            # Trigger final full regeneration
+            if service.episode_summarizer:
+                try:
+                    await service.episode_summarizer.regenerate_summary(episode_id)
+                except Exception as e:
+                    logger.warning(f"Failed to regenerate summary for {episode_id}: {e}")
+            
+            return json.dumps({
+                "success": True,
+            })
+        
+        except ValueError as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
+    @mcp.tool()
+    async def tribal_episode_regenerate(episode_id: str) -> str:
+        """Force full summary regeneration for an episode.
+
+        Rebuilds the summary from all constituent memories (expensive).
+        Use for manual corrections or after bulk memory changes.
+
+        Args:
+            episode_id: Episode UUID (required).
+
+        Returns:
+            JSON with: success, error
+        """
+        if not episode_id or not episode_id.strip():
+            return json.dumps({
+                "success": False,
+                "error": "Episode ID cannot be empty",
+            })
+        
+        service = await get_memory_service()
+        
+        if not service.episode_summarizer:
+            return json.dumps({
+                "success": False,
+                "error": "Episode feature not enabled",
+            })
+        
+        try:
+            await service.episode_summarizer.regenerate_summary(episode_id)
+            
+            return json.dumps({
+                "success": True,
+            })
+        
+        except ValueError as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+            })
+
     return mcp
 
 

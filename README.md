@@ -371,6 +371,7 @@ The server is the single source of truth. Each agent connects as an instance. Me
 
 - **Semantic search** — Find memories by meaning, not keywords
 - **Cross-agent sharing** — Memories from one agent are available to all
+- **Episode memories** — Multi-session narratives with auto-summarization
 - **Graph search** — Entity extraction + relationship traversal
 - **Graph visualization** — [Built-in web UI](docs/graph-visualization.md) to explore your knowledge graph at `/graph`
 - **Hybrid retrieval** — Vector + BM25 keyword search combined
@@ -385,6 +386,115 @@ The server is the single source of truth. Each agent connects as an instance. Me
 - **Token budgets** — Smart context management to avoid LLM overload
 - **MCP server** — Native integration with Claude Code, Codex, and more
 - **Benchmark tested** — [100% accuracy on LoCoMo](docs/memorybench-results.md) (1986 questions, all categories)
+
+---
+
+## Episode Memories
+
+**Episodes** group related memories spanning multiple sessions into cohesive narratives with auto-generated summaries.
+
+### Why Episodes?
+
+- **Narrative continuity**: Projects unfold across days/weeks — episodes capture the full story
+- **Automatic detection**: Write-time hybrid detection (embedding similarity + LLM classification)
+- **Progressive summarization**: Summaries update incrementally as you work
+- **Surfaces in recall**: Episode summaries are indexed memories that show up in standard `recall()` queries
+
+### Configuration
+
+Add to `~/.tribal-memory/config.yaml`:
+
+```yaml
+episodes:
+  enabled: true
+  detector_strategy: hybrid  # "embedding", "llm", or "hybrid"
+  embedding_similarity_threshold: 0.75
+  active_window_days: 14
+  max_active_episodes: 20
+  summarizer_model: gpt-4o-mini
+  summarizer_provider: openai  # "openai", "anthropic", or "ollama"
+  full_regen_interval: 10
+  monthly_cost_ceiling: 5.0
+```
+
+**Required**: Set your API key in `~/.tribal-memory/.env`:
+
+```bash
+OPENAI_API_KEY=sk-...        # For OpenAI
+ANTHROPIC_API_KEY=sk-ant-... # For Anthropic
+OLLAMA_BASE_URL=http://...   # For Ollama (no key needed)
+```
+
+### MCP Tools
+
+```python
+# List episodes
+tribal_episodes_list(status="active", limit=50)
+
+# Get episode details
+tribal_episode_get(episode_id="...")
+
+# Create episode manually
+tribal_episode_create(title="Bug Fix: Auth Race Condition", memory_ids=[...])
+
+# Add memory to episode
+tribal_episode_add(episode_id="...", memory_id="...")
+
+# Remove memory from episode
+tribal_episode_remove(episode_id="...", memory_id="...")
+
+# Close episode (triggers final summary)
+tribal_episode_close(episode_id="...")
+
+# Force full summary regeneration
+tribal_episode_regenerate(episode_id="...")
+```
+
+### HTTP API
+
+```bash
+# List episodes
+GET /v1/episodes?status=active&limit=50
+
+# Get episode details
+GET /v1/episodes/{id}
+
+# Create episode
+POST /v1/episodes
+{
+  "title": "Bug Fix: Auth Race Condition",
+  "memory_ids": ["mem-123", "mem-456"]
+}
+
+# Add memory
+POST /v1/episodes/{id}/memories
+{
+  "memory_id": "mem-789"
+}
+
+# Remove memory
+DELETE /v1/episodes/{id}/memories/{memory_id}
+
+# Close episode
+POST /v1/episodes/{id}/close
+
+# Regenerate summary
+POST /v1/episodes/{id}/regenerate
+```
+
+### How It Works
+
+1. **Write-time detection**: When you `remember()`, episode detector runs hybrid classification:
+   - **Fast path**: Embedding similarity to active episode summaries (>0.75 = auto-join)
+   - **Slow path**: LLM classification for borderline cases
+
+2. **Progressive summarization**: As memories are added, summaries update incrementally (cheap)
+
+3. **Full regeneration**: Every N memories (default: 10) or when episode closes (expensive but comprehensive)
+
+4. **Surfaces in recall**: Summaries are stored as memories with `source_type=EPISODE_SUMMARY`, so standard `recall()` queries automatically include them
+
+**See**: [docs/design/episode-memories.md](docs/design/episode-memories.md) for full design details.
 
 ---
 

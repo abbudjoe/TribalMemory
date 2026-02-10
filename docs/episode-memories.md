@@ -34,9 +34,9 @@ episodes:
   summarizer_provider: openai
 ```
 
-### 2. Set API Key
+### 2. Set API Key (Required)
 
-Episodes require an LLM for summarization. Set your API key in `~/.tribal-memory/.env`:
+**⚠️ Episodes require an LLM for summarization.** Without an API key, episode detection and summarization will fail silently. Set your API key in `~/.tribal-memory/.env`:
 
 ```bash
 # For OpenAI
@@ -63,7 +63,7 @@ That's it! Episodes will now be automatically detected and summarized as you sto
 
 ### Write-Time Detection
 
-When you store a memory with `tribal_remember()` or `/v1/remember`, the episode detector runs:
+When you store a memory with `tribal_store()` or `/v1/remember`, the episode detector runs:
 
 1. **Fast path (embedding similarity)**:
    - Compares the new memory to active episode summaries
@@ -656,8 +656,8 @@ curl -H "Authorization: Bearer tm_abc123..." \
 
 Approximate costs with **gpt-4o-mini** (~$0.01 per 1K input tokens, ~$0.03 per 1K output tokens):
 
-| Operation | Avg Cost | When It Happens |
-|-----------|----------|-----------------|
+| Operation | Avg Cost (per operation) | When It Happens |
+|-----------|--------------------------|-----------------|
 | Episode detection (LLM path) | $0.01-0.02 | When embedding similarity is ambiguous |
 | Progressive summary update | $0.01-0.02 | Every memory added to episode |
 | Full summary regeneration | $0.05-0.10 | Every 10 memories, or when closing |

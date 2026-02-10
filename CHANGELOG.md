@@ -5,6 +5,26 @@ All notable changes to TribalMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-02-10 ([PyPI](https://pypi.org/project/tribalmemory/0.9.0/))
+
+### Added
+- **Episode Memories** — Write-time narrative synthesis for multi-hop retrieval. Instead of complex RAG query planning, TribalMemory now detects related memories at ingest time and builds searchable episode summaries automatically. Feature-flagged behind `episodes.enabled: true`. (#190)
+  - `EpisodeStore` — SQLite-backed CRUD for episodes with memory associations, status tracking, and thread-safe operations.
+  - `EpisodeDetector` — Hybrid detection using embedding similarity + async LLM classification. Supports skip/create/join actions with configurable thresholds.
+  - `EpisodeSummarizer` — Progressive summarization (incremental updates) with periodic full regeneration. Summaries stored as first-class `MemoryEntry` objects with `EPISODE_SUMMARY` source type.
+  - 7 new MCP tools: `episode_create`, `episode_list`, `episode_get`, `episode_close`, `episode_add_memory`, `episode_update_summary`, `episode_close_stale`.
+  - 7 new HTTP routes under `/v1/episodes/`.
+  - YAML configuration: `episodes.enabled`, `episodes.detector_strategy`, `episodes.embedding_similarity_threshold`, `episodes.active_window_days`, `episodes.full_regen_interval`, and more.
+  - Async detection via `asyncio.create_task()` — `remember()` returns immediately, episode processing happens in background.
+  - XML delimiters in LLM prompts (`<user_memory>` tags) for prompt injection mitigation.
+- `EpisodeStore.set_updated_at()` — Public method for timestamp manipulation (replaces direct SQLite access in tests).
+- `docs/episode-memories.md` — Comprehensive guide covering architecture, configuration, MCP tools, HTTP API, and cost estimates.
+- 102 episode unit tests across `test_episode_store.py`, `test_episode_detector.py`, `test_episode_summarizer.py`, `test_episode_mcp.py`.
+- 10 E2E integration tests (`test_episode_e2e.py`) with real FastEmbed + LanceDB, mocked LLM only. Deterministic polling helpers replace flaky `asyncio.sleep()`.
+
+### Fixed
+- MCP tool name corrected back to `tribal_remember()` in docs.
+
 ## [0.8.0] - 2026-02-09 ([PyPI](https://pypi.org/project/tribalmemory/0.8.0/))
 
 ### Added

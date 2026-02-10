@@ -10,7 +10,7 @@ tribalmemory = ["server/static/*", "server/static/**/*"]
 
 [project]
 name = "tribalmemory"
-version = "0.8.0"
+version = "0.9.0"
 description = "Shared memory infrastructure for multi-instance AI agents"
 readme = "README.md"
 license = {text = "BSL-1.1"}

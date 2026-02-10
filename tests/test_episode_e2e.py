@@ -91,6 +91,28 @@ async def wait_for_memory_count(
     )
 
 
+async def wait_for_summary_in_store(
+    vector_store,
+    memory_id: str,
+    timeout: float = POLL_TIMEOUT_S,
+):
+    """Poll until a summary MemoryEntry appears in the vector store.
+
+    The summarizer sets summary_memory_id on the episode and upserts
+    the MemoryEntry asynchronously — there's a brief window where the
+    ID exists but the vector store write hasn't completed.
+    """
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        entry = await vector_store.get(memory_id)
+        if entry is not None:
+            return entry
+        await asyncio.sleep(POLL_INTERVAL_S)
+    raise TimeoutError(
+        f"Summary memory {memory_id} not found in vector store within {timeout}s"
+    )
+
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -355,13 +377,10 @@ async def test_house_hunting_scenario(
     # Verify episode has a summary
     assert episode.summary, "Episode should have a summary after multiple memories"
 
-    # Verify summary stored as MemoryEntry
+    # Verify summary stored as MemoryEntry (poll for async vector store write)
     if episode.summary_memory_id:
-        summary_memory = await tribal_memory_service.vector_store.get(
-            episode.summary_memory_id
-        )
-        assert summary_memory is not None, (
-            f"Summary memory {episode.summary_memory_id} should exist in vector store"
+        summary_memory = await wait_for_summary_in_store(
+            tribal_memory_service.vector_store, episode.summary_memory_id
         )
         assert summary_memory.source_type == MemorySource.EPISODE_SUMMARY, (
             f"Expected source_type EPISODE_SUMMARY, got {summary_memory.source_type}"
@@ -719,11 +738,8 @@ async def test_episode_summary_in_recall(
     episode = episodes[0]
 
     if episode.summary_memory_id:
-        summary_memory = await tribal_memory_service.vector_store.get(
-            episode.summary_memory_id
-        )
-        assert summary_memory is not None, (
-            f"Summary memory {episode.summary_memory_id} should exist"
+        summary_memory = await wait_for_summary_in_store(
+            tribal_memory_service.vector_store, episode.summary_memory_id
         )
         assert summary_memory.source_type == MemorySource.EPISODE_SUMMARY, (
             f"Expected EPISODE_SUMMARY, got {summary_memory.source_type}"
